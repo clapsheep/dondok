@@ -23,6 +23,8 @@ jobs:
         run: npx --yes @redocly/cli@2.38.0 lint docs/api/openapi.yaml
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Production deployment contracts
         run: bash infra/tests/production-compose-contract.sh
 
