@@ -16,8 +16,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    networks:
+      - app
 
   backend:
+    image: ${DONDOK_BACKEND_IMAGE:-dondok-backend:local}
     build:
       context: ./backend
     restart: unless-stopped
@@ -44,8 +47,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+    networks:
+      - app
 
   frontend:
+    image: ${DONDOK_FRONTEND_IMAGE:-dondok-frontend:local}
     build:
       context: ./frontend
     restart: unless-stopped
@@ -57,6 +63,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - app
 
 volumes:
   postgres-data:
+
+networks:
+  app:

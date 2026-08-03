@@ -1,11 +1,43 @@
 services:
+  db:
+    mem_limit: 2g
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
   backend:
+    mem_limit: 1g
+    cpus: 1.5
     environment:
       DONDOK_COOKIE_SECURE: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  frontend:
+    mem_limit: 256m
+    cpus: 0.5
+    volumes:
+      - ./infra/nginx-rate-limits.conf:/etc/nginx/conf.d/00-rate-limits.conf:ro
+      - ./infra/nginx-server-security.conf:/etc/nginx/dondok/server-security/production.conf:ro
+    networks:
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
 
   caddy:
     image: caddy:2.11.4-alpine
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
     environment:
       DONDOK_DOMAIN: ${DONDOK_DOMAIN:?DONDOK_DOMAIN is required}
     ports:
@@ -19,7 +51,22 @@ services:
     depends_on:
       frontend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
 
 volumes:
   caddy-data:
   caddy-config:
+
+networks:
+  edge:

@@ -122,7 +122,7 @@ PR은 build·unit·PostgreSQL integration·OpenAPI drift·핵심 Chromium E2E를
 
 ### D-017 저장소·환경변수·Mac mini 배포
 
-한 public GitHub 저장소 안에서 `backend/`, `frontend/`, `e2e/`, `infra/` 경계를 분리한다. 실제 환경파일과 secret은 전 계층에서 Git과 Docker build context에서 제외하고 안전한 `.env.example`만 추적하며 secret scanning·push protection·CI Gitleaks를 사용한다. 백엔드와 프론트엔드는 각각 multi-stage·non-root Dockerfile을 가지며 Mac mini에서는 공개 도메인과 HTTPS를 제공하는 reverse proxy만 외부 공개하고 backend와 PostgreSQL은 내부 network에서 운영한다. healthcheck, 재시작 정책, PostgreSQL 영속 volume, 매일 1회 30일 백업·주 1회 암호화 off-device 복제와 복원 검증을 배포 완료 조건으로 둔다. 운영 PostgreSQL의 삭제는 즉시 반영하고 암호화 백업의 삭제 전 데이터는 rotation 전까지 최대 30일 보존한 뒤 자동 만료한다.
+한 public GitHub 저장소 안에서 `backend/`, `frontend/`, `e2e/`, `infra/` 경계를 분리한다. 실제 환경파일과 secret은 전 계층에서 Git과 Docker build context에서 제외하고 안전한 `.env.example`만 추적하며 secret scanning·push protection·CI Gitleaks를 사용한다. 공개 저장소의 PR 코드가 Mac mini에서 실행되지 않도록 repository-level self-hosted runner를 public 애플리케이션 저장소에 연결하지 않는다. 배포 runner와 workflow는 소유자만 접근하는 별도 private `dondok-deploy` 저장소에 두고, public `main`의 현재 SHA와 그 SHA의 성공한 CI를 대조한 뒤에만 같은 revision을 checkout해 실행한다. 백엔드와 프론트엔드는 각각 multi-stage·non-root Dockerfile을 가지며 Mac mini에서는 공개 도메인과 HTTPS를 제공하는 reverse proxy만 외부 공개하고 backend와 PostgreSQL은 내부 network에서 운영한다. 애플리케이션 이미지는 Git SHA로 식별하고 배포 전 백업·격리 복원 drill, Compose health, 실패 시 직전 SHA 이미지 rollback을 수행한다. healthcheck, 재시작 정책, PostgreSQL 영속 volume, 매일 1회 30일 백업·주 1회 암호화 off-device 복제와 복원 검증을 배포 완료 조건으로 둔다. 운영 PostgreSQL의 삭제는 즉시 반영하고 암호화 백업의 삭제 전 데이터는 rotation 전까지 최대 30일 보존한 뒤 자동 만료한다.
 
 ### D-018 AI 개발 하네스
 

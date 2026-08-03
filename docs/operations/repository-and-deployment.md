@@ -100,6 +100,31 @@ Redis는 단일 backend 인스턴스에서는 넣지 않는다. reverse proxy �
 - trusted proxy와 forwarded header를 명시하고 backend health/debug endpoint를 공개하지 않는다.
 - Mac mini 방화벽에서도 reverse proxy 포트만 허용하고 backend·PostgreSQL 포트는 외부에서 접근할 수 없어야 한다.
 
+## GitHub Actions 배포 경계
+
+[GitHub의 self-hosted runner 보안 지침](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners)에 따라 public 애플리케이션 저장소에는 Mac mini self-hosted runner를 등록하지 않는다. public fork와 PR이 수정한 workflow가 운영 호스트에서 실행될 수 있기 때문이다. 배포 전용 private 저장소 `clapsheep/dondok-deploy`에만 runner `clapsheep-server-dondok`을 등록하고 다음 순서를 실행한다.
+
+1. GitHub-hosted runner가 public `dondok` 저장소의 현재 `main` SHA를 읽는다.
+2. 같은 SHA의 `CI` push run이 성공했는지 확인하고, 다르면 배포하지 않는다.
+3. private 저장소에만 연결된 Mac mini runner가 검증된 SHA를 checkout한다.
+4. [`infra/deploy-production.sh`](../../infra/deploy-production.sh)가 SHA tag로 backend·frontend image를 build한다.
+5. 기존 DB가 실행 중이면 새 배포 전에 daily bundle과 격리 복원 drill을 성공시킨다.
+6. 운영 전용 checkout을 해당 SHA로 전환하고 `docker compose up --no-build --wait`로 교체한다.
+7. 실패하면 migration 이전 backup을 남긴 채 직전 SHA image와 checkout으로 애플리케이션 rollback을 시도한다.
+8. GitHub-hosted runner가 공개 URL의 HTTPS, HSTS, HTTP redirect, `/healthz`, CSRF endpoint를 외부에서 확인한다.
+
+private 배포 저장소 workflow만 GitHub environment의 다음 비민감 변수를 사용한다. 실제 비밀번호나 SMTP credential은 GitHub에 복제하지 않는다.
+
+| 변수 | Mac mini 값 |
+| --- | --- |
+| `DONDOK_DEPLOY_DIR` | `/Users/clapsheep-server/services/dondok` |
+| `DONDOK_ENV_FILE` | `/Users/clapsheep-server/.config/dondok/production.env` |
+| `DONDOK_BACKUP_DIR` | `/Users/clapsheep-server/Backups/dondok-postgres` |
+| `DONDOK_STATE_DIR` | `/Users/clapsheep-server/.local/state/dondok` |
+| `DONDOK_PUBLIC_URL` | 실제 `https://` origin |
+
+운영 환경파일과 상태·백업 디렉터리는 각각 0600·0700이어야 한다. 배포 lock은 동시에 두 release가 Compose와 DB에 접근하는 것을 막는다. production 로그와 DB dump는 public Actions log·artifact로 올리지 않고 Mac mini의 제한된 경로에서만 조사한다. Docker Desktop과 runner는 사용자 LaunchAgent이므로 재부팅 뒤 해당 macOS 사용자의 GUI session이 시작되어야 한다.
+
 ## 데이터와 복구
 
 이미지는 언제든 다시 만들 수 있어야 하고 영속 데이터는 PostgreSQL volume에만 둔다. 운영 전 다음을 자동화한다.
@@ -161,7 +186,7 @@ LATEST_BUNDLE=/absolute/private/path/dondok-postgres/dondok-postgres-YYYYMMDDTHH
 
 [`infra/launchd/com.dondok.postgres-backup.plist.example`](../../infra/launchd/com.dondok.postgres-backup.plist.example)은 매일 03:30에 운영 Compose 대상으로 백업을 실행하는 설치 전 template이다. 저장소에는 placeholder만 추적한다.
 
-1. `__DONDOK_REPOSITORY__`, `__DONDOK_BACKUP_DIR__`, `__DONDOK_LOG_DIR__`를 공백을 포함해도 되는 실제 절대 경로로 치환한 사본을 `~/Library/LaunchAgents/com.dondok.postgres-backup.plist`에 둔다.
+1. `__DONDOK_REPOSITORY__`, `__DONDOK_ENV_FILE__`, `__DONDOK_BACKUP_DIR__`, `__DONDOK_LOG_DIR__`를 공백을 포함해도 되는 실제 절대 경로로 치환한 사본을 `~/Library/LaunchAgents/com.dondok.postgres-backup.plist`에 둔다.
 2. log directory를 미리 만들고 0700으로 제한한다. plist와 백업 스크립트가 현재 사용자 소유인지 확인한다.
 3. `plutil -lint ~/Library/LaunchAgents/com.dondok.postgres-backup.plist`를 통과시킨다.
 4. `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dondok.postgres-backup.plist` 후 `launchctl kickstart -k gui/$(id -u)/com.dondok.postgres-backup`으로 한 번 즉시 실행한다.
@@ -191,7 +216,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 - 백엔드 health: `http://localhost:8080/actuator/health/readiness`
 - 개발 메일함: `http://localhost:8025`
 
-운영은 `.env`에 실제 도메인·PostgreSQL·SMTP 값을 넣고 `docker compose -f compose.yaml -f compose.prod.yaml up -d --build --wait`로 기동한다. 운영 구성은 Caddy만 80/443을 공개하며 backend와 PostgreSQL은 호스트 포트를 열지 않는다.
+운영은 저장소 밖의 0600 `production.env`에 실제 도메인·PostgreSQL·SMTP 값을 넣고 private 배포 저장소 workflow로 기동한다. 긴급 수동 배포도 임의 branch가 아니라 CI를 통과한 `main`의 전체 Git SHA를 [`infra/deploy-production.sh`](../../infra/deploy-production.sh)에 전달한다. 운영 구성은 Caddy만 80/443을 공개하며 backend와 PostgreSQL은 호스트 포트를 열지 않는다.
 
 ## 프로젝트 생성 완료 조건
 

@@ -23,6 +23,8 @@ jobs:
         run: npx --yes @redocly/cli@2.38.0 lint docs/api/openapi.yaml
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
+      - name: Production deployment contracts
+        run: bash infra/tests/production-compose-contract.sh
 
   backend-and-database:
     runs-on: ubuntu-latest
@@ -100,6 +102,8 @@ jobs:
           cache-dependency-path: e2e/package-lock.json
       - name: Start application stack
         run: docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
+      - name: Production frontend proxy and rate-limit contracts
+        run: bash infra/tests/nginx-production-contract.sh dondok-frontend:local dondok-ci_app
       - name: Install E2E dependencies
         working-directory: e2e
         run: npm ci
