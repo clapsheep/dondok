@@ -24,7 +24,7 @@ N명의 구성원이 각자 또는 공동 소유한 자산을 하나의 가계�
 - Server state: TanStack Query
 - UI: shadcn/ui + Tailwind CSS
 - Synchronization: REST command + entity version 충돌 방지 + 화면 진입·focus·수동 재조회
-- Deployment: 개인 Mac mini, Caddy 공개 도메인+HTTPS, Docker Compose
+- Deployment: 개인 Mac mini, 기존 Nginx Proxy Manager 공개 도메인+HTTPS, Docker Compose
 - Repository layout: `backend/`와 `frontend/` 독립 관리, `e2e/`와 `infra/` 분리
 - Repository: GitHub, branch/PR 기반 관리 예정
 - Redis: 다중 애플리케이션 서버가 필요해질 때만 검토
@@ -296,7 +296,7 @@ Mac mini의 사용자 launchd가 매일 운영 Compose의 정확한 working dire
 - 완료: G1 계약과 database design v0.5·V1 migration·SQL 검증 동기화
 - 완료: Spring Boot 4.1/PostgreSQL/Flyway 백엔드와 React 19/Vite 8 PWA scaffold
 - 완료: 회원가입·아이디 중복 확인·이메일 인증·서버 세션 로그인·비밀번호 재설정 첫 수직 기능
-- 완료: 개발/운영 Compose, Caddy, Mailpit, 모바일·iPad·데스크톱 Playwright 인증 흐름
+- 완료: 개발/운영 Compose, Nginx Proxy Manager 연동, Mailpit, 모바일·iPad·데스크톱 Playwright 인증 흐름
 - 완료: 가계부 생성, N명 구성원 조회, 초대 URL·코드 발급·미리보기·취소·동시성 안전 수락 수직 기능
 - 완료: 모바일·iPad·데스크톱 가계부 온보딩·구성원 초대 Playwright 흐름
 - 완료: 이름 없는 단일 가계부 생성·초대 계약

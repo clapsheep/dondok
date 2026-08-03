@@ -31,13 +31,15 @@ CONFIG_JSON="$("${COMPOSE[@]}" config --format json)"
 jq -e '
   (.services.db.networks | has("app")) and
   (.services.backend.networks | has("app")) and
-  (.services.frontend.networks | has("app") and has("edge")) and
-  (.services.caddy.networks | has("edge")) and
+  (.services.frontend.networks | has("app")) and
+  ((.services | has("caddy")) | not) and
   ((.services.db.ports // []) | length == 0) and
   ((.services.backend.ports // []) | length == 0) and
-  ((.services.frontend.ports // []) | length == 0) and
-  ([.services.caddy.ports[].target] | sort == [80, 443, 443]) and
-  ([.services.caddy.ports[].protocol] | sort == ["tcp", "tcp", "udp"]) and
+  ((.services.frontend.ports // []) | length == 1) and
+  (.services.frontend.ports[0].host_ip == "127.0.0.1") and
+  (.services.frontend.ports[0].published == "18080") and
+  (.services.frontend.ports[0].target == 8080) and
+  (.services.frontend.ports[0].protocol == "tcp") and
   ([.services[] | .logging.options["max-size"]] | all(. == "10m")) and
   ([.services[] | .logging.options["max-file"]] | all(. == "5")) and
   ([.services[] | .mem_limit] | all(. > 0)) and
@@ -59,11 +61,5 @@ for path in sys.argv[1:]:
     with open(path, "rb") as plist:
         plistlib.load(plist)
 PYTHON
-
-docker run --rm \
-  -e DONDOK_DOMAIN=money.example.com \
-  -v "$REPOSITORY_DIR/infra/Caddyfile:/etc/caddy/Caddyfile:ro" \
-  caddy:2.11.4-alpine \
-  caddy validate --config /etc/caddy/Caddyfile >/dev/null
 
 printf 'Production Compose contracts passed\n'
