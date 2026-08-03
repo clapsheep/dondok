@@ -728,11 +728,20 @@ async function expectDomOrder(scope: Locator, firstText: string, secondText: str
 
 async function expectMoneyRailLayout(lines: RailLines, viewport: typeof RESPONSIVE_VIEWPORTS[number]) {
   for (const line of [...lines.debts, ...lines.assets, ...lines.zeros]) {
-    const fits = await line.evaluate((element) => {
+    const metrics = await line.evaluate((element) => {
       const style = getComputedStyle(element)
-      return style.whiteSpace === 'nowrap' && element.scrollWidth <= element.clientWidth + 1
+      return {
+        text: element.textContent?.trim() ?? '',
+        whiteSpace: style.whiteSpace,
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      }
     })
-    expect(fits, `${viewport.width}px에서 money rail 금액이 줄바꿈되거나 넘치면 안 됩니다`).toBe(true)
+    const fits = metrics.whiteSpace === 'nowrap' && metrics.scrollWidth <= metrics.clientWidth + 1
+    expect(
+      fits,
+      `${viewport.width}px에서 ${metrics.text} money rail 금액이 줄바꿈되거나 넘치면 안 됩니다 (scroll ${metrics.scrollWidth}px / client ${metrics.clientWidth}px)`,
+    ).toBe(true)
   }
   if (viewport.width < 390) return
 

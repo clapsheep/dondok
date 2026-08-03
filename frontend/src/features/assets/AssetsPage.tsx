@@ -389,7 +389,7 @@ function SignedBalanceRail({ label, valueWon, title, valueClassName = 'text-base
   valueClassName?: string
 }) {
   return (
-    <div className={cn('grid min-w-0 grid-cols-2 gap-x-2', moneyRailWidthClassName)} data-money-rail="signed-balance">
+    <div className={cn('grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem] gap-x-2', moneyRailWidthClassName)} data-money-rail="signed-balance">
       <dl className="col-start-2 min-w-0 border-l border-[var(--line)] pl-2">
         <RailLine line={{
           label,
