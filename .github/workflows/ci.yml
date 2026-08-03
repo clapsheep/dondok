@@ -103,10 +103,10 @@ jobs:
       - name: Install E2E dependencies
         working-directory: e2e
         run: npm ci
-      - name: Install Chromium
+      - name: Install E2E browsers
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
-      - name: Run responsive authentication E2E
+        run: npx playwright install --with-deps chromium webkit
+      - name: Run responsive E2E
         working-directory: e2e
         run: npx playwright test
       - name: Preserve service logs on failure
