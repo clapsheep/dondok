@@ -1,0 +1,30 @@
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  mailpit:
+    image: axllent/mailpit:v1.30.4
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    expose:
+      - "1025"
+
+  backend:
+    environment:
+      DONDOK_PUBLIC_URL: http://localhost:5173
+      DONDOK_COOKIE_SECURE: "false"
+      DONDOK_SMTP_HOST: mailpit
+      DONDOK_SMTP_PORT: "1025"
+      DONDOK_SMTP_AUTH: "false"
+      DONDOK_SMTP_STARTTLS: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  frontend:
+    ports:
+      - "5173:8080"

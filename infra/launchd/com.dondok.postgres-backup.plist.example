@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.dondok.postgres-backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__DONDOK_REPOSITORY__/infra/postgres-backup.sh</string>
+    <string>--env-file</string>
+    <string>__DONDOK_REPOSITORY__/.env</string>
+    <string>--compose-file</string>
+    <string>__DONDOK_REPOSITORY__/compose.yaml</string>
+    <string>--compose-file</string>
+    <string>__DONDOK_REPOSITORY__/compose.prod.yaml</string>
+    <string>--backup-dir</string>
+    <string>__DONDOK_BACKUP_DIR__</string>
+    <string>--retention-days</string>
+    <string>30</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>Umask</key>
+  <integer>63</integer>
+
+  <key>WorkingDirectory</key>
+  <string>__DONDOK_REPOSITORY__</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>__DONDOK_LOG_DIR__/postgres-backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>__DONDOK_LOG_DIR__/postgres-backup-error.log</string>
+</dict>
+</plist>

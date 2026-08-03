@@ -1,0 +1,9 @@
+.git
+.gradle
+build
+out
+.env
+.env.*
+secrets
+*.log
+src/test

@@ -1,0 +1,4 @@
+interface:
+  display_name: "돈독 기능 구현"
+  short_description: "돈독 기능을 계층별로 구현하고 검증하는 워크플로"
+  default_prompt: "Use $deliver-dondok-feature to implement this Dondok feature across affected layers and verify it with evidence."

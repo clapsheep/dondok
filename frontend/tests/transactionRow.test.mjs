@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import {
+  transactionRowAmountPrefix,
+  transactionRowAccessibleName,
+  transactionRowDestination,
+  transactionRowTone,
+  transactionTypeLabel,
+} from '../src/features/transactions/transactionRow.ts'
+
+const purchase = {
+  transactionId: 'purchase-1',
+  type: 'EXPENSE',
+  transferSubtype: null,
+  managementType: 'CARD_PURCHASE',
+  relatedPurchaseTransactionId: null,
+}
+
+test('카드 구매 행은 전용 원 구매 상세로 이동한다', () => {
+  assert.equal(transactionRowDestination(purchase), '/transactions/purchase-1/card-purchase')
+})
+
+test('카드 환불 행은 수입이 아닌 환불로 표시하고 원 구매 상세로 이동한다', () => {
+  const refund = {
+    ...purchase,
+    transactionId: 'refund-1',
+    managementType: 'CARD_REFUND',
+    relatedPurchaseTransactionId: 'purchase-1',
+  }
+
+  assert.equal(transactionTypeLabel(refund), '환불')
+  assert.equal(transactionRowAmountPrefix(refund), '+')
+  assert.equal(transactionRowTone(refund), 'text-[var(--transfer)]')
+  assert.equal(transactionRowDestination(refund), '/transactions/purchase-1/card-purchase')
+  assert.equal(
+    transactionRowAccessibleName(refund, '식당 환불', '+40,000원'),
+    '식당 환불, 환불 +40,000원, 원 카드 구매 상세',
+  )
+})
+
+test('원 구매 연결이 없는 시스템 행은 편집 링크를 만들지 않는다', () => {
+  assert.equal(transactionRowDestination({ ...purchase, managementType: 'SYSTEM' }), undefined)
+})

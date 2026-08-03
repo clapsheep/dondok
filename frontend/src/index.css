@@ -1,0 +1,92 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, SUIT, Inter, ui-sans-serif, system-ui, sans-serif;
+  --color-forest-50: #f0f6f3;
+  --color-forest-100: #dcebe4;
+  --color-forest-500: #24775c;
+  --color-forest-600: #1c604a;
+  --color-forest-700: #174b3a;
+  --color-forest-800: #133f32;
+  --color-brass-500: var(--brand-accent);
+  --color-cream-50: #fdfcf8;
+  --color-cream-100: #f8f5ed;
+  --color-ink-900: #18231f;
+  --breakpoint-xs: 30rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 80rem;
+}
+
+:root {
+  color: #18231f;
+  background: #f8f5ed;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --surface: #fffefa;
+  --muted: #66736e;
+  --line: #918d82;
+  --line-subtle: #d7d2c7;
+  --brand-accent: #77571f;
+  --ring: #1f6a51;
+  --income: #1e6a4e;
+  --expense: #a94035;
+  --transfer: #315e85;
+  --chart-1: #356f61;
+  --chart-2: #b75d4c;
+  --chart-3: #4f7594;
+  --chart-4: #aa7d35;
+  --chart-5: #805f7e;
+  --chart-6: #7b8549;
+}
+
+:root.dark {
+  color: #edf4f0;
+  background: #101714;
+  --surface: #18211d;
+  --muted: #aab8b2;
+  --line: #60756c;
+  --line-subtle: #364941;
+  --brand-accent: #d2a856;
+  --ring: #80c7a7;
+  --income: #77d5a6;
+  --expense: #f58b80;
+  --transfer: #8fc5f2;
+  --chart-1: #79c0a5;
+  --chart-2: #eb907e;
+  --chart-3: #89b5d7;
+  --chart-4: #d4ae61;
+  --chart-5: #c99bc5;
+  --chart-6: #b4c77b;
+}
+
+* { box-sizing: border-box; }
+
+html { background: inherit; }
+
+body { position: relative; margin: 0; min-height: 100dvh; background: inherit; }
+
+@layer base {
+  button, input { font: inherit; }
+}
+
+button, a { -webkit-tap-highlight-color: transparent; }
+
+:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+
+::selection { background: #dcebe4; color: #174b3a; }
+
+.auth-shell { container-type: inline-size; }
+
+@container (min-width: 54rem) {
+  .auth-split-layout { grid-template-columns: minmax(0, 0.92fr) minmax(28rem, 1.08fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

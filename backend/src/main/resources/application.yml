@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: dondok-backend
+  datasource:
+    url: ${DONDOK_DB_URL:jdbc:postgresql://localhost:5432/dondok}
+    username: ${POSTGRES_USER:dondok}
+    password: ${POSTGRES_PASSWORD:dondok_local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  session:
+    timeout: 30d
+    jdbc:
+      initialize-schema: never
+      cleanup-cron: "0 */15 * * * *"
+  mail:
+    host: ${DONDOK_SMTP_HOST:localhost}
+    port: ${DONDOK_SMTP_PORT:1025}
+    username: ${DONDOK_SMTP_USERNAME:}
+    password: ${DONDOK_SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${DONDOK_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${DONDOK_SMTP_STARTTLS:false}
+
+server:
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        name: DONDOK_SESSION
+        http-only: true
+        secure: ${DONDOK_COOKIE_SECURE:false}
+        same-site: lax
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+dondok:
+  public-url: ${DONDOK_PUBLIC_URL:http://localhost:5173}
+  mail:
+    enabled: ${DONDOK_MAIL_ENABLED:true}
+    from: ${DONDOK_MAIL_FROM:no-reply@dondok.local}
+  auth:
+    verification-token-hours: 24
+    reset-token-minutes: 30
+    absolute-session-days: 90
+
+logging:
+  pattern:
+    level: "%5p [requestId=%X{requestId:-}]"

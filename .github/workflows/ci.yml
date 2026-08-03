@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract-and-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: OpenAPI lint
+        run: npx --yes @redocly/cli@2.38.0 lint docs/api/openapi.yaml
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+
+  backend-and-database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.3-alpine
+        env:
+          POSTGRES_DB: dondok
+          POSTGRES_USER: dondok
+          POSTGRES_PASSWORD: dondok_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dondok -d dondok"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DONDOK_DB_URL: jdbc:postgresql://localhost:5432/dondok
+      POSTGRES_USER: dondok
+      POSTGRES_PASSWORD: dondok_ci
+      DONDOK_MAIL_ENABLED: "false"
+      PGPASSWORD: dondok_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Backend tests and build
+        working-directory: backend
+        run: ./gradlew --no-daemon test bootJar
+      - name: Database constraint smoke tests
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok -f database/tests/V1__schema_smoke.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok -f database/tests/V1__ledger_delete_smoke.sql
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Production build and PWA
+        working-directory: frontend
+        run: npm run build
+
+  auth-e2e:
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: dondok-ci
+      POSTGRES_PASSWORD: dondok_ci
+      BASE_URL: http://127.0.0.1:5173
+      MAILPIT_URL: http://127.0.0.1:8025
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Start application stack
+        run: docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
+      - name: Install E2E dependencies
+        working-directory: e2e
+        run: npm ci
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Run responsive authentication E2E
+        working-directory: e2e
+        run: npx playwright test
+      - name: Preserve service logs on failure
+        if: failure()
+        run: docker compose -f compose.yaml -f compose.dev.yaml logs --no-color > e2e/test-results/compose.log
+      - name: Upload QC evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-e2e-evidence
+          path: |
+            e2e/test-results
+            e2e/blob-report
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Stop application stack
+        if: always()
+        run: docker compose -f compose.yaml -f compose.dev.yaml down -v

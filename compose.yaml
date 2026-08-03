@@ -1,0 +1,62 @@
+name: ${COMPOSE_PROJECT_NAME:-dondok}
+
+services:
+  db:
+    image: postgres:18.3-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dondok}
+      POSTGRES_USER: ${POSTGRES_USER:-dondok}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      TZ: ${TZ:-Asia/Seoul}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dondok}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DONDOK_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-dondok}
+      DONDOK_PUBLIC_URL: ${DONDOK_PUBLIC_URL:-http://localhost:5173}
+      DONDOK_COOKIE_SECURE: ${DONDOK_COOKIE_SECURE:-false}
+      DONDOK_MAIL_ENABLED: ${DONDOK_MAIL_ENABLED:-true}
+      DONDOK_MAIL_FROM: ${DONDOK_MAIL_FROM:-no-reply@dondok.local}
+      DONDOK_SMTP_HOST: ${DONDOK_SMTP_HOST:-mailpit}
+      DONDOK_SMTP_PORT: ${DONDOK_SMTP_PORT:-1025}
+      DONDOK_SMTP_USERNAME: ${DONDOK_SMTP_USERNAME:-}
+      DONDOK_SMTP_PASSWORD: ${DONDOK_SMTP_PASSWORD:-}
+      DONDOK_SMTP_AUTH: ${DONDOK_SMTP_AUTH:-false}
+      DONDOK_SMTP_STARTTLS: ${DONDOK_SMTP_STARTTLS:-false}
+      TZ: ${TZ:-Asia/Seoul}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

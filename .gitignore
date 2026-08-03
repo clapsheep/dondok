@@ -1,0 +1,58 @@
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Environment files: examples are the only tracked exception.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Local Spring configuration and runtime secrets
+**/application-*.local.yml
+**/application-*.local.yaml
+**/application-*.local.properties
+secrets/
+**/secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Backend build output
+backend/.gradle/
+backend/build/
+backend/out/
+
+# Frontend build output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+
+# Playwright output
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+e2e/qc-artifacts/
+
+# Local Docker state and overrides
+compose.override.yml
+compose.override.yaml
+infra/data/
+infra/backups/
+**/dondok-postgres-*/
+**/.dondok-postgres-*.partial.*/
+**/.maintenance.lock/
+*.dump
+*.dump.sha256
+*.backup
+*deleted-ledger-denylist*
+*.log

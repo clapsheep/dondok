@@ -1,0 +1,183 @@
+/* shadcn/ui + Tailwind v4용 브랜드 토큰 초안. 앱 생성 시 globals.css로 옮긴다. */
+:root {
+  --background: #f8f5ed;
+  --foreground: #173f33;
+  --card: #fffefb;
+  --card-foreground: #173f33;
+  --popover: #fffefb;
+  --popover-foreground: #173f33;
+  --primary: #174b3a;
+  --primary-foreground: #f8f5ed;
+  --secondary: #efeade;
+  --secondary-foreground: #1e4a3b;
+  --muted: #f0ede6;
+  --muted-foreground: #55665f;
+  --accent: #b8893b;
+  --accent-foreground: #211b11;
+  --destructive: #a94035;
+  --destructive-foreground: #f8f5ed;
+  --border: #918d82;
+  --input: #827f75;
+  --ring: #1f6a51;
+
+  --success: #1e6a4e;
+  --success-foreground: #f8f5ed;
+  --warning: #8b5e00;
+  --warning-foreground: #f8f5ed;
+  --info: #2c5f8a;
+  --info-foreground: #f8f5ed;
+  --subtle: #e8e3d8;
+  --subtle-foreground: #465950;
+  --income: #1e6a4e;
+  --expense: #a94035;
+  --transfer: #315e85;
+  --settlement: #5f6773;
+  --brand-brass: #b8893b;
+
+  --chart-1: #356f61;
+  --chart-2: #b75d4c;
+  --chart-3: #4f7594;
+  --chart-4: #aa7d35;
+  --chart-5: #805f7e;
+  --chart-6: #7b8549;
+
+  --sidebar: #f2eee5;
+  --sidebar-foreground: #173f33;
+  --sidebar-primary: #174b3a;
+  --sidebar-primary-foreground: #f8f5ed;
+  --sidebar-accent: #e4ded1;
+  --sidebar-accent-foreground: #173f33;
+  --sidebar-border: #918d82;
+  --sidebar-ring: #1f6a51;
+
+  --radius: 0.75rem;
+  --space-unit: 0.25rem;
+  --content-max: 75rem;
+  --form-max: 40rem;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --shadow-card: 0 1px 2px rgb(23 63 51 / 0.06), 0 8px 24px rgb(23 63 51 / 0.05);
+  --duration-fast: 120ms;
+  --duration-default: 180ms;
+}
+
+.dark {
+  --background: #15251f;
+  --foreground: #f4f0e8;
+  --card: #1d3028;
+  --card-foreground: #f4f0e8;
+  --popover: #1d3028;
+  --popover-foreground: #f4f0e8;
+  --primary: #80c7a7;
+  --primary-foreground: #10231c;
+  --secondary: #2a3c34;
+  --secondary-foreground: #f4f0e8;
+  --muted: #293a33;
+  --muted-foreground: #bcc7c1;
+  --accent: #d2a856;
+  --accent-foreground: #211b11;
+  --destructive: #f58b80;
+  --destructive-foreground: #1f0f0d;
+  --border: #60756c;
+  --input: #7e938a;
+  --ring: #80c7a7;
+
+  --success: #77d5a6;
+  --success-foreground: #10231c;
+  --warning: #d2a856;
+  --warning-foreground: #211b11;
+  --info: #8fc5f2;
+  --info-foreground: #10202c;
+  --subtle: #30433b;
+  --subtle-foreground: #d5ddd8;
+  --income: #77d5a6;
+  --expense: #f58b80;
+  --transfer: #8fc5f2;
+  --settlement: #c2c8d2;
+  --brand-brass: #d2a856;
+
+  --chart-1: #79c0a5;
+  --chart-2: #eb907e;
+  --chart-3: #89b5d7;
+  --chart-4: #d4ae61;
+  --chart-5: #c99bc5;
+  --chart-6: #b4c77b;
+
+  --sidebar: #1a2c25;
+  --sidebar-foreground: #f4f0e8;
+  --sidebar-primary: #80c7a7;
+  --sidebar-primary-foreground: #10231c;
+  --sidebar-accent: #30433b;
+  --sidebar-accent-foreground: #f4f0e8;
+  --sidebar-border: #60756c;
+  --sidebar-ring: #80c7a7;
+  --shadow-card: none;
+}
+
+@theme inline {
+  --breakpoint-sm: 40rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 80rem;
+  --breakpoint-2xl: 96rem;
+  --font-sans: "Pretendard Variable", Pretendard, SUIT, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-subtle: var(--subtle);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-income: var(--income);
+  --color-expense: var(--expense);
+  --color-transfer: var(--transfer);
+  --color-settlement: var(--settlement);
+  --color-brand-brass: var(--brand-brass);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-default: 0ms;
+  }
+}

@@ -1,0 +1,291 @@
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
+import { submitQuickAsset } from './support/assets'
+import { registerAndLogin } from './support/auth'
+import { expectInputBodyOpensDatePicker } from './support/date-picker'
+import { transactionCategoryTrigger } from './support/transactions'
+
+type SeedResult = {
+  assets: string[]
+  memberId: string
+  requestIds: string[]
+}
+
+test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목록을 같은 의미로 확인한다', async ({ page, request }, testInfo) => {
+  const displayName = `거래 사용자 ${test.info().workerIndex}`
+  const account = await registerAndLogin(page, request, displayName)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+
+  await expect(page.getByRole('heading', { name: '구성원', exact: true })).toHaveCount(0)
+  await page.getByRole('link', { name: '자산', exact: true }).click()
+  await page.getByRole('link', { name: '자산 추가' }).click()
+  await createBankAsset(page, '생활비 계좌', '1000000')
+  await page.getByRole('link', { name: '자산 목록' }).click()
+  await page.getByRole('link', { name: '자산 추가' }).click()
+  await createBankAsset(page, '현금 지갑', '100000')
+
+  await recordNavigation(page).click()
+  await expectInputBodyOpensDatePicker(page, page.getByLabel('날짜', { exact: true }), '거래 날짜')
+  await expect(page.getByRole('radiogroup', { name: '누가 썼나요?' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: new RegExp(displayName) })).toBeChecked()
+  await page.getByRole('button', { name: '수입', exact: true }).click()
+  await expect(page.getByRole('radiogroup', { name: '누가 받았나요?' })).toBeVisible()
+  await page.getByLabel('금액').fill('200000')
+  await expectBankingMoneyPresentation(page.getByLabel('금액'))
+  await page.getByLabel('내용 (선택)').fill('QC 공동 수입')
+  await assertDraftAndFocusAcrossWidths(page, 'QC 공동 수입')
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  await recordNavigation(page).click()
+  await page.getByLabel('금액').fill('50000')
+  await page.getByLabel('내용 (선택)').fill('QC 공동 지출')
+  const addedCategoryName = `QC 즉석 분류 ${test.info().workerIndex}`
+  const categoryTrigger = transactionCategoryTrigger(page)
+  await categoryTrigger.click()
+  const categoryDialog = page.getByRole('dialog', { name: '지출 분류 선택' })
+  await expect(categoryDialog).toBeVisible()
+  await expect(categoryDialog.getByRole('button', { name: '식비', exact: true })).toBeVisible()
+  await expect(categoryDialog.getByRole('button', { name: '항목 추가', exact: true })).toBeVisible()
+  await expectBottomDrawerOnMobile(page, categoryDialog)
+  await categoryDialog.getByRole('button', { name: '항목 추가', exact: true }).click()
+  const addDialog = page.getByRole('dialog', { name: '지출 분류 추가' })
+  const categoryName = addDialog.getByRole('textbox', { name: '항목 이름' })
+  await expect(categoryName).toBeFocused()
+  await categoryName.fill(addedCategoryName)
+  await expect(page.getByLabel('금액')).toHaveValue('50,000')
+  await expect(page.getByLabel('내용 (선택)')).toHaveValue('QC 공동 지출')
+  await addDialog.getByRole('button', { name: '추가', exact: true }).click()
+  await expect(addDialog).toHaveCount(0)
+  await expect(categoryTrigger).toContainText(addedCategoryName)
+  await expect(categoryTrigger).toBeFocused()
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  await recordNavigation(page).click()
+  await page.getByRole('button', { name: '이체', exact: true }).click()
+  await expect(page.getByRole('radiogroup', { name: '누가 옮겼나요?' })).toBeVisible()
+  const sourceAccount = page.getByLabel('보내는 계좌')
+  const destinationAccount = page.getByLabel('받는 계좌')
+  const transferOptions = await sourceAccount.locator('option').allTextContents()
+  expect(transferOptions).toEqual(expect.arrayContaining(['생활비 계좌', '현금 지갑']))
+  expect(await destinationAccount.locator('option').allTextContents()).toEqual(transferOptions)
+  expect(transferOptions).not.toContain('현금')
+  expect(transferOptions).not.toContain('신용카드')
+  expect(transferOptions).not.toContain('체크카드')
+  await page.getByLabel('금액').fill('30000')
+  await sourceAccount.selectOption({ label: '생활비 계좌' })
+  await destinationAccount.selectOption({ label: '현금 지갑' })
+  await page.getByLabel('내용 (선택)').fill('QC 자산 이체')
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  await page.getByRole('button', { name: '월간 달력' }).click()
+  await expect(page.getByTitle('+200,000원', { exact: true })).toBeVisible()
+  await expect(page.getByTitle('-50,000원', { exact: true })).toBeVisible()
+  await expect(page.getByTitle('+150,000원', { exact: true })).toBeVisible()
+
+  const today = todayInSeoul()
+  const calendarCell = page.getByRole('gridcell', { name: new RegExp(`수입 \\+200,000원, 지출 -50,000원`) })
+  await expect(calendarCell).toBeVisible()
+  await expect(calendarCell.getByTitle('수입 +200,000원')).toHaveCSS('color', await cssVariableColor(page, '--income'))
+  await expect(calendarCell.getByTitle('지출 -50,000원')).toHaveCSS('color', await cssVariableColor(page, '--expense'))
+  await expect(calendarCell).toHaveCSS('border-radius', '0px')
+  expect(await hasPageOverflow(page)).toBe(false)
+
+  const listRequests: string[] = []
+  page.on('response', (response) => {
+    const url = new URL(response.url())
+    if (response.request().method() === 'GET' && url.pathname === '/api/transactions') listRequests.push(url.toString())
+  })
+  const seed = await seedCursorTransfers(page, today, 51)
+  await attachSeedEvidence(testInfo, account.loginId, seed)
+
+  const month = today.slice(0, 7)
+  await page.goto(`/?view=daily&month=${month}`)
+  await expect(page.getByRole('button', { name: '일별 보기' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('QC cursor 50', { exact: true })).toBeVisible()
+  await expect(page.getByText('QC cursor 00', { exact: true })).toHaveCount(0)
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect(page.getByText('QC cursor 00', { exact: true })).toBeVisible()
+
+  for (let index = 0; index < 51; index += 1) {
+    await expect(page.getByText(`QC cursor ${String(index).padStart(2, '0')}`, { exact: true })).toHaveCount(1)
+  }
+  await expect(page.getByText('QC 공동 수입', { exact: true })).toBeVisible()
+  await expect(page.getByText('QC 공동 지출', { exact: true })).toBeVisible()
+  await expect(page.getByText('QC 자산 이체', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 공동 수입').getByText('+200,000원', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 공동 지출').getByText('-50,000원', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 자산 이체').getByText('30,000원', { exact: true })).toBeVisible()
+
+  expect(listRequests.length).toBeGreaterThanOrEqual(2)
+  expect(listRequests.some((url) => new URL(url).searchParams.has('cursor'))).toBe(true)
+  expect(await hasPageOverflow(page)).toBe(false)
+  await expect(page.locator('main li').first()).toHaveCSS('border-radius', '0px')
+
+  await transactionRow(page, 'QC 공동 지출').getByRole('link').click()
+  await expect(transactionCategoryTrigger(page)).toContainText(addedCategoryName)
+})
+
+async function createBankAsset(page: Page, name: string, openingBalance: string) {
+  const row = await submitQuickAsset(page, {
+    typeName: '계좌',
+    name,
+    amount: openingBalance,
+    expectedName: name,
+    expectedAmount: `${Number(openingBalance).toLocaleString('ko-KR')}원`,
+  })
+  await row.getByRole('link').click()
+  await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
+  await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue(name)
+}
+
+function recordNavigation(page: Page) {
+  const mobile = page.getByRole('navigation', { name: '주요 메뉴' })
+    .getByRole('link', { name: '기록', exact: true })
+  const wide = page.getByRole('complementary', { name: '주요 메뉴' })
+    .getByRole('link', { name: '기록', exact: true })
+  return mobile.or(wide)
+}
+
+function transactionRow(page: Page, description: string) {
+  return page.getByRole('listitem').filter({ hasText: description })
+}
+
+async function expectBottomDrawerOnMobile(page: Page, dialog: Locator) {
+  const viewport = page.viewportSize()
+  const box = await dialog.boundingBox()
+  expect(box).not.toBeNull()
+  if (viewport && viewport.width < 768) {
+    expect(Math.abs(box!.y + box!.height - viewport.height)).toBeLessThanOrEqual(1)
+    expect(box!.width).toBe(viewport.width)
+  }
+}
+
+async function assertDraftAndFocusAcrossWidths(page: Page, description: string) {
+  const field = page.getByLabel('내용 (선택)')
+  const originalViewport = page.viewportSize()
+  await field.focus()
+  for (const width of [320, 507, 767, 768, 769, 1023, 1024, 1025, 1280]) {
+    await page.setViewportSize({ width, height: width < 768 ? 760 : 900 })
+    await expect(field).toHaveValue(description)
+    await expect(field).toBeFocused()
+    await expectTransactionFormLayout(page, width)
+    expect(await hasPageOverflow(page)).toBe(false)
+  }
+  if (originalViewport) await page.setViewportSize(originalViewport)
+}
+
+async function expectTransactionFormLayout(page: Page, width: number) {
+  const fieldRect = (locator: Locator) => locator.evaluate((element) => {
+    const wrapper = element.closest('[data-slot="field"], [data-slot="money-field"]') ?? element.parentElement
+    if (!wrapper) throw new Error('거래 Field wrapper를 찾지 못했습니다.')
+    const rect = wrapper.getBoundingClientRect()
+    return { top: rect.top, bottom: rect.bottom, width: rect.width }
+  })
+  const [amount, date, category, asset] = await Promise.all([
+    fieldRect(page.getByLabel('금액', { exact: true })),
+    fieldRect(page.getByLabel('날짜', { exact: true })),
+    fieldRect(transactionCategoryTrigger(page)),
+    fieldRect(page.getByLabel('입금 자산', { exact: true })),
+  ])
+  if (width < 768) {
+    expect(date.top, `${width}px 날짜는 금액 아래에 있어야 합니다`).toBeGreaterThanOrEqual(amount.bottom - 1)
+    expect(asset.top, `${width}px 입금 자산은 분류 아래에 있어야 합니다`).toBeGreaterThanOrEqual(category.bottom - 1)
+    return
+  }
+  expect(Math.abs(amount.top - date.top), `${width}px 금액과 날짜는 같은 거래 시점 행에 있어야 합니다`).toBeLessThanOrEqual(1)
+  expect(amount.width, `${width}px 금액 입력은 날짜보다 넓어야 합니다`).toBeGreaterThan(date.width)
+  expect(Math.abs(category.top - asset.top), `${width}px 분류와 입금 자산은 같은 분류 행에 있어야 합니다`).toBeLessThanOrEqual(1)
+}
+
+async function expectBankingMoneyPresentation(amount: Locator) {
+  const presentation = await amount.evaluate((element) => {
+    const style = getComputedStyle(element)
+    const wrapper = element.closest('[data-slot="money-field"]')
+    return {
+      fontSize: parseFloat(style.fontSize),
+      fontWeight: Number(style.fontWeight),
+      height: element.getBoundingClientRect().height,
+      textAlign: style.textAlign,
+      suffix: wrapper?.querySelector('[aria-hidden="true"]')?.textContent,
+    }
+  })
+  expect(presentation.fontSize, '금액은 일반 입력보다 큰 글자로 보여야 합니다').toBeGreaterThanOrEqual(20)
+  expect(presentation.fontWeight, '금액은 한눈에 읽히는 굵기로 보여야 합니다').toBeGreaterThanOrEqual(600)
+  expect(presentation.height, '금액 입력은 은행 앱처럼 충분한 높이를 가져야 합니다').toBeGreaterThanOrEqual(56)
+  expect(presentation.textAlign).toBe('right')
+  expect(presentation.suffix).toBe('원')
+}
+
+async function seedCursorTransfers(page: Page, occurredOn: string, count: number): Promise<SeedResult> {
+  return page.evaluate(async ({ occurredOn, count }) => {
+    const requiredJson = async <T,>(path: string): Promise<T> => {
+      const response = await fetch(path, { credentials: 'include' })
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`)
+      return response.json() as Promise<T>
+    }
+    const csrf = await requiredJson<{ headerName: string; token: string }>('/api/auth/csrf')
+    const assets = await requiredJson<Array<{ assetId: string; systemCode: string }>>('/api/assets')
+    const accounts = assets.filter((asset) => asset.systemCode === 'BANK')
+    const current = await requiredJson<{ ledger: { members: Array<{ memberId: string; currentUser: boolean }> } }>('/api/ledger-books/current')
+    if (accounts.length < 2) throw new Error('cursor seed requires two bank accounts')
+    const memberId = current.ledger.members.find((member) => member.currentUser)?.memberId
+    if (!memberId) throw new Error('current ledger member was not found')
+    const requestIds: string[] = []
+    for (let index = 0; index < count; index += 1) {
+      const response = await fetch('/api/transactions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          [csrf.headerName]: csrf.token,
+          'Idempotency-Key': crypto.randomUUID(),
+          'X-E2E-Run-Id': `transaction-cursor-${occurredOn}`,
+          'X-E2E-Test-Id': 'transactions-cursor-continuity',
+        },
+        body: JSON.stringify({
+          type: 'TRANSFER',
+          occurredOn,
+          amountWon: index + 1,
+          sourceAssetId: accounts[0].assetId,
+          destinationAssetId: accounts[1].assetId,
+          performedByMemberId: memberId,
+          description: `QC cursor ${String(index).padStart(2, '0')}`,
+        }),
+      })
+      if (!response.ok) throw new Error(`cursor transaction ${index} returned ${response.status}`)
+      const requestId = response.headers.get('X-Request-Id')
+      if (requestId) requestIds.push(requestId)
+    }
+    return { assets: accounts.slice(0, 2).map((asset) => asset.assetId), memberId, requestIds }
+  }, { occurredOn, count })
+}
+
+async function attachSeedEvidence(testInfo: TestInfo, loginId: string, seed: SeedResult) {
+  await testInfo.attach('transaction-seed-manifest', {
+    body: Buffer.from(JSON.stringify({ seedVersion: 'transaction-ui-v1', loginId, ...seed }, null, 2)),
+    contentType: 'application/json',
+  })
+}
+
+async function cssVariableColor(page: Page, name: '--income' | '--expense') {
+  return page.evaluate((variable) => {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(variable).trim()
+    const probe = document.createElement('span')
+    probe.style.color = value
+    document.body.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  }, name)
+}
+
+async function hasPageOverflow(page: Page) {
+  return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+}
+
+function todayInSeoul() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+}
