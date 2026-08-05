@@ -25,7 +25,7 @@ test('고정 시스템 코드 순서로 그룹화하고 빈 그룹은 제외한�
     asset('OTHER', 10_000),
     asset('BANK', 3_000),
     asset('SAVINGS', 50_000),
-    asset('OVERDRAFT', -5_000),
+    asset('BANK', -5_000),
     asset('CREDIT_CARD', -40_000, 35_000, 25_000),
     asset('DEBIT_CARD', 0),
     asset('INVESTMENT', 70_000),
@@ -36,7 +36,7 @@ test('고정 시스템 코드 순서로 그룹화하고 빈 그룹은 제외한�
   assert.deepEqual(overview.groups.map((group) => group.key), ['liquid', 'cards', 'investments', 'loans', 'insurance'])
   assert.deepEqual(overview.groups.map((group) => group.label), ['자금', '카드', '투자', '대출', '보험'])
   assert.deepEqual(overview.groups.map((group) => group.items.map((item) => item.systemCode)), [
-    ['CASH', 'OTHER', 'BANK', 'SAVINGS', 'OVERDRAFT'],
+    ['CASH', 'OTHER', 'BANK', 'SAVINGS', 'BANK'],
     ['CREDIT_CARD', 'DEBIT_CARD'],
     ['INVESTMENT'],
     ['LOAN'],

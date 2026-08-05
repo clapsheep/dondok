@@ -11,7 +11,7 @@ type MockAsset = {
   assetId: string
   assetTypeId: string
   assetTypeName: string
-  systemCode: 'CASH' | 'BANK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'INVESTMENT' | 'OVERDRAFT' | 'LOAN'
+  systemCode: 'CASH' | 'BANK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'INVESTMENT' | 'LOAN'
   behavior: 'STANDARD' | 'CREDIT_CARD' | 'DEBIT_CARD'
   paymentSourceCapable: boolean
   ownershipScope: 'PERSONAL' | 'JOINT'
@@ -50,10 +50,14 @@ test('자산 현황 deep-link 직접 진입과 새로고침이 SPA 화면을 유
 
   await page.goto('/assets')
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
+  const currentOwnerButton = page.getByRole('button', { name: /\(나\) 자산 보기$/ })
+  await expect(currentOwnerButton).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => new URL(page.url()).searchParams.get('owner')).toBeNull()
   await expect(page.getByRole('region', { name: '자산 요약' })).toBeVisible()
 
   await page.reload()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
+  await expect(currentOwnerButton).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('region', { name: '자산 요약' })).toBeVisible()
 })
 
@@ -103,6 +107,14 @@ test('자산 현황은 자금 signed 금액과 카드의 이번 달·다음 달 
 
   for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.setViewportSize(viewport)
+    await page.goto('/assets')
+    const currentOwnerButton = page.getByRole('button', { name: `${currentMember.displayName} (나) 자산 보기` })
+    await expect(currentOwnerButton).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => new URL(page.url()).searchParams.get('owner')).toBeNull()
+    await expectSummaryValues(page, { assets: '2,100,000원', liabilities: '950,000원', net: '1,150,000원', currentMonth: '0원', nextMonth: '0원' })
+
+    await page.getByRole('button', { name: '전체 자산 보기' }).click()
+    await expect.poll(() => new URL(page.url()).searchParams.get('owner')).toBe('all')
     await expectOverviewMeaning(page, currentMember.displayName, otherMember.displayName, viewport)
     await expectOwnerSubmenu(page, currentMember.displayName, otherMember.displayName, viewport)
     expect(
@@ -111,13 +123,18 @@ test('자산 현황은 자금 signed 금액과 카드의 이번 달·다음 달 
     ).toBe(false)
   }
 
+  await page.reload()
+  await expect(page.getByRole('button', { name: '전체 자산 보기' })).toHaveAttribute('aria-pressed', 'true')
+  await expectSummaryValues(page, { assets: '2,600,000원', liabilities: '1,300,000원', net: '1,300,000원', currentMonth: '400,000원', nextMonth: '270,000원' })
+
   await expectOwnerProjection(page, {
     buttonName: `${currentMember.displayName} (나) 자산 보기`,
-    ownerKey: `member:${currentMember.memberId}`,
+    ownerKey: null,
     accessibleOwner: currentMember.displayName,
     summary: { assets: '2,100,000원', liabilities: '950,000원', net: '1,150,000원', currentMonth: '0원', nextMonth: '0원' },
     visibleAssets: ['계좌 2', '마이너스통장', '체크카드', '대출'],
     hiddenAssets: ['현금', '신용카드', CUSTOM_CARD_NAME, '투자'],
+    visibleTypes: { 마이너스통장: '계좌' },
   })
   await expectOwnerProjection(page, {
     buttonName: `${otherMember.displayName} 자산 보기`,
@@ -142,8 +159,8 @@ test('자산 현황은 자금 signed 금액과 카드의 이번 달·다음 달 
   await expectSummaryValues(page, { assets: '500,000원', liabilities: '350,000원', net: '150,000원', currentMonth: '400,000원', nextMonth: '270,000원' })
 
   await page.goto('/assets?owner=member%3Amissing')
-  await expect(page.getByRole('button', { name: '전체 자산 보기' })).toHaveAttribute('aria-pressed', 'true')
-  await expectSummaryValues(page, { assets: '2,600,000원', liabilities: '1,300,000원', net: '1,300,000원', currentMonth: '400,000원', nextMonth: '270,000원' })
+  await expect(page.getByRole('button', { name: `${currentMember.displayName} (나) 자산 보기` })).toHaveAttribute('aria-pressed', 'true')
+  await expectSummaryValues(page, { assets: '2,100,000원', liabilities: '950,000원', net: '1,150,000원', currentMonth: '0원', nextMonth: '0원' })
 })
 
 test('자산이 없는 구성원 보기는 전체 onboarding과 구분하고 전체 보기로 복구한다', async ({ page, request }) => {
@@ -206,12 +223,21 @@ async function expectOwnerSubmenu(page: Page, currentMemberName: string, otherMe
   const group = page.getByRole('group', { name: '소유자별 보기' })
   await expect(group).toBeVisible()
   await expect(group.getByRole('button', { name: '전체 자산 보기' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(group.getByRole('button', { name: '공동 소유 자산 보기' })).toBeVisible()
-  await expect(group.getByRole('button', { name: `${currentMemberName} (나) 자산 보기` })).toBeVisible()
-  await expect(group.getByRole('button', { name: `${otherMemberName} 자산 보기` })).toBeVisible()
+  const jointButton = group.getByRole('button', { name: '공동 소유 자산 보기' })
+  const currentMemberButton = group.getByRole('button', { name: `${currentMemberName} (나) 자산 보기` })
+  const otherMemberButton = group.getByRole('button', { name: `${otherMemberName} 자산 보기` })
+  await expect(jointButton).toBeVisible()
+  await expect(currentMemberButton).toBeVisible()
+  await expect(otherMemberButton).toBeVisible()
+  await expect(jointButton.locator('[data-joint-avatar]')).toHaveCount(1)
+  await expect(currentMemberButton.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(currentMemberName)[0])
+  await expect(otherMemberButton.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(otherMemberName)[0])
   await expect(group.locator('[aria-pressed="true"]')).toHaveCount(1)
 
-  const selectedStyle = await group.getByRole('button', { name: '전체 자산 보기' }).evaluate((element) => {
+  await page.mouse.move(viewport.width - 1, viewport.height - 1)
+  const selectedButton = group.getByRole('button', { name: '전체 자산 보기' })
+  await expect(selectedButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  const selectedStyle = await selectedButton.evaluate((element) => {
     const style = getComputedStyle(element)
     return {
       backgroundColor: style.backgroundColor,
@@ -233,11 +259,32 @@ async function expectOwnerSubmenu(page: Page, currentMemberName: string, otherMe
     const box = await button.boundingBox()
     expect(box?.height ?? 0, `${viewport.label} 소유자별 보기 버튼은 44px 이상이어야 합니다`).toBeGreaterThanOrEqual(44)
   }
+  if (viewport.width < 768) {
+    const mobileMetrics = await group.evaluate((element) => {
+      const buttons = [...element.querySelectorAll<HTMLElement>('button')]
+      const labels = [...element.querySelectorAll<HTMLElement>('button > span[title]')]
+      return {
+        buttonTops: buttons.map((button) => Math.round(button.getBoundingClientRect().top)),
+        labels: labels.map((label) => {
+          const style = getComputedStyle(label)
+          return {
+            textOverflow: style.textOverflow,
+            whiteSpace: style.whiteSpace,
+          }
+        }),
+      }
+    })
+    expect(new Set(mobileMetrics.buttonTops).size, `${viewport.label} 소유자별 보기는 여러 줄로 화면을 밀어내면 안 됩니다`).toBe(1)
+    for (const label of mobileMetrics.labels) {
+      expect(label.whiteSpace, `${viewport.label} 소유자 이름은 한 버튼 안에서 쪼개지면 안 됩니다`).toBe('nowrap')
+      expect(label.textOverflow, `${viewport.label} 소유자 이름을 말줄임표로 숨기면 안 됩니다`).not.toBe('ellipsis')
+    }
+  }
 }
 
 async function expectOwnerProjection(page: Page, projection: {
   buttonName: string
-  ownerKey: string
+  ownerKey: string | null
   accessibleOwner: string
   summary: AssetSummaryExpectation
   visibleAssets: string[]
@@ -305,6 +352,11 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
   const cards = page.getByRole('region', { name: '카드' })
   const investments = page.getByRole('region', { name: '투자' })
   const loans = page.getByRole('region', { name: '대출' })
+  if (viewport.width < 768) {
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const firstGroupTop = await funds.getByRole('heading').evaluate((element) => element.getBoundingClientRect().top)
+    expect(firstGroupTop, `${viewportLabel} 첫 화면 안에서 첫 자산 그룹을 파악할 수 있어야 합니다`).toBeLessThan(viewport.height)
+  }
   const liquidSummary = await expectGroupSummary(funds, { signed: '2,200,000원' })
   await expectGroupSummary(cards, { cardCurrent: '400,000원', cardNext: '270,000원' })
   const investmentSummary = await expectGroupSummary(investments, { zero: true })
@@ -320,7 +372,7 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
 
   const cashRow = await expectAssetRow(funds, '현금', { type: '현금', owner: '공동 소유', visibleOwner: '공동' }, { signed: '400,000원' }, viewport)
   const accountRow = await expectAssetRow(funds, '계좌 2', { type: '계좌', owner: ownerName, visibleOwner: '나' }, { signed: '2,100,000원' }, viewport)
-  const overdraftRow = await expectAssetRow(funds, '마이너스통장', { type: '마이너스통장', owner: ownerName, visibleOwner: '나' }, { signed: '-300,000원' }, viewport)
+  const overdraftRow = await expectAssetRow(funds, '마이너스통장', { type: '계좌', owner: ownerName, visibleType: '계좌', visibleOwner: '나' }, { signed: '-300,000원' }, viewport)
   await expectLiquidBalanceHierarchy(
     liquidSummary.assets[0],
     [...cashRow.assets, ...accountRow.assets, ...overdraftRow.assets],
@@ -452,14 +504,14 @@ async function expectSingleColumnGroups(groups: Locator[], viewport: typeof RESP
       listBorderBottomColor: listStyle.borderBottomColor,
     }
   })))
-  const expectedGap = viewport.width >= 1280 ? 36 : viewport.width >= 768 ? 32 : 28
-  const expectedHeaderOffset = viewport.width >= 768 ? 13 : 11
+  const expectedGap = viewport.width >= 1280 ? 36 : viewport.width >= 768 ? 32 : 20
+  const expectedHeaderOffset = viewport.width >= 768 ? 13 : 9
   for (const rectangle of rectangles) {
     expect(rectangle.borderTopWidth, `${viewport.label} 그룹 시작선은 1px이어야 합니다`).toBe(1)
     expect(rectangle.borderTopStyle, `${viewport.label} 그룹 시작선은 solid여야 합니다`).toBe('solid')
     expect(rectangle.borderTopColor, `${viewport.label} 그룹 시작선은 투명하면 안 됩니다`).not.toBe('rgba(0, 0, 0, 0)')
     expect(rectangle.borderTopColor, `${viewport.label} 그룹 시작선은 투명하면 안 됩니다`).not.toBe('transparent')
-    expect(rectangle.headerOffset, `${viewport.label} 그룹 시작선과 header 사이 offset`).toBeGreaterThanOrEqual(9)
+    expect(rectangle.headerOffset, `${viewport.label} 그룹 시작선과 header 사이 offset`).toBeGreaterThanOrEqual(8)
     expect(rectangle.headerOffset, `${viewport.label} 그룹 시작선과 header 사이 offset`).toBeLessThanOrEqual(13)
     expect(Math.abs(rectangle.headerOffset - expectedHeaderOffset), `${viewport.label} 그룹 top padding`).toBeLessThanOrEqual(1)
     expect(rectangle.backgroundColor, `${viewport.label} 그룹에 카드형 배경을 만들면 안 됩니다`).toBe('rgba(0, 0, 0, 0)')
@@ -644,8 +696,12 @@ async function expectAssetRow(
   else await expect(typeMetadata, `${name} 기본 이름에는 종류를 반복하지 않아야 합니다`).toHaveCount(0)
   if (identity.visibleOwner) await expect(ownerMetadata).toHaveText(identity.visibleOwner)
   else await expect(ownerMetadata).toHaveCount(0)
-  const visibleMetadata = [identity.visibleType, identity.visibleOwner].filter(Boolean).join(' · ')
-  await expect(identityLine).toHaveText(visibleMetadata ? `${name} · ${visibleMetadata}` : name)
+  if (identity.visibleOwner) {
+    if (identity.owner === '공동 소유') await expect(identityLine.locator('[data-joint-avatar]')).toHaveCount(1)
+    else await expect(identityLine.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(identity.owner)[0])
+  } else {
+    await expect(identityLine.locator('[data-member-avatar], [data-joint-avatar]')).toHaveCount(0)
+  }
 
   const identityGeometry = await identityLine.evaluate((element) => {
     const link = element.closest('a')
@@ -677,18 +733,30 @@ async function expectAssetRow(
     }
   })
   expect(identityGeometry.linkHeight, `${viewport.label} ${name} 링크는 터치할 수 있는 44px 높이를 유지해야 합니다`).toBeGreaterThanOrEqual(44)
-  expect(identityGeometry.identityWhiteSpace, `${viewport.label} ${name} identity는 한 줄이어야 합니다`).toBe('nowrap')
-  expect(identityGeometry.identityHeight, `${viewport.label} ${name} identity가 두 줄 높이를 차지하면 안 됩니다`).toBeLessThanOrEqual(24)
-  expect(identityGeometry.linesOverlap, `${viewport.label} ${name} metadata는 자산명과 같은 줄이어야 합니다`).toBe(true)
-  expect(identityGeometry.metadataGap, `${viewport.label} ${name} metadata는 별도 열처럼 밀리지 않고 자산명 바로 뒤에 와야 합니다`).toBeLessThanOrEqual(1)
-  expect(identityGeometry.nameWhiteSpace).toBe('nowrap')
-  expect(identityGeometry.nameOverflow).toBe('hidden')
-  expect(identityGeometry.nameTextOverflow).toBe('ellipsis')
-  if (identity.visibleType || identity.visibleOwner) {
-    expect(identityGeometry.metadataWidth, `${viewport.label} ${name} metadata는 자산명보다 우선하면 안 됩니다`).toBeLessThanOrEqual(identityGeometry.identityWidth * 0.45 + 1)
-    expect(identityGeometry.metadataWhiteSpace).toBe('nowrap')
-    expect(identityGeometry.metadataOverflow).toBe('hidden')
-    expect(identityGeometry.metadataTextOverflow).toBe('ellipsis')
+  if (viewport.width < 768) {
+    expect(identityGeometry.identityWhiteSpace, `${viewport.label} ${name} identity는 필요한 만큼 자연스럽게 줄바꿈해야 합니다`).toBe('normal')
+    expect(identityGeometry.nameWhiteSpace, `${viewport.label} ${name} 자산명은 모바일에서 온전히 읽혀야 합니다`).toBe('normal')
+    expect(identityGeometry.nameOverflow).not.toBe('hidden')
+    expect(identityGeometry.nameTextOverflow).not.toBe('ellipsis')
+    if (identity.visibleType || identity.visibleOwner) {
+      expect(identityGeometry.metadataWhiteSpace, `${viewport.label} ${name} 부가정보도 모바일에서 온전히 읽혀야 합니다`).toBe('normal')
+      expect(identityGeometry.metadataOverflow).not.toBe('hidden')
+      expect(identityGeometry.metadataTextOverflow).not.toBe('ellipsis')
+    }
+  } else {
+    expect(identityGeometry.identityWhiteSpace, `${viewport.label} ${name} identity는 한 줄이어야 합니다`).toBe('nowrap')
+    expect(identityGeometry.identityHeight, `${viewport.label} ${name} identity가 두 줄 높이를 차지하면 안 됩니다`).toBeLessThanOrEqual(24)
+    expect(identityGeometry.linesOverlap, `${viewport.label} ${name} metadata는 자산명과 같은 줄이어야 합니다`).toBe(true)
+    expect(identityGeometry.metadataGap, `${viewport.label} ${name} metadata는 별도 열처럼 밀리지 않고 자산명 바로 뒤에 와야 합니다`).toBeLessThanOrEqual(1)
+    expect(identityGeometry.nameWhiteSpace).toBe('nowrap')
+    expect(identityGeometry.nameOverflow).toBe('hidden')
+    expect(identityGeometry.nameTextOverflow).toBe('ellipsis')
+    if (identity.visibleType || identity.visibleOwner) {
+      expect(identityGeometry.metadataWidth, `${viewport.label} ${name} metadata는 자산명보다 우선하면 안 됩니다`).toBeLessThanOrEqual(identityGeometry.identityWidth * 0.45 + 1)
+      expect(identityGeometry.metadataWhiteSpace).toBe('nowrap')
+      expect(identityGeometry.metadataOverflow).toBe('hidden')
+      expect(identityGeometry.metadataTextOverflow).toBe('ellipsis')
+    }
   }
   const lines: RailLines & { row: Locator } = { row, debts: [], assets: [], zeros: [] }
   if (expected.debt) lines.debts.push(await expectLabeledAmount(row, '현재 부채', expected.debt))
@@ -768,7 +836,7 @@ function overviewAssets(currentMemberId: string, otherMemberId = currentMemberId
   return [
     mockAsset({ id: 'cash', type: '현금', systemCode: 'CASH', behavior: 'STANDARD', balance: 400_000, ownershipScope: 'JOINT' }),
     mockAsset({ id: 'bank', type: '계좌', name: '계좌 2', systemCode: 'BANK', behavior: 'STANDARD', balance: 2_100_000, ownerMemberId: currentMemberId, paymentSourceCapable: true }),
-    mockAsset({ id: 'overdraft', type: '마이너스통장', systemCode: 'OVERDRAFT', behavior: 'STANDARD', balance: -300_000, ownerMemberId: currentMemberId, paymentSourceCapable: true }),
+    mockAsset({ id: 'overdraft', type: '계좌', name: '마이너스통장', systemCode: 'BANK', behavior: 'STANDARD', balance: -300_000, ownerMemberId: currentMemberId, paymentSourceCapable: true }),
     mockAsset({ id: 'credit', type: '신용카드', systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: -350_000, ownershipScope: 'JOINT', cardCurrent: 280_000, cardNext: 190_000 }),
     mockAsset({ id: 'debit', type: '체크카드', systemCode: 'DEBIT_CARD', behavior: 'DEBIT_CARD', balance: -50_000, ownerMemberId: currentMemberId, cardCurrent: 0, cardNext: 0 }),
     mockAsset({ id: 'positive-credit', type: '신용카드', name: CUSTOM_CARD_NAME, systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: 100_000, ownershipScope: 'JOINT', cardCurrent: 120_000, cardNext: 80_000 }),

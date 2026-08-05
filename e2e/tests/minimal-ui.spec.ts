@@ -21,6 +21,7 @@ async function expectMinimalSurface(page: Page, screen: string) {
     return [main, ...main.querySelectorAll('*')].flatMap((element): SurfaceOffender[] => {
       if (
         element.matches('button, input, select, textarea, a, label, [role="radio"]')
+        || element.matches('[data-member-avatar], [data-joint-avatar]')
         || element.closest('[role="dialog"], [role="menu"], [role="listbox"], aside[aria-live="polite"]')
       ) return []
 
@@ -45,6 +46,22 @@ async function expectMinimalSurface(page: Page, screen: string) {
   expect(overflow, `${screen} 화면에 가로 overflow가 없어야 합니다`).toBe(false)
 }
 
+async function expectHomeResponsiveLayout(page: Page) {
+  const viewport = page.viewportSize()
+  const calendar = page.getByRole('grid', { name: /거래 달력$/ })
+  const summary = page.locator('[data-home-desktop-summary]')
+  await expect(calendar).toBeVisible()
+  await expect(summary).toBeVisible()
+  const [calendarBox, summaryBox] = await Promise.all([calendar.boundingBox(), summary.boundingBox()])
+  expect(calendarBox).not.toBeNull()
+  expect(summaryBox).not.toBeNull()
+  if ((viewport?.width ?? 0) >= 1024) {
+    expect(summaryBox!.x, '데스크톱은 달력 오른쪽에 이번 달 요약 rail을 둔다').toBeGreaterThanOrEqual(calendarBox!.x + calendarBox!.width)
+    return
+  }
+  expect(summaryBox!.y + summaryBox!.height, '모바일·iPad 세로는 요약을 달력 위의 읽기 흐름에 둔다').toBeLessThanOrEqual(calendarBox!.y)
+}
+
 test('가입·초대·홈·자산·설정·거래 폼은 카드 대신 구분선 중심의 평면 구조를 유지한다', async ({ page, request }) => {
   await page.goto('/sign-up')
   await expect(page.getByRole('heading', { name: '돈독 회원가입' })).toBeVisible()
@@ -60,6 +77,7 @@ test('가입·초대·홈·자산·설정·거래 폼은 카드 대신 구분선
   await page.getByRole('link', { name: '돌아가기' }).click()
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  await expectHomeResponsiveLayout(page)
   await expectMinimalSurface(page, '가계부 홈')
 
   await page.getByRole('link', { name: '자산', exact: true }).click()

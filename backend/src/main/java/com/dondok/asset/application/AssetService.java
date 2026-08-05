@@ -351,10 +351,6 @@ public class AssetService {
     private SavingsSettingsCommand validateSavingsSettings(
             UUID bookId, UUID savingsAssetId, AssetTypeEntity type, SavingsSettingsCommand command
     ) {
-        if (type.getBehavior() == AssetBehavior.SAVINGS && command == null) {
-            throw error(HttpStatus.BAD_REQUEST, "SAVINGS_SETTINGS_REQUIRED",
-                    "적금의 자동이체 계좌와 자동이체일을 입력해 주세요.");
-        }
         if (type.getBehavior() != AssetBehavior.SAVINGS && command != null) {
             throw error(HttpStatus.BAD_REQUEST, "SAVINGS_SETTINGS_NOT_ALLOWED",
                     "적금 유형만 적금 설정을 사용할 수 있습니다.");
@@ -437,7 +433,7 @@ public class AssetService {
             AssetEntity asset, AssetTypeEntity type, SavingsSettingsCommand command, Instant now
     ) {
         SavingsSettingEntity existing = savingsSettings.findById(asset.getId()).orElse(null);
-        if (type.getBehavior() != AssetBehavior.SAVINGS) {
+        if (type.getBehavior() != AssetBehavior.SAVINGS || command == null) {
             if (existing != null) {
                 savingsSettings.delete(existing);
                 savingsSettings.flush();

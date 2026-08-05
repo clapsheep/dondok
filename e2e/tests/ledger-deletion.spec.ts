@@ -583,7 +583,7 @@ async function readJsonResponse(page: Page, path: string) {
 
 async function expectNoLedgerHome(page: Page) {
   await expect(page).toHaveURL('/')
-  await expect(page.getByRole('heading', { name: '함께 기록할 가계부를 준비해요' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '초대 코드를 받으셨나요?' })).toBeVisible()
   await expect(page.getByRole('button', { name: '가계부 시작하기' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '로그인' })).toHaveCount(0)
 }

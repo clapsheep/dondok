@@ -31,7 +31,7 @@ async function expectQuickCreateFields(page: Page, amountLabel: '최초 금액' 
   await expect(page.getByLabel('등록일', { exact: true })).toHaveValue(todayInSeoul())
   for (const hiddenField of [
     page.getByRole('group', { name: '소유 형태', exact: true }),
-    page.getByLabel('소유자', { exact: true }),
+    page.getByRole('radiogroup', { name: '소유자', exact: true }),
     page.getByLabel('메모 (선택)', { exact: true }),
   ]) await expect(hiddenField, '빠른 등록 화면에는 상세 필드를 노출하지 않아야 합니다').toHaveCount(0)
 }
@@ -55,7 +55,7 @@ async function expectTypeGrid(page: Page, group: Locator, width: number) {
   expect(layout.outsideGroup, `${width}px에서 자산 종류 버튼이 그룹 밖으로 나가면 안 됩니다`).toBe(false)
   if (width < 640) {
     expect(layout.columnCount, `${width}px 자산 종류는 3열이어야 합니다`).toBe(3)
-    expect(layout.rowCount, `${width}px 자산 종류 10개는 4행 이하여야 합니다`).toBeLessThanOrEqual(4)
+    expect(layout.rowCount, `${width}px 자산 종류 9개는 3행이어야 합니다`).toBe(3)
   }
   if (width >= 768) {
     expect(layout.columnCount, `${width}px 자산 종류는 5열이어야 합니다`).toBe(5)
@@ -114,7 +114,7 @@ async function expectDetailAcrossBreakpoints(
     for (const field of [
       page.getByLabel('자산 이름 (선택)', { exact: true }),
       page.getByRole('group', { name: '소유 형태', exact: true }),
-      page.getByLabel('소유자', { exact: true }),
+      page.getByRole('radiogroup', { name: '소유자', exact: true }),
       page.getByLabel(amountLabel, { exact: true }),
       page.getByLabel('등록일', { exact: true }),
       memo,
@@ -129,7 +129,7 @@ async function expectDetailAcrossBreakpoints(
       [page.getByLabel('자산 이름 (선택)', { exact: true }), '자산 이름'],
       [page.getByRole('radio', { name: '구성원 소유 : 구성원 한 명의 자산', exact: true }), '구성원 소유'],
       [page.getByRole('radio', { name: '공동 소유 : 가계부 구성원의 공동 자산', exact: true }), '공동 소유'],
-      [page.getByLabel('소유자'), '소유자'],
+      [page.getByRole('radiogroup', { name: '소유자' }).locator('label').first(), '소유자'],
       [page.getByLabel(amountLabel, { exact: true }), amountLabel],
       [page.getByLabel('등록일'), '등록일'],
       [memo, '메모'],
@@ -180,6 +180,7 @@ async function expectConditionalCreateAcrossBreakpoints(
   selectedButton: Locator,
   expectedValues: Array<[Locator, string, string]>,
   focusedField: Locator,
+  saveButtonName: '자산 등록' | '변경 저장' = '자산 등록',
 ) {
   await focusedField.focus()
   for (const width of [320, 390, 768, 1024, 1280]) {
@@ -195,9 +196,9 @@ async function expectConditionalCreateAcrossBreakpoints(
     await expectFormTargetsAtLeast44(page, typeGroup, [
       ...expectedValues.map(([field, , label]): [Locator, string] => [field, label]),
       [page.getByRole('link', { name: '취소' }), '취소'],
-      [page.getByRole('button', { name: '자산 등록', exact: true }), '자산 등록'],
+      [page.getByRole('button', { name: saveButtonName, exact: true }), saveButtonName],
     ], width)
-    expect(await hasPageOverflow(page), `${width}px 조건부 자산 등록 화면에 가로 overflow가 없어야 합니다`).toBe(false)
+    expect(await hasPageOverflow(page), `${width}px 조건부 자산 화면에 가로 overflow가 없어야 합니다`).toBe(false)
   }
 }
 
@@ -365,10 +366,11 @@ test('새 가계부의 기본 자산과 이름을 포함한 빠른 자산 등록
 
   const typeGroup = page.getByRole('group', { name: '자산 종류' })
   const typeButtons = typeGroup.getByRole('button')
-  await expect(typeButtons).toHaveCount(10)
+  await expect(typeButtons).toHaveCount(9)
   expect(await typeButtons.evaluateAll((buttons) => buttons.every((button) => button.tagName === 'BUTTON'))).toBe(true)
   await expect(typeGroup.getByRole('button', { name: '적금', exact: true })).toBeVisible()
   await expect(typeGroup.getByRole('button', { name: '저축', exact: true })).toHaveCount(0)
+  await expect(typeGroup.getByRole('button', { name: '마이너스 통장', exact: true })).toHaveCount(0)
   const cashButton = typeGroup.getByRole('button', { name: '현금', exact: true })
   const otherButton = typeGroup.getByRole('button', { name: '기타', exact: true })
   const loanButton = typeGroup.getByRole('button', { name: '대출', exact: true })
@@ -394,7 +396,9 @@ test('새 가계부의 기본 자산과 이름을 포함한 빠른 자산 등록
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('신혼집 대출')
   await expect(page.getByRole('radio', { name: '구성원 소유 : 구성원 한 명의 자산', exact: true })).toBeChecked()
-  await expect(page.getByLabel('소유자').locator('option:checked')).toContainText('(나)')
+  const ownerGroup = page.getByRole('radiogroup', { name: '소유자' })
+  await expect(ownerGroup.getByRole('radio').first()).toBeChecked()
+  await expect(ownerGroup.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '빠')
   await expect(page.getByLabel('등록일')).toHaveValue(todayInSeoul())
   await expect(page.getByLabel('메모 (선택)')).toHaveValue('')
   const detailTypes = page.getByRole('group', { name: '자산 종류' })
@@ -435,7 +439,7 @@ test('자산 이름을 직접 저장하거나 비워 두면 고정 종류 이름
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('여행 통장')
 })
 
-test('체크카드와 적금은 필수 연결 계좌 설정을 저장하고 상세에서 그대로 보여준다', async ({ page, request }) => {
+test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이체는 선택해서 설정한다', async ({ page, request }) => {
   await registerAndLogin(page, request, `자동이체 자산 사용자 ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await page.getByRole('link', { name: '자산', exact: true }).click()
@@ -493,37 +497,13 @@ test('체크카드와 적금은 필수 연결 계좌 설정을 저장하고 상�
   await savingsButton.click()
   const savingsAmount = page.getByLabel('최초 금액', { exact: true })
   const savingsOpenedOn = page.getByLabel('등록일', { exact: true })
-  const autoTransferAccount = page.getByLabel('자동이체 계좌', { exact: true })
-  const autoTransferDay = page.getByRole('spinbutton', { name: '자동이체일', exact: true })
+  const autoTransferSwitch = page.getByRole('switch', { name: '자동이체 설정', exact: true })
+  await expect(autoTransferSwitch).not.toBeChecked()
+  await expect(page.getByLabel('자동이체 계좌', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('spinbutton', { name: '자동이체일', exact: true })).toHaveCount(0)
   await savingsAmount.fill('430000')
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('공동 적금')
   await savingsOpenedOn.fill('2026-07-03')
-  await expect(autoTransferDay).toHaveAttribute('min', '1')
-  await expect(autoTransferDay).toHaveAttribute('max', '31')
-
-  await page.getByRole('button', { name: '자산 등록', exact: true }).click()
-  await expect(autoTransferAccount, '적금 자동이체 계좌는 필수여야 합니다').toHaveAttribute('aria-invalid', 'true')
-  await expect(autoTransferDay, '적금 자동이체일은 필수여야 합니다').toHaveAttribute('aria-invalid', 'true')
-  await autoTransferAccount.selectOption({ label: `${paymentAssetName} · 1,250,000원` })
-  const autoTransferAccountId = await autoTransferAccount.inputValue()
-  await autoTransferDay.fill('32')
-  await page.getByRole('button', { name: '자산 등록', exact: true }).click()
-  await expect(autoTransferDay, '적금 자동이체일은 31일을 넘을 수 없습니다').toHaveAttribute('aria-invalid', 'true')
-  await expect(autoTransferDay).toHaveValue('32')
-  await autoTransferDay.fill('27')
-
-  await selectAssetTypeWithKeyboard(page, debitCardButton, '체크카드')
-  await expect(savingsAmount).toHaveValue('430,000')
-  await expect(savingsOpenedOn).toHaveValue('2026-07-03')
-  await selectAssetTypeWithKeyboard(page, savingsButton, '적금')
-  await expect(autoTransferAccount).toHaveValue(autoTransferAccountId)
-  await expect(autoTransferDay).toHaveValue('27')
-  await expectConditionalCreateAcrossBreakpoints(page, typeGroup, savingsButton, [
-    [savingsAmount, '430,000', '최초 금액'],
-    [savingsOpenedOn, '2026-07-03', '등록일'],
-    [autoTransferAccount, autoTransferAccountId, '자동이체 계좌'],
-    [autoTransferDay, '27', '자동이체일'],
-  ], autoTransferDay)
 
   await page.getByRole('button', { name: '자산 등록', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('자산을 등록했어요.')
@@ -532,6 +512,35 @@ test('체크카드와 적금은 필수 연결 계좌 설정을 저장하고 상�
   await savingsRow.getByRole('link').click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('등록일', { exact: true })).toHaveValue('2026-07-03')
+  const detailAutoTransferSwitch = page.getByRole('switch', { name: '자동이체 설정', exact: true })
+  await expect(detailAutoTransferSwitch).not.toBeChecked()
+
+  await detailAutoTransferSwitch.click()
+  const autoTransferAccount = page.getByLabel('자동이체 계좌', { exact: true })
+  const autoTransferDay = page.getByRole('spinbutton', { name: '자동이체일', exact: true })
+  await expect(autoTransferDay).toHaveAttribute('min', '1')
+  await expect(autoTransferDay).toHaveAttribute('max', '31')
+  await page.getByRole('button', { name: '변경 저장', exact: true }).click()
+  await expect(autoTransferAccount, '자동이체를 켜면 계좌가 필수여야 합니다').toHaveAttribute('aria-invalid', 'true')
+  await expect(autoTransferDay, '자동이체를 켜면 이체일이 필수여야 합니다').toHaveAttribute('aria-invalid', 'true')
+  await autoTransferAccount.selectOption({ label: `${paymentAssetName} · 1,250,000원` })
+  const autoTransferAccountId = await autoTransferAccount.inputValue()
+  await autoTransferDay.fill('32')
+  await page.getByRole('button', { name: '변경 저장', exact: true }).click()
+  await expect(autoTransferDay, '적금 자동이체일은 31일을 넘을 수 없습니다').toHaveAttribute('aria-invalid', 'true')
+  await expect(autoTransferDay).toHaveValue('32')
+  await autoTransferDay.fill('27')
+
+  await expectConditionalCreateAcrossBreakpoints(page, page.getByRole('group', { name: '자산 종류' }), page.getByRole('group', { name: '자산 종류' }).getByRole('button', { name: '적금', exact: true }), [
+    [page.getByLabel('최초 금액', { exact: true }), '430,000', '최초 금액'],
+    [page.getByLabel('등록일', { exact: true }), '2026-07-03', '등록일'],
+    [autoTransferAccount, autoTransferAccountId, '자동이체 계좌'],
+    [autoTransferDay, '27', '자동이체일'],
+  ], autoTransferDay, '변경 저장')
+
+  await page.getByRole('button', { name: '변경 저장', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요.')
+  await expect(detailAutoTransferSwitch).toBeChecked()
   await expect(page.getByLabel('자동이체 계좌', { exact: true })).toHaveValue(autoTransferAccountId)
   await expect(page.getByLabel('자동이체 계좌', { exact: true }).locator('option:checked')).toContainText(paymentAssetName)
   await expect(page.getByRole('spinbutton', { name: '자동이체일', exact: true })).toHaveValue('27')

@@ -1,9 +1,10 @@
-import { ChartNoAxesCombined, House, LogOut, Settings, SquarePen, WalletCards, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, ChartNoAxesCombined, House, LogOut, Settings, SquarePen, WalletCards, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { api, clearCsrfToken } from '../lib/api'
 import { cn } from '../lib/cn'
+import { DondokLogo } from './DondokLogo'
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
 
@@ -20,13 +21,15 @@ function LedgerNavigationLink({ to, label, icon: Icon, end, compact = false }: (
       to={to}
       end={end}
       className={({ isActive }) => cn(
-        'relative flex min-h-12 items-center rounded-md text-sm font-semibold transition-colors',
-        compact ? 'min-h-16 min-w-16 flex-col justify-center gap-1 px-2 py-1 text-xs' : 'w-full justify-center gap-3 px-3 xl:justify-start',
+        'relative flex items-center text-sm font-semibold transition-colors',
+        compact ? 'min-h-[3.75rem] min-w-16 flex-col justify-center gap-0.5 rounded-[1rem] px-2 py-1 text-[.6875rem]' : 'min-h-12 w-full justify-center gap-3 rounded-md px-3 xl:justify-start',
         isActive
-          ? 'bg-forest-100 text-forest-800 before:absolute before:bg-forest-600 dark:bg-forest-800 dark:text-white'
+          ? compact
+            ? 'text-forest-800 before:absolute before:bg-forest-600 dark:text-forest-100 dark:before:bg-forest-300'
+            : 'bg-forest-100 text-forest-800 before:absolute before:bg-forest-600 dark:bg-forest-800 dark:text-white'
           : 'text-[var(--muted)] hover:bg-forest-50 hover:text-forest-800 dark:hover:bg-forest-800 dark:hover:text-white',
         !compact && 'before:left-0 before:h-6 before:w-1 before:rounded-full',
-        compact && 'before:inset-x-5 before:bottom-0 before:h-0.5 before:rounded-full',
+        compact && 'before:inset-x-5 before:bottom-0.5 before:h-0.5 before:rounded-full',
       )}
     >
       <Icon size={compact ? 20 : 21} aria-hidden="true" />
@@ -35,7 +38,13 @@ function LedgerNavigationLink({ to, label, icon: Icon, end, compact = false }: (
   )
 }
 
-export function AppShell({ children, ledgerNavigation = false }: { children: ReactNode; ledgerNavigation?: boolean }) {
+type MobileHeader = {
+  title: string
+  backTo: string
+  backLabel?: string
+}
+
+export function AppShell({ children, ledgerNavigation = false, mobileHeader }: { children: ReactNode; ledgerNavigation?: boolean; mobileHeader?: MobileHeader }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const logout = useMutation({
@@ -52,7 +61,7 @@ export function AppShell({ children, ledgerNavigation = false }: { children: Rea
       <main className="min-h-dvh bg-cream-100 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-4 pl-[max(1rem,env(safe-area-inset-left))] text-ink-900 dark:bg-[#101714] dark:text-white xs:pr-[max(1.5rem,env(safe-area-inset-right))] xs:pl-[max(1.5rem,env(safe-area-inset-left))] md:pt-6 md:pr-[max(2rem,env(safe-area-inset-right))] md:pb-6 md:pl-[max(2rem,env(safe-area-inset-left))]">
         <div className="mx-auto max-w-6xl">
           <header className="flex items-center justify-between gap-3">
-            <Link to="/" aria-label="돈독 홈"><img src="/dondok-logo-ko.svg" alt="돈독" className="h-10 w-auto dark:brightness-[1.8]" /></Link>
+            <Link to="/" aria-label="돈독 홈"><DondokLogo className="h-10" /></Link>
             <div className="flex items-center gap-1">
               <ThemeToggle />
               <Button variant="ghost" aria-label="로그아웃" onClick={() => logout.mutate()} disabled={logout.isPending}>
@@ -90,21 +99,37 @@ export function AppShell({ children, ledgerNavigation = false }: { children: Rea
         </div>
       </aside>
 
-      <main className="min-h-dvh pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:ml-[calc(5rem+env(safe-area-inset-left))] md:pb-0 xl:ml-[calc(15rem+env(safe-area-inset-left))]">
-        <header className="flex min-h-16 items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface)] pt-[env(safe-area-inset-top)] pr-[max(1rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))] md:hidden">
-          <Link to="/" aria-label="돈독 홈"><img src="/dondok-logo-ko.svg" alt="돈독" className="h-9 w-auto dark:brightness-[1.8]" /></Link>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" asChild><Link to="/settings" aria-label="설정"><Settings size={18} /></Link></Button>
-            <ThemeToggle />
-            <Button variant="ghost" size="icon" aria-label="로그아웃" onClick={() => logout.mutate()} disabled={logout.isPending}><LogOut size={18} /></Button>
-          </div>
+      <main className="min-h-dvh pb-[var(--mobile-dock-clearance)] md:ml-[calc(5rem+env(safe-area-inset-left))] md:pb-0 xl:ml-[calc(15rem+env(safe-area-inset-left))]">
+        <header className="sticky top-0 z-30 flex min-h-14 items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface)] pt-[env(safe-area-inset-top)] pr-[max(.75rem,env(safe-area-inset-right))] pl-[max(.75rem,env(safe-area-inset-left))] md:hidden">
+          {mobileHeader ? (
+            <div className="grid w-full grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center" data-mobile-context-header>
+              <Button variant="ghost" size="icon" asChild>
+                <Link to={mobileHeader.backTo} aria-label={mobileHeader.backLabel ?? '이전 화면으로'}><ArrowLeft size={20} /></Link>
+              </Button>
+              <h1 className="truncate px-2 text-center text-[1.0625rem] font-semibold tracking-[-.02em]">{mobileHeader.title}</h1>
+              <span aria-hidden="true" />
+            </div>
+          ) : (
+            <>
+              <Link to="/" aria-label="돈독 홈"><DondokLogo className="h-9" /></Link>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" asChild><Link to="/settings" aria-label="설정"><Settings size={18} /></Link></Button>
+                <ThemeToggle />
+                <Button variant="ghost" size="icon" aria-label="로그아웃" onClick={() => logout.mutate()} disabled={logout.isPending}><LogOut size={18} /></Button>
+              </div>
+            </>
+          )}
         </header>
-        <div className="mx-auto max-w-[75rem] px-4 xs:px-6 md:px-6 lg:px-7 xl:px-8">
+        <div className="mx-auto max-w-[82rem] px-4 xs:px-5 md:px-6 lg:px-7 xl:px-8">
           {children}
         </div>
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-[var(--line)] bg-[var(--surface)] pr-[max(.5rem,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)] pl-[max(.5rem,env(safe-area-inset-left))] md:hidden" aria-label="주요 메뉴">
+      <nav
+        className="fixed right-[max(.75rem,env(safe-area-inset-right))] bottom-[var(--mobile-dock-bottom)] left-[max(.75rem,env(safe-area-inset-left))] z-40 mx-auto grid max-w-[31rem] grid-cols-4 rounded-[1.4rem] border border-[var(--line-subtle)] bg-[var(--surface)] px-1 shadow-[0_12px_36px_rgba(12,30,23,0.18)] md:hidden dark:shadow-[0_12px_36px_rgba(0,0,0,0.45)]"
+        aria-label="주요 메뉴"
+        data-mobile-navigation
+      >
         {ledgerNavigationItems.map((item) => <LedgerNavigationLink key={item.to} {...item} compact />)}
       </nav>
     </div>

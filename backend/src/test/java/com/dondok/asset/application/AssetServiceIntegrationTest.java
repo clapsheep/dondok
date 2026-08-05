@@ -66,7 +66,7 @@ class AssetServiceIntegrationTest {
                 .extracting(AssetService.AssetTypeView::systemCode)
                 .containsExactly(
                         "CASH", "BANK", "CREDIT_CARD", "DEBIT_CARD", "SAVINGS",
-                        "INVESTMENT", "OVERDRAFT", "LOAN", "INSURANCE", "OTHER");
+                        "INVESTMENT", "LOAN", "INSURANCE", "OTHER");
 
         UUID bankTypeId = typeId(ledger.userId(), "BANK");
         AssetService.AssetCommand command = command(
@@ -235,7 +235,7 @@ class AssetServiceIntegrationTest {
     }
 
     @Test
-    void debitCardAndSavingsRequireAndPersistTheirLinkedAccountSettings() {
+    void debitCardRequiresItsLinkedAccountAndSavingsAutoTransferIsOptional() {
         TestLedger ledger = createLedger("연결 계좌 설정 사용자");
         UUID bankTypeId = typeId(ledger.userId(), "BANK");
         UUID debitTypeId = typeId(ledger.userId(), "DEBIT_CARD");
@@ -267,18 +267,40 @@ class AssetServiceIntegrationTest {
                         savingsTypeId, AssetOwnershipScope.PERSONAL, ledger.memberId(),
                         "적금", LocalDate.of(2026, 7, 16), null, 300_000,
                         null, null, new AssetService.SavingsSettingsCommand(bank.assetId(), 20)));
+        AssetService.AssetView savingsWithoutAutoTransfer = assetService.create(
+                ledger.userId(), "savings-without-transfer-account",
+                new AssetService.AssetCommand(
+                        savingsTypeId, AssetOwnershipScope.PERSONAL, ledger.memberId(),
+                        "자유 적금", LocalDate.of(2026, 7, 17), null, 150_000,
+                        null, null, null));
 
         assertThat(debitCard.behavior()).isEqualTo(AssetBehavior.DEBIT_CARD);
         assertThat(debitCard.debitCardSettings().paymentAssetId()).isEqualTo(bank.assetId());
         assertThat(savings.behavior()).isEqualTo(AssetBehavior.SAVINGS);
         assertThat(savings.savingsSettings().transferAssetId()).isEqualTo(bank.assetId());
         assertThat(savings.savingsSettings().transferDay()).isEqualTo(20);
+        assertThat(savingsWithoutAutoTransfer.savingsSettings()).isNull();
         assertThat(jdbcTemplate.queryForObject(
                 "select payment_asset_id from debit_card_setting where debit_card_asset_id = ?",
                 UUID.class, debitCard.assetId())).isEqualTo(bank.assetId());
         assertThat(jdbcTemplate.queryForObject(
                 "select transfer_day from savings_setting where savings_asset_id = ?",
                 Integer.class, savings.assetId())).isEqualTo(20);
+        assertThat(count("select count(*) from savings_setting where savings_asset_id = ?",
+                savingsWithoutAutoTransfer.assetId())).isZero();
+
+        AssetService.AssetView savingsWithDisabledAutoTransfer = assetService.update(
+                ledger.userId(), savings.assetId(), new AssetService.UpdateAssetCommand(
+                        new AssetService.AssetCommand(
+                                savingsTypeId, AssetOwnershipScope.PERSONAL, ledger.memberId(),
+                                "적금", LocalDate.of(2026, 7, 16), null, 300_000,
+                                null, null, null),
+                        savings.version(), false));
+
+        assertThat(savingsWithDisabledAutoTransfer.savingsSettings()).isNull();
+        assertThat(savingsWithDisabledAutoTransfer.currentBalanceWon()).isEqualTo(300_000);
+        assertThat(count("select count(*) from savings_setting where savings_asset_id = ?",
+                savings.assetId())).isZero();
     }
 
     @Test
@@ -346,7 +368,8 @@ class AssetServiceIntegrationTest {
         TestLedger ledger = createLedger("고정 자산 종류 사용자");
         List<AssetService.AssetTypeView> types = assetService.assetTypes(ledger.userId());
 
-        assertThat(types).hasSize(10);
+        assertThat(types).hasSize(9);
+        assertThat(types).noneMatch(type -> "OVERDRAFT".equals(type.systemCode()));
         assertThat(types).filteredOn(type -> "BANK".equals(type.systemCode()))
                 .singleElement().extracting(AssetService.AssetTypeView::name).isEqualTo("계좌");
         assertThat(types).filteredOn(type -> "SAVINGS".equals(type.systemCode()))

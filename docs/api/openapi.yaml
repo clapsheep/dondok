@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Dondok API
-  version: 0.10.0
+  version: 0.11.0
   description: 돈독 프론트엔드와 백엔드 사이의 HTTP 계약
   license:
     name: All rights reserved
@@ -247,12 +247,13 @@ paths:
       parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
       responses:
         "201":
-          description: 원문 code와 URL은 이 응답에서만 제공
+          description: 직접 입력용 숫자 6자리 code와 별도 고강도 token URL은 이 응답에서만 제공
           content:
             application/json:
               schema: { $ref: "#/components/schemas/IssuedLedgerInvitation" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
   /api/ledger-books/current/invitations/{invitationId}:
     delete:
       summary: 사용 가능한 초대 취소
@@ -291,6 +292,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
   /api/ledger-invitations/redemptions:
     post:
       summary: 초대 수락과 즉시 가계부 참여
@@ -312,6 +314,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
   /api/asset-types:
     get:
       summary: 현재 가계부의 활성 자산 유형 목록
@@ -1087,13 +1090,20 @@ components:
         - type: object
           required: [code, inviteUrl]
           properties:
-            code: { type: string, minLength: 32, maxLength: 100 }
+            code:
+              type: string
+              pattern: "^[0-9]{6}$"
+              description: 사람이 직접 입력하는 숫자 6자리 코드
             inviteUrl: { type: string, format: uri }
     InvitationCodeRequest:
       type: object
       required: [code]
       properties:
-        code: { type: string, minLength: 32, maxLength: 100 }
+        code:
+          description: 숫자 6자리 직접 입력 코드 또는 초대 URL에 포함된 고강도 token
+          oneOf:
+            - { type: string, pattern: "^[0-9]{6}$" }
+            - { type: string, minLength: 32, maxLength: 100, pattern: "^[A-Za-z0-9_-]+$" }
     LedgerInvitationPreview:
       type: object
       required: [memberNames, memberCount, expiresAt]
@@ -1117,7 +1127,7 @@ components:
         assetTypeId: { type: string, format: uuid }
         systemCode:
           type: string
-          enum: [CASH, BANK, CREDIT_CARD, DEBIT_CARD, SAVINGS, INVESTMENT, OVERDRAFT, LOAN, INSURANCE, OTHER]
+          enum: [CASH, BANK, CREDIT_CARD, DEBIT_CARD, SAVINGS, INVESTMENT, LOAN, INSURANCE, OTHER]
         name: { type: string }
         behavior: { $ref: "#/components/schemas/AssetBehavior" }
         paymentSourceCapable: { type: boolean }
@@ -1139,7 +1149,7 @@ components:
         paymentAssetId: { type: string, format: uuid }
     SavingsSettingsInput:
       type: object
-      description: 적금 생성·수정에서 필수인 자동이체 출금 계좌와 달력일 설정이다. 자동 실행 정책은 별도 범위다.
+      description: 적금에서 자동이체를 사용할 때만 보내는 출금 계좌와 달력일 설정이다. 객체를 보내면 두 필드가 모두 필요하고, 자동이체를 사용하지 않으면 null이다. 자동 실행 정책은 별도 범위다.
       required: [transferAssetId, transferDay]
       properties:
         transferAssetId: { type: string, format: uuid }
@@ -1175,7 +1185,7 @@ components:
             - { $ref: "#/components/schemas/DebitCardSettingsInput" }
             - { type: "null" }
         savingsSettings:
-          description: SAVINGS 유형에서는 필수, 그 외 유형에서는 null이어야 한다.
+          description: SAVINGS 유형에서 자동이체를 설정할 때만 사용하며 설정하지 않으면 null이다. 그 외 유형에서는 null이어야 한다.
           oneOf:
             - { $ref: "#/components/schemas/SavingsSettingsInput" }
             - { type: "null" }
@@ -1239,7 +1249,7 @@ components:
         assetTypeId: { type: string, format: uuid }
         systemCode:
           type: string
-          enum: [CASH, BANK, CREDIT_CARD, DEBIT_CARD, SAVINGS, INVESTMENT, OVERDRAFT, LOAN, INSURANCE, OTHER]
+          enum: [CASH, BANK, CREDIT_CARD, DEBIT_CARD, SAVINGS, INVESTMENT, LOAN, INSURANCE, OTHER]
         assetTypeName: { type: string }
         behavior: { $ref: "#/components/schemas/AssetBehavior" }
         paymentSourceCapable: { type: boolean }
@@ -1925,4 +1935,10 @@ components:
       content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
     PreconditionFailed:
       description: 편집 시작 후 다른 세션이 리소스를 수정함
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    TooManyRequests:
+      description: 짧은 초대 코드의 반복 확인 제한 초과
+      content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }
+    ServiceUnavailable:
+      description: 고유한 초대 코드를 일시적으로 발급할 수 없음
       content: { application/problem+json: { schema: { $ref: "#/components/schemas/Problem" } } }

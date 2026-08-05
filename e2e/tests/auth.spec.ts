@@ -26,13 +26,13 @@ test('회원가입, 이메일 인증, 세션 로그인, 비밀번호 재설정�
   await page.getByLabel('아이디').fill(loginId)
   await page.getByLabel('비밀번호').fill(password)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '함께 기록할 가계부를 준비해요' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '초대 코드를 받으셨나요?' })).toBeVisible()
 
   await page.getByRole('button', { name: '로그아웃' }).click()
   await page.getByLabel('아이디').fill(loginId)
   await page.getByLabel('비밀번호').fill(password)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '함께 기록할 가계부를 준비해요' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '초대 코드를 받으셨나요?' })).toBeVisible()
 
   await page.getByRole('button', { name: '로그아웃' }).click()
   await page.getByRole('link', { name: '비밀번호를 잊었나요?' }).click()
@@ -50,5 +50,5 @@ test('회원가입, 이메일 인증, 세션 로그인, 비밀번호 재설정�
   await page.getByLabel('아이디').fill(loginId)
   await page.getByLabel('비밀번호').fill(newPassword)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '함께 기록할 가계부를 준비해요' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '초대 코드를 받으셨나요?' })).toBeVisible()
 })

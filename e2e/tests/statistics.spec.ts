@@ -195,6 +195,8 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   const memberRadio = filterDialog.getByRole('group', { name: '구성원' }).getByRole('radio', { name: seed.otherMemberName, exact: true })
   const jointRadio = filterDialog.getByRole('group', { name: '자산 소유자' }).getByRole('radio', { name: '공동 소유', exact: true })
   const foodRadio = filterDialog.getByRole('group', { name: '분류' }).getByRole('radio', { name: '식비 · 지출', exact: true })
+  await expect(memberRadio.locator('xpath=..').locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(seed.otherMemberName)[0])
+  await expect(jointRadio.locator('xpath=..').locator('[data-joint-avatar]')).toHaveCount(1)
   await memberRadio.check()
   await jointRadio.check()
   await foodRadio.check()

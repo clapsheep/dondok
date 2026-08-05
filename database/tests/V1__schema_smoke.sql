@@ -72,13 +72,15 @@ insert into ledger_invitation (
     id,
     book_id,
     inviter_member_id,
-    code_digest
+    link_token_digest,
+    direct_code_digest
 )
 values (
     '00000000-0000-7000-8000-000000000020',
     '00000000-0000-7000-8000-000000000010',
     '00000000-0000-7000-8000-000000000011',
-    repeat('a', 64)
+    repeat('a', 64),
+    repeat('c', 64)
 );
 
 insert into ledger_member (id, book_id, user_id)

@@ -16,7 +16,6 @@ public record DefaultAssetType(
             new DefaultAssetType("DEBIT_CARD", "체크카드", AssetBehavior.DEBIT_CARD, false, 40),
             new DefaultAssetType("SAVINGS", "적금", AssetBehavior.SAVINGS, true, 50),
             new DefaultAssetType("INVESTMENT", "투자", AssetBehavior.STANDARD, false, 60),
-            new DefaultAssetType("OVERDRAFT", "마이너스 통장", AssetBehavior.STANDARD, true, 70),
             new DefaultAssetType("LOAN", "대출", AssetBehavior.STANDARD, false, 80),
             new DefaultAssetType("INSURANCE", "보험", AssetBehavior.STANDARD, false, 90),
             new DefaultAssetType("OTHER", "기타", AssetBehavior.STANDARD, false, 100));

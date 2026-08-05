@@ -45,9 +45,9 @@ erDiagram
 
 `local_credential.login_id`는 로그인에만 사용하고 다른 사용자에게 노출하지 않는다. 공개 핸들, 사용자 검색, 사용자 목록 API를 만들지 않는다.
 
-초대 URL과 직접 입력 코드를 모두 제공한다. 둘은 같은 비밀 초대 token을 서로 다른 형태로 표현하고 원문은 생성 직후에만 노출한다. 초대 유형은 링크/코드 공유용 `CODE` 하나이며 발급 후 7일 동안 한 번만 사용할 수 있다.
+초대 URL과 직접 입력 코드를 모두 제공한다. 직접 입력 코드는 숫자 6자리이고 URL에는 별도의 고강도 token을 넣으며, 두 값은 같은 invitation을 가리킨다. 원문은 생성 직후에만 노출하고 발급 후 7일 동안 한 번만 사용할 수 있다.
 
-코드 원문은 생성 직후 한 번만 보여주고 DB에는 SHA-256 digest만 저장한다. 수락은 초대 행을 잠근 뒤 만료·미사용 상태 확인, 멤버십 생성, 단일 redemption 기록, invitation `REDEEMED` 전이를 한 트랜잭션으로 처리한다. 전역 `ledger_member.user_id` unique가 이미 다른 가계부에 참여한 사용자의 수락 경쟁도 차단한다.
+`ledger_invitation.link_token_digest`와 `direct_code_digest`에는 각 원문의 SHA-256 digest만 저장한다. 두 컬럼은 각각 unique이며 발급은 `INSERT ... ON CONFLICT DO NOTHING`과 제한된 재시도로 동시 중복을 막는다. V17 이전 행은 기존 `code_digest`를 `link_token_digest`로 이름만 바꾸고 `direct_code_digest`를 null로 유지해 아직 유효한 기존 URL·긴 코드를 보존한다. 수락은 초대 행을 잠근 뒤 만료·미사용 상태 확인, 멤버십 생성, 단일 redemption 기록, invitation `REDEEMED` 전이를 한 트랜잭션으로 처리한다. 전역 `ledger_member.user_id` unique가 이미 다른 가계부에 참여한 사용자의 수락 경쟁도 차단한다.
 
 모든 활성 멤버의 권한은 동일하다. `ledger_member`에 역할 컬럼을 두지 않으며 누구나 자산·카테고리·거래·카드 설정과 초대를 같은 권한으로 관리한다. 가계부 생성자는 감사 정보일 뿐 특별 권한을 갖지 않는다.
 
@@ -73,9 +73,9 @@ erDiagram
 - `payment_source_capable`: 카드 결제·적금 자동이체 출금 계좌 후보 여부
 - 신용카드 특수 필드: `card_setting` 1:1 확장 테이블
 - 체크카드 결제 계좌: `debit_card_setting` 1:1 확장 테이블
-- 적금 자동이체 계좌·달력일: `savings_setting` 1:1 확장 테이블
+- 적금의 선택 자동이체 계좌·달력일: 설정할 때만 생성하는 `savings_setting` 0..1 확장 테이블
 
-사용자 정의 자산 종류는 두지 않고 `asset_type.system_code`는 필수다. `기타`는 `현금`과 동일하게 `STANDARD`, `payment_source_capable = false`인 현금성 종류다. 개별 용도는 `asset.name`으로 표현한다. 기존 사용자 정의 종류는 같은 가계부의 `OTHER`로 재지정한 뒤 제거하되 자산과 거래·posting은 유지한다. `BANK`의 표시명은 `계좌`, `SAVINGS`는 `적금`이다. 기능은 표시명이 아니라 behavior가 결정한다. 연결 설정의 대상과 출금 계좌는 composite FK로 같은 가계부임을 보장하고 서로 같은 자산일 수 없다. V9·V10은 기존 `BANK` 유형의 표시명만 `계좌`로 바꾸고 사용자가 입력한 `asset.name`은 보존한다.
+사용자 정의 자산 종류는 두지 않고 `asset_type.system_code`는 필수다. `기타`는 `현금`과 동일하게 `STANDARD`, `payment_source_capable = false`인 현금성 종류다. 개별 용도는 `asset.name`으로 표현한다. 기존 사용자 정의 종류는 같은 가계부의 `OTHER`로 재지정한 뒤 제거하되 자산과 거래·posting은 유지한다. `BANK`의 표시명은 `계좌`, `SAVINGS`는 `적금`이다. 마이너스 통장은 별도 물리 종류가 아니라 signed 잔액이 음수인 `BANK` 계좌이며 일반 계좌와 같은 결제·이체 기능을 사용한다. 기능은 표시명이나 잔액 부호가 아니라 behavior가 결정한다. 연결 설정의 대상과 출금 계좌는 composite FK로 같은 가계부임을 보장하고 서로 같은 자산일 수 없다. V9·V10은 기존 `BANK` 유형의 표시명만 `계좌`로 바꾸고 사용자가 입력한 `asset.name`은 보존한다. V16은 기존 `OVERDRAFT` 자산의 ID·이름·소유자·posting·연결 설정을 유지한 채 같은 가계부의 `BANK` 유형으로 재지정하고 `OVERDRAFT` 유형과 허용 코드를 제거한다. 자산 version만 증가시켜 이전 화면의 stale 저장을 거부하며 잔액은 기존 posting 합계를 그대로 사용한다.
 
 신규 가계부 생성 트랜잭션은 자산 유형 bootstrap 뒤 `CASH`, `BANK`, `CREDIT_CARD`, `DEBIT_CARD` 자산을 생성자 `PERSONAL` 소유로 하나씩 생성한다. 금액은 모두 0원이어서 `OPENING_BALANCE` 거래와 posting을 만들지 않고, 등록일은 `Asia/Seoul` 기준 가계부 생성일이다. 신용카드와 체크카드 설정은 동일 트랜잭션에서 기본 `BANK` 자산을 참조한다. 기존 가계부는 이 네 자산을 backfill하지 않고, 기본 자산도 활성 50개 한도에 포함한다.
 
@@ -170,7 +170,7 @@ erDiagram
 
 ### 체크카드 구매와 적금 연결 설정
 
-체크카드 지출은 `ledger_transaction.primary_asset_id`에 사용자가 선택한 체크카드를 보존하되 posting은 `debit_card_setting.payment_asset_id`의 연결 계좌에 직접 `-amount`로 기록한다. 체크카드 자체에는 중복 posting하지 않아 순자산이 한 번만 감소한다. 적금의 `savings_setting`은 자동이체 출금 계좌와 달력일만 보존하며 금액·시작일·catch-up 정책이 확정되기 전에는 schedule이나 거래를 자동 생성하지 않는다.
+체크카드 지출은 `ledger_transaction.primary_asset_id`에 사용자가 선택한 체크카드를 보존하되 posting은 `debit_card_setting.payment_asset_id`의 연결 계좌에 직접 `-amount`로 기록한다. 체크카드 자체에는 중복 posting하지 않아 순자산이 한 번만 감소한다. 적금은 `savings_setting` 행이 없으면 자동이체 미설정으로 해석한다. 설정할 때만 출금 계좌와 달력일을 한 행에 모두 보존하며 금액·시작일·catch-up 정책이 확정되기 전에는 schedule이나 거래를 자동 생성하지 않는다.
 
 ### 결제 예정 표시
 
@@ -284,7 +284,7 @@ PostgreSQL 기본 `READ COMMITTED`를 유지한다. 전체 시스템을 `SERIALI
 DB가 강제할 것:
 
 - PK, FK, composite FK, unique
-- 초대 코드 digest와 단일 가계부 멤버십 중복
+- 초대 URL token digest·6자리 직접 코드 digest와 단일 가계부 멤버십 중복
 - KRW 금액 양수와 posting 0 금지
 - 개인/공동 자산의 owner null 규칙
 - 자동 정산과 결제 계좌 관계

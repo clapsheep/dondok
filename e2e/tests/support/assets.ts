@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
 type BalanceQuickAsset = {
-  typeName: '현금' | '계좌' | '적금' | '투자' | '마이너스통장' | '대출' | '보험' | '기타'
+  typeName: '현금' | '계좌' | '적금' | '투자' | '대출' | '보험' | '기타'
   name?: string
   amount: string
   expectedName: string

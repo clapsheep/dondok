@@ -1,6 +1,7 @@
 import { Filter, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Button } from '../../components/ui/Button'
+import { JointAvatar, MemberAvatar } from '../../components/MemberAvatar'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
 import { RadioGroup as RadioGroupPrimitive, RadioGroupItem } from '../../components/ui/RadioGroup'
 import type { Category } from '../categories/api'
@@ -107,13 +108,13 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
           <div className="grid gap-6 py-5 md:grid-cols-2">
             <FilterRadioGroup legend="구성원" description="실제로 돈을 받거나 쓴 구성원을 선택해요. 기록을 입력한 사람과는 달라요." value={draft.memberId} onValueChange={(memberId) => setDraft((current) => ({ ...current, memberId }))}>
               <FilterRadioOption name="statistics-member" value="">전체</FilterRadioOption>
-              {members.map((member) => <FilterRadioOption key={member.memberId} name="statistics-member" value={member.memberId}>{member.displayName}{member.currentUser ? ' (나)' : ''}</FilterRadioOption>)}
+              {members.map((member) => <FilterRadioOption key={member.memberId} name="statistics-member" value={member.memberId}><MemberAvatar displayName={member.displayName} memberId={member.memberId} /><span>{member.displayName}{member.currentUser ? ' (나)' : ''}</span></FilterRadioOption>)}
             </FilterRadioGroup>
 
             <FilterRadioGroup legend="자산 소유자" description="거래의 주 자산에 현재 표시된 소유 marker를 기준으로 해요." value={draft.owner} onValueChange={(owner) => setDraft((current) => ({ ...current, owner: owner as StatisticsUrlState['owner'] }))}>
               <FilterRadioOption name="statistics-owner" value="all">전체</FilterRadioOption>
-              <FilterRadioOption name="statistics-owner" value="joint">공동 소유</FilterRadioOption>
-              {members.map((member) => <FilterRadioOption key={member.memberId} name="statistics-owner" value={`member:${member.memberId}`}>{member.displayName}{member.currentUser ? ' (나)' : ''}</FilterRadioOption>)}
+              <FilterRadioOption name="statistics-owner" value="joint"><JointAvatar /><span>공동 소유</span></FilterRadioOption>
+              {members.map((member) => <FilterRadioOption key={member.memberId} name="statistics-owner" value={`member:${member.memberId}`}><MemberAvatar displayName={member.displayName} memberId={member.memberId} /><span>{member.displayName}{member.currentUser ? ' (나)' : ''}</span></FilterRadioOption>)}
             </FilterRadioGroup>
 
             <div className="md:col-span-2">
@@ -152,7 +153,7 @@ function FilterRadioOption({ name, value, children }: { name: string; value: str
   return (
     <label htmlFor={id} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 border-b border-[var(--line-subtle)] py-2 text-sm last:border-b-0">
       <RadioGroupItem id={id} value={value} />
-      <span className="min-w-0 break-words">{children}</span>
+      <span className="flex min-w-0 items-center gap-2 break-words">{children}</span>
     </label>
   )
 }

@@ -30,7 +30,7 @@ export type AssetStatusOverview = {
 }
 
 const groupDefinitions: { key: AssetGroupKey; label: string; systemCodes: readonly AssetTypeSystemCode[] }[] = [
-  { key: 'liquid', label: '자금', systemCodes: ['CASH', 'OTHER', 'BANK', 'SAVINGS', 'OVERDRAFT'] },
+  { key: 'liquid', label: '자금', systemCodes: ['CASH', 'OTHER', 'BANK', 'SAVINGS'] },
   { key: 'cards', label: '카드', systemCodes: ['CREDIT_CARD', 'DEBIT_CARD'] },
   { key: 'investments', label: '투자', systemCodes: ['INVESTMENT'] },
   { key: 'loans', label: '대출', systemCodes: ['LOAN'] },
