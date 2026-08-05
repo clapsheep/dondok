@@ -122,7 +122,7 @@ PR은 build·unit·PostgreSQL integration·OpenAPI drift·핵심 Chromium E2E를
 
 ### D-017 저장소·환경변수·Mac mini 배포
 
-한 public GitHub 저장소 안에서 `backend/`, `frontend/`, `e2e/`, `infra/` 경계를 분리한다. 실제 환경파일과 secret은 전 계층에서 Git과 Docker build context에서 제외하고 안전한 `.env.example`만 추적하며 secret scanning·push protection·CI Gitleaks를 사용한다. 공개 저장소의 PR 코드가 Mac mini에서 실행되지 않도록 repository-level self-hosted runner를 public 애플리케이션 저장소에 연결하지 않는다. 배포 runner와 workflow는 소유자만 접근하는 별도 private `dondok-deploy` 저장소에 두고, public `main`의 현재 SHA와 그 SHA의 성공한 CI를 대조한 뒤에만 같은 revision을 checkout해 실행한다. 백엔드와 프론트엔드는 각각 multi-stage·non-root Dockerfile을 가지며 Mac mini에서는 공개 도메인과 HTTPS를 제공하는 reverse proxy만 외부 공개하고 backend와 PostgreSQL은 내부 network에서 운영한다. 애플리케이션 이미지는 Git SHA로 식별하고 배포 전 백업·격리 복원 drill, Compose health, 실패 시 직전 SHA 이미지 rollback을 수행한다. healthcheck, 재시작 정책, PostgreSQL 영속 volume, 매일 1회 30일 백업·주 1회 암호화 off-device 복제와 복원 검증을 배포 완료 조건으로 둔다. 운영 PostgreSQL의 삭제는 즉시 반영하고 암호화 백업의 삭제 전 데이터는 rotation 전까지 최대 30일 보존한 뒤 자동 만료한다.
+한 public GitHub 저장소 안에서 `backend/`, `frontend/`, `e2e/`, `infra/` 경계를 분리한다. 실제 환경파일과 secret은 전 계층에서 Git과 Docker build context에서 제외하고 안전한 `.env.example`만 추적하며 secret scanning·push protection·CI Gitleaks를 사용한다. 공개 저장소의 PR 코드가 Mac mini에서 실행되지 않도록 repository-level self-hosted runner를 public 애플리케이션 저장소에 연결하지 않는다. 배포 runner와 workflow는 소유자만 접근하는 별도 private `dondok-deploy` 저장소에 두고, public `main`의 현재 SHA와 그 SHA의 성공한 CI를 대조한 뒤에만 같은 revision을 checkout해 실행한다. 백엔드와 프론트엔드는 각각 multi-stage·non-root Dockerfile을 가지며 Mac mini에서는 공개 도메인과 HTTPS를 제공하는 reverse proxy만 WAN에 공개하고 backend와 PostgreSQL은 내부 network에서 운영한다. PostgreSQL의 운영자용 LAN 접근은 D-044의 사설 주소 bind만 예외로 허용한다. 애플리케이션 이미지는 Git SHA로 식별하고 배포 전 백업·격리 복원 drill, Compose health, 실패 시 직전 SHA 이미지 rollback을 수행한다. healthcheck, 재시작 정책, PostgreSQL 영속 volume, 매일 1회 30일 백업·주 1회 암호화 off-device 복제와 복원 검증을 배포 완료 조건으로 둔다. 운영 PostgreSQL의 삭제는 즉시 반영하고 암호화 백업의 삭제 전 데이터는 rotation 전까지 최대 30일 보존한 뒤 자동 만료한다.
 
 운영 origin은 `https://dondok.duckdns.org`다. DuckDNS A record는 Mac mini의 현재 공인 IPv4를 가리키고, 사용자 LaunchAgent가 5분마다 HTTPS update API로 IP를 갱신한다. DuckDNS token은 저장소·대화·process argument에 넣지 않고 Mac mini의 사용자 전용 0600 secret 파일에만 보관한다. 기존 Nginx Proxy Manager가 HTTP-01로 Let's Encrypt 인증서를 발급·갱신하고 `host.docker.internal:18080`으로 전달한다.
 
@@ -282,6 +282,10 @@ Mac mini의 사용자 launchd가 매일 운영 Compose의 정확한 working dire
 
 사용자가 작성하는 모든 원화 금액은 공통 `MoneyField`를 사용한다. 입력 중 천 단위 구분 기호를 즉시 표시하고 우측 정렬한 큰 tabular 숫자와 고정 `원` 단위로 일반 숫자 입력과 시각적으로 구분한다. 표시값과 무관하게 폼 draft·API에는 콤마 없는 정수 문자열·정수만 전달하며 소수는 허용하지 않는다. 자산 최초 금액은 기존처럼 빈 값이면 0원이고 음수 부호를 허용하며, 거래·환불·선결제 금액은 양수 입력만 허용한다. viewport 변경·오프라인·충돌에도 원본 draft와 focus를 보존한다.
 
+### D-044 운영 PostgreSQL의 LAN 전용 관리자 접근
+
+DBeaver 같은 운영자 도구는 같은 신뢰 LAN에서만 운영 PostgreSQL에 직접 연결할 수 있다. Compose의 안전한 기본 bind는 `127.0.0.1:15432`이며 Mac mini 운영 환경에서만 고정 사설 주소 `192.168.100.7:15432`로 명시적으로 덮어쓴다. `0.0.0.0`, IPv6 wildcard와 bare host port bind를 금지하고 공유기에는 15432 또는 5432 포트포워딩을 만들지 않는다. DBeaver는 애플리케이션 DB owner가 아니라 강한 별도 비밀번호, 접속 수 제한과 public schema 조회 권한만 가진 `dondok_reader`를 사용한다. 이 예외는 WAN 공개를 허용하지 않으며 Mac mini의 LAN 주소가 바뀌면 운영 환경값과 접속 설정을 함께 갱신한다.
+
 ## 현재 단계
 
 - 완료: 요구사항 및 역할별 교차 검토
@@ -326,6 +330,7 @@ Mac mini의 사용자 launchd가 매일 운영 Compose의 정확한 working dire
 - 완료: 거래 이력 유무에 따른 자산 삭제·보관과 과거 기록·통계 유지 수직 기능
 - 완료: 동일 권한 구성원의 가계부 전체 삭제와 계정·세션 복귀 수직 기능
 - 완료: Mac mini PostgreSQL 일일 백업·30일 보존과 live DB 비의존 격리 복원 drill 기반
+- 완료: 운영 PostgreSQL의 사설 LAN 주소 전용 bind와 DBeaver 읽기 전용 접근 정책
 - 다음: off-device 암호화 백업과 삭제 가계부 재등장 방지 복구 지점
 
 상세 문서:

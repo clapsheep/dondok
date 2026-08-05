@@ -33,7 +33,11 @@ jq -e '
   (.services.backend.networks | has("app")) and
   (.services.frontend.networks | has("app")) and
   ((.services | has("caddy")) | not) and
-  ((.services.db.ports // []) | length == 0) and
+  ((.services.db.ports // []) | length == 1) and
+  (.services.db.ports[0].host_ip == "127.0.0.1") and
+  (.services.db.ports[0].published == "15432") and
+  (.services.db.ports[0].target == 5432) and
+  (.services.db.ports[0].protocol == "tcp") and
   ((.services.backend.ports // []) | length == 0) and
   ((.services.frontend.ports // []) | length == 1) and
   (.services.frontend.ports[0].host_ip == "127.0.0.1") and
@@ -45,6 +49,21 @@ jq -e '
   ([.services[] | .mem_limit] | all(. > 0)) and
   ([.services[] | .cpus] | all(. > 0))
 ' >/dev/null <<<"$CONFIG_JSON"
+
+LAN_CONFIG_JSON="$({
+  DONDOK_DB_BIND_HOST=192.168.100.7 \
+  DONDOK_DB_HOST_PORT=15432 \
+    "${COMPOSE[@]}" config --format json
+})"
+
+jq -e '
+  ((.services.db.ports // []) | length == 1) and
+  (.services.db.ports[0].host_ip == "192.168.100.7") and
+  (.services.db.ports[0].published == "15432") and
+  (.services.db.ports[0].target == 5432) and
+  (.services.db.ports[0].protocol == "tcp") and
+  ([.services.db.ports[].host_ip] | all(. != "0.0.0.0" and . != "::" and . != ""))
+' >/dev/null <<<"$LAN_CONFIG_JSON"
 
 /bin/bash -n \
   "$REPOSITORY_DIR/infra/deploy-production.sh" \

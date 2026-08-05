@@ -82,11 +82,13 @@ Nginx Proxy Manager :80/:443
                     frontend nginx
                          ├── /api ─── backend ─── PostgreSQL
                          └── 정적 frontend
+
+DBeaver ── trusted LAN ── 192.168.100.7:15432 ── PostgreSQL
 ```
 
-- 외부에는 Nginx Proxy Manager의 80/443만 공개한다. 관리 포트 81, 돈독 frontend upstream, backend와 PostgreSQL은 공개하지 않는다.
+- WAN에는 Nginx Proxy Manager의 80/443만 공개한다. 관리 포트 81, 돈독 frontend upstream, backend와 PostgreSQL은 인터넷에 공개하지 않는다.
 - 돈독 frontend는 host의 `127.0.0.1:${DONDOK_FRONTEND_PORT:-18080}`에만 bind한다. Nginx Proxy Manager 컨테이너는 Docker Desktop의 `host.docker.internal`로 이 loopback upstream에 접근한다.
-- PostgreSQL과 backend는 내부 network에 두고 PostgreSQL 포트를 Mac 외부에 공개하지 않는다.
+- PostgreSQL과 backend는 내부 network에 둔다. 운영자용 PostgreSQL 접근만 Mac mini의 고정 사설 주소 `${DONDOK_DB_BIND_HOST:-127.0.0.1}:${DONDOK_DB_HOST_PORT:-15432}`에 bind하며 wildcard 주소를 사용하지 않는다.
 - 모든 장기 실행 컨테이너에 healthcheck와 `restart: unless-stopped`를 둔다.
 - PostgreSQL 데이터는 named volume, 백업 결과는 권한이 제한된 host directory에 둔다.
 - migration은 backend 시작 전에 한 번만 적용하고 여러 인스턴스가 동시에 migration하지 않게 한다.
@@ -100,11 +102,11 @@ Redis는 단일 backend 인스턴스에서는 넣지 않는다. reverse proxy �
 - session cookie는 `Secure`, `HttpOnly`, 적절한 `SameSite`를 사용하고 same-origin CSRF 방어를 검증한다.
 - 가입·로그인·초대 확인/수락·비밀번호 재설정 endpoint에 rate limit을 둔다.
 - trusted proxy와 forwarded header를 명시하고 backend health/debug endpoint를 공개하지 않는다.
-- Mac mini 방화벽에서도 reverse proxy 포트만 허용하고 backend·PostgreSQL 포트는 외부에서 접근할 수 없어야 한다.
+- Mac mini 방화벽에서는 reverse proxy 80/443과 신뢰 LAN에서 오는 PostgreSQL 관리 포트만 허용하고 backend·PostgreSQL 관리 포트는 WAN에서 접근할 수 없어야 한다.
 
 ### DuckDNS와 Nginx Proxy Manager
 
-운영 origin은 `https://dondok.duckdns.org`를 사용한다. DuckDNS A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream 18080, backend 8080과 PostgreSQL 5432는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
+운영 origin은 `https://dondok.duckdns.org`를 사용한다. DuckDNS A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream 18080, backend 8080과 PostgreSQL 5432·15432는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
 
 Nginx Proxy Manager의 Proxy Host는 다음 값으로 관리한다.
 
@@ -141,6 +143,8 @@ Mac mini의 저장소 밖 `production.env`에 다음 값을 넣고 파일 권한
 DONDOK_PUBLIC_URL=https://dondok.duckdns.org
 DONDOK_COOKIE_SECURE=true
 DONDOK_FRONTEND_PORT=18080
+DONDOK_DB_BIND_HOST=192.168.100.7
+DONDOK_DB_HOST_PORT=15432
 
 DONDOK_MAIL_ENABLED=true
 DONDOK_MAIL_FROM=<발송에 사용할 Gmail 주소>
@@ -153,6 +157,22 @@ DONDOK_SMTP_STARTTLS=true
 ```
 
 `DONDOK_MAIL_FROM`과 `DONDOK_SMTP_USERNAME`은 우선 같은 Gmail 주소를 사용한다. 운영 기동 뒤 새 테스트 계정으로 인증 메일과 비밀번호 재설정 메일을 각각 한 번 보내 실제 수신, 링크 origin과 token 1회성까지 확인한다. Google 계정 비밀번호를 바꾸면 기존 앱 비밀번호가 폐기될 수 있으므로 새 앱 비밀번호로 운영 환경파일을 갱신하고 backend를 재기동한다.
+
+### 같은 LAN의 DBeaver 연결
+
+운영 PostgreSQL은 공유기 포트포워딩 없이 Mac mini의 사설 IPv4에만 노출한다. DBeaver의 연결값은 다음과 같다.
+
+| 항목 | 값 |
+| --- | --- |
+| Host | `192.168.100.7` |
+| Port | `15432` |
+| Database | `dondok` |
+| Username | `dondok_reader` |
+| SSL | 비활성화(신뢰 LAN 직접 연결) |
+
+비밀번호는 저장소 밖의 사용자 전용 0600 파일로 전달하고 채팅·Git·운영 로그에 남기지 않는다. `dondok_reader`는 접속 수를 제한하고 `public` schema의 기존·향후 table과 sequence 조회만 허용한다. 애플리케이션 DB owner나 `POSTGRES_PASSWORD`를 DBeaver에 저장하지 않는다. LAN 주소가 바뀌면 `DONDOK_DB_BIND_HOST`도 같이 바꾸며 `0.0.0.0`, `::` 또는 host IP가 생략된 port mapping은 사용하지 않는다.
+
+동일 Wi-Fi/LAN의 클라이언트에서 `192.168.100.7:15432`가 열리고 다른 네트워크에서는 닫혀 있어야 한다. 공유기 관리 화면에는 5432·15432 전달 규칙을 만들지 않는다. 게스트 Wi-Fi처럼 LAN 기기 간 통신을 차단하는 SSID에서는 직접 연결되지 않는 것이 정상이다.
 
 ## GitHub Actions 배포 경계
 
@@ -270,7 +290,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 - 백엔드 health: `http://localhost:8080/actuator/health/readiness`
 - 개발 메일함: `http://localhost:8025`
 
-운영은 저장소 밖의 0600 `production.env`에 실제 origin·PostgreSQL·SMTP 값을 넣고 private 배포 저장소 workflow로 기동한다. 긴급 수동 배포도 임의 branch가 아니라 CI를 통과한 `main`의 전체 Git SHA를 [`infra/deploy-production.sh`](../../infra/deploy-production.sh)에 전달한다. 운영 Compose는 frontend를 `127.0.0.1:18080`에만 bind하고 기존 Nginx Proxy Manager만 80/443을 공개하며 backend와 PostgreSQL은 호스트 포트를 열지 않는다.
+운영은 저장소 밖의 0600 `production.env`에 실제 origin·PostgreSQL·SMTP 값을 넣고 private 배포 저장소 workflow로 기동한다. 긴급 수동 배포도 임의 branch가 아니라 CI를 통과한 `main`의 전체 Git SHA를 [`infra/deploy-production.sh`](../../infra/deploy-production.sh)에 전달한다. 운영 Compose는 frontend를 `127.0.0.1:18080`, PostgreSQL 관리 포트를 고정 LAN 주소의 `15432`에만 bind한다. 기존 Nginx Proxy Manager만 WAN 80/443을 공개하며 backend는 호스트 포트를 열지 않는다.
 
 ## 프로젝트 생성 완료 조건
 
@@ -283,4 +303,4 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 - 깨끗한 환경에서 Compose 기동, Flyway 적용, backend/frontend healthcheck 통과
 - 컨테이너 재생성 후 PostgreSQL 데이터 유지 확인
 - QC의 최소 Playwright smoke test 통과
-- 공개 URL의 HTTPS redirect·인증서 갱신·cookie/CSRF/rate limit 검증과 backend/DB 포트 비노출 확인
+- 공개 URL의 HTTPS redirect·인증서 갱신·cookie/CSRF/rate limit 검증, backend 포트 비노출과 DB 관리 포트의 LAN 전용 bind 확인
