@@ -2,7 +2,7 @@
 
 ## 목적
 
-돈독은 public GitHub 저장소에서 프론트엔드와 백엔드를 분리해 관리하고, 개인 Mac mini에서 공개 도메인+HTTPS를 제공하는 Docker Compose 서비스로 운영한다. 2026-07-11에 애플리케이션 scaffold와 인증 첫 수직 기능을 시작했으며 아래 구조를 실행 기준으로 사용한다.
+돈독은 public GitHub 저장소에서 프론트엔드와 백엔드를 분리해 관리하고, 개인 Mac mini에서 공개 도메인+HTTPS를 제공하는 Docker Compose 서비스로 운영한다. Mac mini에서 이미 운영 중인 Nginx Proxy Manager가 80/443과 인증서를 소유하고 돈독 Compose의 loopback frontend upstream으로 전달한다. 2026-07-11에 애플리케이션 scaffold와 인증 첫 수직 기능을 시작했으며 아래 구조를 실행 기준으로 사용한다.
 
 ## 저장소 구조
 
@@ -75,15 +75,17 @@ base image는 프로젝트 생성 시 공식 지원 버전과 보안 패치를 �
 운영 구성은 다음 컨테이너를 기본으로 한다.
 
 ```text
-reverse proxy / frontend
+Nginx Proxy Manager :80/:443
           │
-          ├── /api ──────── backend
-          │                    │
-          │                  PostgreSQL
-          └── 정적 frontend
+          └── host.docker.internal:18080
+                         │
+                    frontend nginx
+                         ├── /api ─── backend ─── PostgreSQL
+                         └── 정적 frontend
 ```
 
-- 외부에는 reverse proxy 포트만 공개한다.
+- 외부에는 Nginx Proxy Manager의 80/443만 공개한다. 관리 포트 81, 돈독 frontend upstream, backend와 PostgreSQL은 공개하지 않는다.
+- 돈독 frontend는 host의 `127.0.0.1:${DONDOK_FRONTEND_PORT:-18080}`에만 bind한다. Nginx Proxy Manager 컨테이너는 Docker Desktop의 `host.docker.internal`로 이 loopback upstream에 접근한다.
 - PostgreSQL과 backend는 내부 network에 두고 PostgreSQL 포트를 Mac 외부에 공개하지 않는다.
 - 모든 장기 실행 컨테이너에 healthcheck와 `restart: unless-stopped`를 둔다.
 - PostgreSQL 데이터는 named volume, 백업 결과는 권한이 제한된 host directory에 둔다.
@@ -99,6 +101,83 @@ Redis는 단일 backend 인스턴스에서는 넣지 않는다. reverse proxy �
 - 가입·로그인·초대 확인/수락·비밀번호 재설정 endpoint에 rate limit을 둔다.
 - trusted proxy와 forwarded header를 명시하고 backend health/debug endpoint를 공개하지 않는다.
 - Mac mini 방화벽에서도 reverse proxy 포트만 허용하고 backend·PostgreSQL 포트는 외부에서 접근할 수 없어야 한다.
+
+### DuckDNS와 Nginx Proxy Manager
+
+운영 origin은 `https://dondok.duckdns.org`를 사용한다. DuckDNS A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream 18080, backend 8080과 PostgreSQL 5432는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
+
+Nginx Proxy Manager의 Proxy Host는 다음 값으로 관리한다.
+
+| 항목 | 값 |
+| --- | --- |
+| Domain Names | `dondok.duckdns.org` |
+| Scheme | `http` |
+| Forward Hostname / IP | `host.docker.internal` |
+| Forward Port | `18080` |
+| Websockets Support | 켬 |
+| Block Common Exploits | 켬 |
+| Cache Assets | 끔 |
+| SSL Certificate | 새 Let's Encrypt 인증서 요청 |
+| Force SSL / HTTP/2 / HSTS | 켬 |
+
+HTTP-01 인증서 발급과 HTTP→HTTPS redirect를 위해 외부 TCP 80과 443이 모두 Nginx Proxy Manager에 도달해야 한다. 돈독 Compose를 배포하기 전에 Proxy Host를 만들어도 되지만 upstream은 frontend가 시작되기 전까지 `502`를 반환할 수 있다. Nginx Proxy Manager 자체의 데이터·인증서 백업과 image pinning은 돈독 Compose와 별도로 관리한다.
+
+공인 IP 변경은 [`infra/duckdns-update.sh`](../../infra/duckdns-update.sh)와 사용자 LaunchAgent가 5분마다 갱신한다. DuckDNS token은 process argument나 log에 넣지 않고 `~/.config/dondok/duckdns.env` 같은 저장소 밖 0600 파일에만 둔다. installer는 interactive terminal에서 token을 숨김 입력으로 받고 즉시 update API를 검증한 뒤 LaunchAgent를 설치한다.
+
+```bash
+cd /absolute/repository/dondok
+./infra/install-duckdns-updater.sh --domain dondok
+```
+
+기존 secret 또는 LaunchAgent를 의도적으로 교체할 때만 `--replace`를 추가한다. 설치 뒤 `launchctl print gui/$(id -u)/com.dondok.duckdns-update`와 `~/Library/Logs/dondok/duckdns-update.log`에서 최근 성공 시각을 확인한다. log에는 domain과 성공 시각만 남고 token은 남지 않는다.
+
+### 운영 SMTP
+
+MVP의 낮은 인증·비밀번호 재설정 메일량에는 개인 Gmail SMTP를 사용한다. 별도 메일 서버를 Mac mini에서 운영하지 않고 Gmail이 발송을 담당하므로 DuckDNS에 MX·SPF·DKIM record를 추가하지 않는다. Gmail 계정은 2단계 인증을 켜고 돈독 전용 16자리 앱 비밀번호를 발급한다. 일반 Google 계정 비밀번호를 사용하거나 저장소·GitHub Actions·대화에 앱 비밀번호를 넣지 않는다. 조직 계정, Advanced Protection 또는 보안 키만 사용하는 2단계 인증처럼 앱 비밀번호를 만들 수 없는 계정이면 개인 Gmail 계정을 별도로 사용하거나 sender 인증을 지원하는 외부 transactional SMTP로 교체한다.
+
+Mac mini의 저장소 밖 `production.env`에 다음 값을 넣고 파일 권한을 0600으로 유지한다.
+
+```dotenv
+DONDOK_PUBLIC_URL=https://dondok.duckdns.org
+DONDOK_COOKIE_SECURE=true
+DONDOK_FRONTEND_PORT=18080
+
+DONDOK_MAIL_ENABLED=true
+DONDOK_MAIL_FROM=<발송에 사용할 Gmail 주소>
+DONDOK_SMTP_HOST=smtp.gmail.com
+DONDOK_SMTP_PORT=587
+DONDOK_SMTP_USERNAME=<같은 Gmail 주소>
+DONDOK_SMTP_PASSWORD=<돈독 전용 Google 앱 비밀번호>
+DONDOK_SMTP_AUTH=true
+DONDOK_SMTP_STARTTLS=true
+```
+
+`DONDOK_MAIL_FROM`과 `DONDOK_SMTP_USERNAME`은 우선 같은 Gmail 주소를 사용한다. 운영 기동 뒤 새 테스트 계정으로 인증 메일과 비밀번호 재설정 메일을 각각 한 번 보내 실제 수신, 링크 origin과 token 1회성까지 확인한다. Google 계정 비밀번호를 바꾸면 기존 앱 비밀번호가 폐기될 수 있으므로 새 앱 비밀번호로 운영 환경파일을 갱신하고 backend를 재기동한다.
+
+## GitHub Actions 배포 경계
+
+[GitHub의 self-hosted runner 보안 지침](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners)에 따라 public 애플리케이션 저장소에는 Mac mini self-hosted runner를 등록하지 않는다. public fork와 PR이 수정한 workflow가 운영 호스트에서 실행될 수 있기 때문이다. 배포 전용 private 저장소 `clapsheep/dondok-deploy`에만 runner `clapsheep-server-dondok`을 등록하고 다음 순서를 실행한다.
+
+1. GitHub-hosted runner가 public `dondok` 저장소의 현재 `main` SHA를 읽는다.
+2. 같은 SHA의 `CI` push run이 성공했는지 확인하고, 다르면 배포하지 않는다.
+3. private 저장소에만 연결된 Mac mini runner가 검증된 SHA를 checkout한다.
+4. [`infra/deploy-production.sh`](../../infra/deploy-production.sh)가 SHA tag로 backend·frontend image를 build한다.
+5. 기존 DB가 실행 중이면 새 배포 전에 daily bundle과 격리 복원 drill을 성공시킨다.
+6. 운영 전용 checkout을 해당 SHA로 전환하고 `docker compose up --no-build --wait`로 교체한다.
+7. 실패하면 migration 이전 backup을 남긴 채 직전 SHA image와 checkout으로 애플리케이션 rollback을 시도한다.
+8. GitHub-hosted runner가 공개 URL의 HTTPS, HSTS, HTTP redirect, `/healthz`, CSRF endpoint를 외부에서 확인한다.
+
+private 배포 저장소 workflow만 GitHub environment의 다음 비민감 변수를 사용한다. 실제 비밀번호나 SMTP credential은 GitHub에 복제하지 않는다.
+
+| 변수 | Mac mini 값 |
+| --- | --- |
+| `DONDOK_DEPLOY_DIR` | `/Users/clapsheep-server/services/dondok` |
+| `DONDOK_ENV_FILE` | `/Users/clapsheep-server/.config/dondok/production.env` |
+| `DONDOK_BACKUP_DIR` | `/Users/clapsheep-server/Backups/dondok-postgres` |
+| `DONDOK_STATE_DIR` | `/Users/clapsheep-server/.local/state/dondok` |
+| `DONDOK_PUBLIC_URL` | 실제 `https://` origin |
+
+운영 환경파일과 상태·백업 디렉터리는 각각 0600·0700이어야 한다. 배포 lock은 동시에 두 release가 Compose와 DB에 접근하는 것을 막는다. production 로그와 DB dump는 public Actions log·artifact로 올리지 않고 Mac mini의 제한된 경로에서만 조사한다. Docker Desktop과 runner는 사용자 LaunchAgent이므로 재부팅 뒤 해당 macOS 사용자의 GUI session이 시작되어야 한다.
 
 ## 데이터와 복구
 
@@ -161,7 +240,7 @@ LATEST_BUNDLE=/absolute/private/path/dondok-postgres/dondok-postgres-YYYYMMDDTHH
 
 [`infra/launchd/com.dondok.postgres-backup.plist.example`](../../infra/launchd/com.dondok.postgres-backup.plist.example)은 매일 03:30에 운영 Compose 대상으로 백업을 실행하는 설치 전 template이다. 저장소에는 placeholder만 추적한다.
 
-1. `__DONDOK_REPOSITORY__`, `__DONDOK_BACKUP_DIR__`, `__DONDOK_LOG_DIR__`를 공백을 포함해도 되는 실제 절대 경로로 치환한 사본을 `~/Library/LaunchAgents/com.dondok.postgres-backup.plist`에 둔다.
+1. `__DONDOK_REPOSITORY__`, `__DONDOK_ENV_FILE__`, `__DONDOK_BACKUP_DIR__`, `__DONDOK_LOG_DIR__`를 공백을 포함해도 되는 실제 절대 경로로 치환한 사본을 `~/Library/LaunchAgents/com.dondok.postgres-backup.plist`에 둔다.
 2. log directory를 미리 만들고 0700으로 제한한다. plist와 백업 스크립트가 현재 사용자 소유인지 확인한다.
 3. `plutil -lint ~/Library/LaunchAgents/com.dondok.postgres-backup.plist`를 통과시킨다.
 4. `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.dondok.postgres-backup.plist` 후 `launchctl kickstart -k gui/$(id -u)/com.dondok.postgres-backup`으로 한 번 즉시 실행한다.
@@ -191,7 +270,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 - 백엔드 health: `http://localhost:8080/actuator/health/readiness`
 - 개발 메일함: `http://localhost:8025`
 
-운영은 `.env`에 실제 도메인·PostgreSQL·SMTP 값을 넣고 `docker compose -f compose.yaml -f compose.prod.yaml up -d --build --wait`로 기동한다. 운영 구성은 Caddy만 80/443을 공개하며 backend와 PostgreSQL은 호스트 포트를 열지 않는다.
+운영은 저장소 밖의 0600 `production.env`에 실제 origin·PostgreSQL·SMTP 값을 넣고 private 배포 저장소 workflow로 기동한다. 긴급 수동 배포도 임의 branch가 아니라 CI를 통과한 `main`의 전체 Git SHA를 [`infra/deploy-production.sh`](../../infra/deploy-production.sh)에 전달한다. 운영 Compose는 frontend를 `127.0.0.1:18080`에만 bind하고 기존 Nginx Proxy Manager만 80/443을 공개하며 backend와 PostgreSQL은 호스트 포트를 열지 않는다.
 
 ## 프로젝트 생성 완료 조건
 

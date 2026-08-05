@@ -11,7 +11,7 @@
 - 가계부 생성, N명 구성원 조회, 7일·1회용 초대 URL·코드 발급·수락
 - React 19 / Vite 8 / TanStack Query / Tailwind 기반 반응형 PWA
 - 모바일·iPad·데스크톱 Playwright 인증·구성원 초대 흐름
-- Mac mini용 Docker Compose + Caddy HTTPS 경계
+- Mac mini용 Docker Compose + 기존 Nginx Proxy Manager HTTPS 경계
 - 저장소 밖 PostgreSQL 일일 백업·30일 보존과 network-none 격리 복구 drill
 
 ## 로컬 실행

@@ -10,6 +10,8 @@ services:
       - "8025:8025"
     expose:
       - "1025"
+    networks:
+      - app
 
   backend:
     environment:

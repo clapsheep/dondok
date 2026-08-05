@@ -9,7 +9,7 @@
   <array>
     <string>__DONDOK_REPOSITORY__/infra/postgres-backup.sh</string>
     <string>--env-file</string>
-    <string>__DONDOK_REPOSITORY__/.env</string>
+    <string>__DONDOK_ENV_FILE__</string>
     <string>--compose-file</string>
     <string>__DONDOK_REPOSITORY__/compose.yaml</string>
     <string>--compose-file</string>
