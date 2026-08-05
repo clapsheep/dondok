@@ -102,15 +102,15 @@ Redis는 단일 backend 인스턴스에서는 넣지 않는다. reverse proxy �
 - trusted proxy와 forwarded header를 명시하고 backend health/debug endpoint를 공개하지 않는다.
 - Mac mini 방화벽에서도 reverse proxy 포트만 허용하고 backend·PostgreSQL 포트는 외부에서 접근할 수 없어야 한다.
 
-### ipTIME DDNS와 Nginx Proxy Manager
+### DuckDNS와 Nginx Proxy Manager
 
-운영 origin은 `https://clapsheep.iptime.org`를 사용한다. ipTIME DDNS의 A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream 18080, backend 8080과 PostgreSQL 5432는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
+운영 origin은 `https://dondok.duckdns.org`를 사용한다. DuckDNS A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream 18080, backend 8080과 PostgreSQL 5432는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
 
 Nginx Proxy Manager의 Proxy Host는 다음 값으로 관리한다.
 
 | 항목 | 값 |
 | --- | --- |
-| Domain Names | `clapsheep.iptime.org` |
+| Domain Names | `dondok.duckdns.org` |
 | Scheme | `http` |
 | Forward Hostname / IP | `host.docker.internal` |
 | Forward Port | `18080` |
@@ -122,14 +122,23 @@ Nginx Proxy Manager의 Proxy Host는 다음 값으로 관리한다.
 
 HTTP-01 인증서 발급과 HTTP→HTTPS redirect를 위해 외부 TCP 80과 443이 모두 Nginx Proxy Manager에 도달해야 한다. 돈독 Compose를 배포하기 전에 Proxy Host를 만들어도 되지만 upstream은 frontend가 시작되기 전까지 `502`를 반환할 수 있다. Nginx Proxy Manager 자체의 데이터·인증서 백업과 image pinning은 돈독 Compose와 별도로 관리한다.
 
+공인 IP 변경은 [`infra/duckdns-update.sh`](../../infra/duckdns-update.sh)와 사용자 LaunchAgent가 5분마다 갱신한다. DuckDNS token은 process argument나 log에 넣지 않고 `~/.config/dondok/duckdns.env` 같은 저장소 밖 0600 파일에만 둔다. installer는 interactive terminal에서 token을 숨김 입력으로 받고 즉시 update API를 검증한 뒤 LaunchAgent를 설치한다.
+
+```bash
+cd /absolute/repository/dondok
+./infra/install-duckdns-updater.sh --domain dondok
+```
+
+기존 secret 또는 LaunchAgent를 의도적으로 교체할 때만 `--replace`를 추가한다. 설치 뒤 `launchctl print gui/$(id -u)/com.dondok.duckdns-update`와 `~/Library/Logs/dondok/duckdns-update.log`에서 최근 성공 시각을 확인한다. log에는 domain과 성공 시각만 남고 token은 남지 않는다.
+
 ### 운영 SMTP
 
-MVP의 낮은 인증·비밀번호 재설정 메일량에는 개인 Gmail SMTP를 사용한다. 별도 메일 서버를 Mac mini에서 운영하지 않고 Gmail이 발송을 담당하므로 ipTIME DDNS에 MX·SPF·DKIM record를 추가하지 않는다. Gmail 계정은 2단계 인증을 켜고 돈독 전용 16자리 앱 비밀번호를 발급한다. 일반 Google 계정 비밀번호를 사용하거나 저장소·GitHub Actions·대화에 앱 비밀번호를 넣지 않는다. 조직 계정, Advanced Protection 또는 보안 키만 사용하는 2단계 인증처럼 앱 비밀번호를 만들 수 없는 계정이면 개인 Gmail 계정을 별도로 사용하거나 sender 인증을 지원하는 외부 transactional SMTP로 교체한다.
+MVP의 낮은 인증·비밀번호 재설정 메일량에는 개인 Gmail SMTP를 사용한다. 별도 메일 서버를 Mac mini에서 운영하지 않고 Gmail이 발송을 담당하므로 DuckDNS에 MX·SPF·DKIM record를 추가하지 않는다. Gmail 계정은 2단계 인증을 켜고 돈독 전용 16자리 앱 비밀번호를 발급한다. 일반 Google 계정 비밀번호를 사용하거나 저장소·GitHub Actions·대화에 앱 비밀번호를 넣지 않는다. 조직 계정, Advanced Protection 또는 보안 키만 사용하는 2단계 인증처럼 앱 비밀번호를 만들 수 없는 계정이면 개인 Gmail 계정을 별도로 사용하거나 sender 인증을 지원하는 외부 transactional SMTP로 교체한다.
 
 Mac mini의 저장소 밖 `production.env`에 다음 값을 넣고 파일 권한을 0600으로 유지한다.
 
 ```dotenv
-DONDOK_PUBLIC_URL=https://clapsheep.iptime.org
+DONDOK_PUBLIC_URL=https://dondok.duckdns.org
 DONDOK_COOKIE_SECURE=true
 DONDOK_FRONTEND_PORT=18080
 

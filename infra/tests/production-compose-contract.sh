@@ -48,11 +48,16 @@ jq -e '
 
 /bin/bash -n \
   "$REPOSITORY_DIR/infra/deploy-production.sh" \
+  "$REPOSITORY_DIR/infra/duckdns-update.sh" \
+  "$REPOSITORY_DIR/infra/install-duckdns-updater.sh" \
   "$REPOSITORY_DIR/infra/postgres-backup.sh" \
   "$REPOSITORY_DIR/infra/postgres-restore-drill.sh"
 
+"$REPOSITORY_DIR/infra/tests/duckdns-update-contract.sh"
+
 python3 - \
   "$REPOSITORY_DIR/infra/launchd/com.dondok.docker-desktop.plist.example" \
+  "$REPOSITORY_DIR/infra/launchd/com.dondok.duckdns-update.plist.example" \
   "$REPOSITORY_DIR/infra/launchd/com.dondok.postgres-backup.plist.example" <<'PYTHON'
 import plistlib
 import sys
