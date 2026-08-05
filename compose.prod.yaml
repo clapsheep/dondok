@@ -2,6 +2,8 @@ services:
   db:
     mem_limit: 2g
     cpus: 1.5
+    ports:
+      - "${DONDOK_DB_BIND_HOST:-127.0.0.1}:${DONDOK_DB_HOST_PORT:-15432}:5432"
     logging:
       driver: json-file
       options:
