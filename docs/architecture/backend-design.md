@@ -81,11 +81,13 @@ public sealed interface AssetBehavior
 
 정책 수가 고정된 작은 집합이면 `EnumMap<AssetBehaviorType, AssetBehavior>`가 적합하다. 현재 신용카드·체크카드·적금의 설정 차이는 1:1 composition으로 두고, posting처럼 실제 행동 차이가 있는 지점만 Strategy/Policy로 승격한다.
 
-자산 종류는 고정 시스템 코드만 사용하고 표시 이름은 behavior를 결정하지 않는다. `BANK`는 하위 계약과 DB 코드를 유지하되 사용자에게는 `계좌`로 표시한다. `OTHER`는 `CASH`와 동일한 `STANDARD` 정책을 사용하며 개별 용도는 자산 이름으로 표현한다. 사용자 정의 종류 생성 분기와 관련 DTO는 두지 않는다.
+자산 종류는 고정 시스템 코드만 사용하고 표시 이름은 behavior를 결정하지 않는다. `BANK`는 하위 계약과 DB 코드를 유지하되 사용자에게는 `계좌`로 표시한다. 마이너스 통장은 별도 코드나 Strategy가 아니라 음수 잔액을 가진 `BANK` 자산이므로 결제 계좌와 일반 이체 후보에서도 다른 계좌와 동일하게 다룬다. `OTHER`는 `CASH`와 동일한 `STANDARD` 정책을 사용하며 개별 용도는 자산 이름으로 표현한다. 사용자 정의 종류 생성 분기와 관련 DTO는 두지 않는다.
 
 `MembershipService.createLedgerBook`의 단일 트랜잭션은 생성자 멤버를 flush한 뒤 자산 유형을 bootstrap하고, 전용 `DefaultAssetBootstrapService`로 현금·계좌·신용카드·체크카드와 연결 설정을 생성한다. 공개 자산 생성 API를 네 번 재사용해 idempotency claim·가계부 lock·조회를 중복하지 않는다. 중간 설정 FK가 실패하면 가계부·멤버·유형·자산·분류를 모두 rollback한다. 0원 기본 자산은 `OPENING_BALANCE`를 생성하지 않는다.
 
 `MembershipService.deleteCurrentLedgerBook`은 현재 멤버십으로 book ID를 찾고 요청의 `expectedLedgerId`와 먼저 비교한 뒤 `ledger_book`을 pessimistic write lock으로 읽어 `expectedVersion`을 비교한다. 이 ID 조건은 이전 가계부 삭제와 새 가계부 생성 사이 ABA를 막는다. 멤버 참여와 초대 발급·취소는 같은 book lock 순서를 사용하고 `ledger_book.updated_at`을 touch해 version을 증가시키므로, 공유 구조가 바뀐 뒤 예전 삭제 snapshot은 `412`로 거부된다. 일치할 때 부모 entity 하나를 삭제해 DB cascade를 사용하며 application service가 하위 repository를 순서대로 지우지 않는다. 확인 문구 `가계부 삭제`는 HTTP 경계에서 검증한다. 사용자와 Spring Session은 삭제하지 않으므로 성공 응답 뒤 같은 세션으로 즉시 가계부 없음 상태를 조회할 수 있다.
+
+초대 발급은 `DirectInvitationCodeGenerator`가 `SecureRandom`으로 숫자 6자리를 만들고 `SecretTokenService`가 URL용 고강도 token과 두 digest를 만든다. repository의 단일 native insert가 DB unique 충돌이면 0을 반환하고 application service가 새 값으로 제한 재시도하므로 중복 사전 조회 경쟁을 만들지 않는다. 입력이 정확히 6자리면 `direct_code_digest`, 긴 URL token이면 `link_token_digest`로 조회한다. 짧은 코드의 열거 공격은 단일 Mac mini 인스턴스에서 로그인 사용자별 10분 20회 in-memory window로 제한하고, 다중 인스턴스로 확장할 때 Redis 같은 공유 limiter로 교체한다.
 
 자산 목록 query model은 영속 entity를 화면 그룹 DTO로 바꾸지 않는다. `AssetView`가 고정 종류의 `systemCode`, `ACTIVE/ARCHIVED` 상태, signed `currentBalanceWon`, `currentMonthCardPaymentDueWon`, `nextMonthCardPaymentDueWon`을 함께 반환한다. 기본 `GET /api/assets`는 활성 자산만, `status=ARCHIVED/ALL`은 보관 또는 전체를 반환한다. 프론트는 전체 결과로 순자산을 계산하되 활성 결과만 자금·카드·투자·대출·보험 그룹과 신규 선택기에 사용한다. 기준 월은 주입된 `Clock`을 `Asia/Seoul`로 해석하며, 카드 결제 금액은 목록에 포함된 카드 ID를 대상으로 현재 월 시작부터 다다음 월 시작 전까지 `card_statement_forecast.payment_amount_won`을 한 번의 조건부 집계 query로 현재·다음 달에 나눈다. 비카드와 해당 월 명세가 없는 카드는 0을 반환하며, 자산별 추가 조회나 별도 집계 cache를 만들지 않는다.
 
@@ -122,7 +124,7 @@ public record CreateExpense(
 
 자산 생성의 0이 아닌 최초 금액은 공개 수입·지출 API로 우회하지 않고 application service가 내부 `OPENING_BALANCE` adjustment command로 생성한다. 등록일 변경 시 이 내부 거래 날짜를 함께 수정하며 통계에서는 제외한다.
 
-모든 자산 생성은 사용자가 선택한 등록일을 받는다. 신용카드는 카드 설정, 체크카드는 결제 계좌, 적금은 자동이체 계좌·일을 유형별 command와 composition entity로 저장한다. 적금 설정만으로 자동 거래를 만들지 않는다.
+모든 자산 생성은 사용자가 선택한 등록일을 받는다. 신용카드는 카드 설정, 체크카드는 결제 계좌를 유형별 command와 composition entity로 저장한다. 적금 자동이체는 선택 command이며, command가 없으면 설정 entity를 만들지 않고 command가 있으면 계좌·일을 함께 저장한다. 기존 설정이 있는 적금 수정에서 command를 제거하면 설정 entity도 제거한다. 적금 설정만으로 자동 거래를 만들지 않는다.
 
 부호 계산과 posting 생성 규칙을 Controller나 여러 Service에 흩어 놓지 않는다.
 

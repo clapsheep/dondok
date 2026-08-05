@@ -13,6 +13,7 @@ import com.dondok.settlement.application.CardStatementService;
 import com.dondok.transaction.application.CardPurchaseManagementService;
 import com.dondok.transaction.application.TransactionService;
 import java.sql.Timestamp;
+import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -81,6 +82,9 @@ class MembershipServiceIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     private final List<UUID> testUsers = new ArrayList<>();
+
+    private record InvitationDigests(String linkTokenDigest, String directCodeDigest) {
+    }
 
     @AfterEach
     void cleanUp() {
@@ -350,25 +354,63 @@ class MembershipServiceIntegrationTest {
     }
 
     @Test
-    void issuedTokenIsReturnedOnceWhileOnlyItsDigestIsPersisted() {
+    void issuedDirectCodeAndLinkTokenAreReturnedOnceWhileOnlyTheirDigestsArePersisted() {
         UUID creator = createUser("초대자");
+        UUID invitee = createUser("초대 확인 사용자");
         membershipService.createLedgerBook(creator);
 
         MembershipService.IssuedInvitation issued = membershipService.issueInvitation(creator);
 
-        String storedDigest = jdbcTemplate.queryForObject(
-                "select code_digest from ledger_invitation where id = ?",
-                String.class,
-                issued.invitationId());
-        assertThat(storedDigest).isEqualTo(tokenService.digest(issued.code()));
-        assertThat(storedDigest).isNotEqualTo(issued.code());
-        assertThat(issued.inviteUrl()).endsWith("/join?code=" + issued.code());
+        InvitationDigests stored = jdbcTemplate.queryForObject("""
+                select link_token_digest, direct_code_digest
+                  from ledger_invitation
+                 where id = ?
+                """, (resultSet, rowNumber) -> new InvitationDigests(
+                resultSet.getString("link_token_digest"),
+                resultSet.getString("direct_code_digest")), issued.invitationId());
+        String linkToken = URI.create(issued.inviteUrl()).getRawQuery().substring("code=".length());
+
+        assertThat(issued.code()).matches("^[0-9]{6}$");
+        assertThat(stored.directCodeDigest()).isEqualTo(tokenService.digest(issued.code()));
+        assertThat(stored.linkTokenDigest()).isEqualTo(tokenService.digest(linkToken));
+        assertThat(stored.linkTokenDigest()).isNotEqualTo(stored.directCodeDigest());
+        assertThat(stored.directCodeDigest()).isNotEqualTo(issued.code());
+        assertThat(issued.inviteUrl()).doesNotEndWith(issued.code());
+        assertThat(membershipService.previewInvitation(invitee, linkToken).memberCount()).isEqualTo(1);
 
         MembershipService.InvitationSummary listed = membershipService.invitations(creator).get(0);
         assertThat(listed.invitationId()).isEqualTo(issued.invitationId());
         assertThat(listed.getClass().getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("invitationId", "status", "createdAt", "expiresAt");
+    }
+
+    @Test
+    void issuedDirectCodesAreUnique() {
+        UUID creator = createUser("초대 코드 중복 확인자");
+        membershipService.createLedgerBook(creator);
+
+        MembershipService.IssuedInvitation first = membershipService.issueInvitation(creator);
+        MembershipService.IssuedInvitation second = membershipService.issueInvitation(creator);
+
+        assertThat(first.code()).matches("^[0-9]{6}$");
+        assertThat(second.code()).matches("^[0-9]{6}$").isNotEqualTo(first.code());
+    }
+
+    @Test
+    void directCodeChecksAreRateLimitedPerUser() {
+        UUID invitee = createUser("초대 코드 반복 확인자");
+
+        for (int attempt = 0; attempt < 20; attempt++) {
+            String code = "%06d".formatted(700_000 + attempt);
+            assertThatThrownBy(() -> membershipService.previewInvitation(invitee, code))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.getErrorCode()).isEqualTo("INVITATION_INVALID"));
+        }
+
+        assertThatThrownBy(() -> membershipService.previewInvitation(invitee, "700020"))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo("INVITATION_RATE_LIMITED"));
     }
 
     @Test

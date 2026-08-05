@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, LoaderCircle, RotateCcw } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { Button } from '../../components/ui/Button'
@@ -59,6 +59,12 @@ function CardStatementContent({ statement }: { statement: CardStatementDetail })
   const previewHeading = useRef<HTMLHeadingElement>(null)
   const idempotency = useRef<{ previewToken: string; key: string } | undefined>(undefined)
 
+  useEffect(() => {
+    if (!workflow.preview) return
+    const frame = requestAnimationFrame(() => previewHeading.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [workflow.preview])
+
   async function loadLatestConflict() {
     try {
       const latest = await queryClient.fetchQuery({
@@ -85,7 +91,6 @@ function CardStatementContent({ statement }: { statement: CardStatementDetail })
     onSuccess: (preview) => {
       setWorkflow((current) => acceptStatementPrepaymentPreview(current, preview, preview.statementVersion))
       idempotency.current = undefined
-      requestAnimationFrame(() => previewHeading.current?.focus())
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 412) void loadLatestConflict()
@@ -265,7 +270,7 @@ function MutationError({ error, hidden, fallback }: { error: Error | null; hidde
 }
 
 function PageLoading() {
-  return <div className="grid min-h-[28rem] place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">카드 명세를 불러오는 중…</p></div></div>
+  return <div className="grid min-h-[28rem] place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600 dark:text-forest-100" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">카드 명세를 불러오는 중…</p></div></div>
 }
 
 function PageUnavailable({ missing, onRetry }: { missing: boolean; onRetry: () => void }) {

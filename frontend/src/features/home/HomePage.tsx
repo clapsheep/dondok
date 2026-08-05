@@ -1,10 +1,10 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Link2, LoaderCircle, Plus, RefreshCw, SquarePen } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, SquarePen } from 'lucide-react'
+import { useEffect, useMemo, useRef } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
+import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
-import { Field } from '../../components/ui/Field'
 import { addMonths, currentMonthInSeoul, monthBounds, monthTitle } from '../../lib/month'
 import {
   membershipApi,
@@ -29,58 +29,53 @@ export function HomePage({ current }: { current: CurrentLedgerBook }) {
 }
 
 function LedgerSetup() {
-  const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const [code, setCode] = useState('')
   const createLedger = useMutation({
     mutationFn: membershipApi.createLedger,
     onSuccess: (ledger) => queryClient.setQueryData(membershipKeys.current, { ledger }),
   })
 
-  function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    createLedger.mutate()
-  }
-
-  function openInvitation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const normalized = code.trim()
-    if (normalized) navigate(`/join?code=${encodeURIComponent(normalized)}`)
-  }
-
   return (
-    <section className="py-8 md:py-14">
-      <div className="max-w-2xl">
+    <section className="mx-auto max-w-2xl py-8 md:py-14">
+      <div>
         <p className="text-sm font-semibold text-brass-500">첫 시작</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-[-.035em] md:text-4xl">함께 기록할 가계부를 준비해요</h1>
-        <p className="mt-3 leading-7 text-[var(--muted)]">가계부를 바로 시작하거나 받은 초대 코드로 기존 공동 기록에 참여할 수 있어요. 로그인 아이디는 초대에 사용하거나 다른 구성원에게 공개하지 않아요.</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-[-.035em] md:text-4xl">초대 코드를 받으셨나요?</h1>
+        <p className="mt-3 leading-7 text-[var(--muted)]">받지 않았다면 새 가계부를 바로 시작하고, 받았다면 기존 가계부에 참여해요.</p>
         {ledgerLifecycleStatus(location.state)}
       </div>
 
-      <div className="mt-8 grid divide-y divide-[var(--line)] border-y border-[var(--line)] lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-        <form className="flex flex-col px-1 py-6 xs:px-5 lg:px-7" onSubmit={create}>
-          <Plus className="text-forest-700" size={24} aria-hidden="true" />
-          <h2 className="mt-4 text-xl font-semibold">가계부 시작하기</h2>
-          <p className="mt-2 min-h-12 text-sm leading-6 text-[var(--muted)]">별도 설정 없이 바로 시작해요. 모든 구성원이 같은 권한으로 함께 관리할 수 있어요.</p>
-          {createLedger.error ? <div className="mt-5"><ErrorNotice error={createLedger.error} /></div> : null}
-          <div className="mt-auto pt-5">
-            <Button type="submit" className="w-full" size="large" disabled={createLedger.isPending}>
-              {createLedger.isPending && <LoaderCircle className="animate-spin" size={18} />}가계부 시작하기
-            </Button>
+      <div className="mt-8 divide-y divide-[var(--line)] border-y border-[var(--line)]">
+        <div className="grid gap-4 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div>
+            <h2 className="font-semibold">초대 코드가 없어요</h2>
+            <p className="mt-1 text-sm leading-6 text-[var(--muted)]">별도 설정 없이 내 가계부를 만들고 바로 기록을 시작해요.</p>
           </div>
-        </form>
+          <Button
+            type="button"
+            className="w-full sm:w-auto"
+            size="large"
+            aria-label="가계부 시작하기 - 바로 시작하기"
+            disabled={createLedger.isPending}
+            onClick={() => createLedger.mutate()}
+          >
+            {createLedger.isPending && <LoaderCircle className="animate-spin" size={18} />}바로 시작하기
+          </Button>
+          {createLedger.error ? <div className="sm:col-span-2"><ErrorNotice error={createLedger.error} /></div> : null}
+        </div>
 
-        <form className="px-1 py-6 xs:px-5 lg:px-7" onSubmit={openInvitation}>
-          <Link2 className="text-forest-700" size={24} aria-hidden="true" />
-          <h2 className="mt-4 text-xl font-semibold">초대 코드로 참여하기</h2>
-          <p className="mt-2 min-h-12 text-sm leading-6 text-[var(--muted)]">코드를 확인한 뒤 현재 구성원을 보고 참여를 결정할 수 있어요.</p>
-          <div className="mt-5">
-            <Field id="invitationCode" name="invitationCode" label="초대 코드" value={code} onChange={(event) => setCode(event.target.value)} autoComplete="off" required />
+        <div className="grid gap-4 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div>
+            <h2 className="font-semibold">6자리 초대 코드를 받았어요</h2>
+            <p className="mt-1 text-sm leading-6 text-[var(--muted)]">현재 구성원을 확인한 뒤 기존 가계부에 참여할 수 있어요.</p>
           </div>
-          <Button type="submit" className="mt-5 w-full" variant="secondary" size="large" disabled={!code.trim()}>초대 확인하기</Button>
-        </form>
+          <Button asChild className="w-full sm:w-auto" variant="secondary" size="large">
+            <Link to="/join">초대 코드 입력하기</Link>
+          </Button>
+        </div>
       </div>
+
+      <p className="mt-5 text-xs leading-5 text-[var(--muted)]">로그인 아이디는 초대에 사용하거나 다른 구성원에게 공개하지 않아요.</p>
     </section>
   )
 }
@@ -144,7 +139,7 @@ function LedgerHome() {
   }
 
   return (
-    <section className="max-w-5xl py-5 md:py-8">
+    <section className="max-w-[74rem] py-5 md:py-8">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4">
         <h1 className="text-2xl font-semibold tracking-[-.025em]">가계부</h1>
         <div className="flex items-center gap-2">
@@ -153,38 +148,47 @@ function LedgerHome() {
         </div>
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-3">
-        <Button variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={20} /></Button>
-        <h2 className="text-xl font-semibold tabular-nums">{monthTitle(month)}</h2>
-        <Button variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={20} /></Button>
-      </div>
-
-      {transactionStatus(location.state)}
-      {ledgerLifecycleStatus(location.state)}
-
-      <div className="mt-4 grid grid-cols-3 border-y border-[var(--line)] py-3 text-center">
-        <SummaryValue label="수입" value={calendar.data?.totalIncomeWon} tone="income" />
-        <SummaryValue label="지출" value={calendar.data?.totalExpenseWon} tone="expense" />
-        <SummaryValue label="순액" value={calendar.data?.netWon} tone="net" />
-      </div>
-
-      <div className="mt-5 flex border-b border-[var(--line)]" role="group" aria-label="가계부 보기 방식">
-        <ViewButton active={view === 'calendar'} onClick={() => changeView('calendar')}>월간 달력</ViewButton>
-        <ViewButton active={view === 'daily'} onClick={() => changeView('daily')}>일별 보기</ViewButton>
-      </div>
-
-      {view === 'daily' && calendar.isError ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3 text-sm"><p role="alert">월 합계를 불러오지 못했어요. 일별 거래는 계속 볼 수 있어요.</p><Button variant="ghost" onClick={() => calendar.refetch()}>합계 다시 불러오기</Button></div> : null}
-
-      {view === 'calendar' ? (
-        calendar.isPending ? <LoadingRows label="달력을 불러오는 중…" /> : calendar.isError ? <HomeError onRetry={() => calendar.refetch()} /> : <MonthCalendar month={month} days={calendar.data?.days ?? []} />
-      ) : transactions.isPending ? <LoadingRows label="거래를 불러오는 중…" /> : transactions.isError ? <HomeError onRetry={() => transactions.refetch()} /> : groups.length ? (
-        <div className="mt-2">
-          {groups.map((group) => <DayTransactions key={group.date} date={group.date} items={group.items} returnTo={`${location.pathname}${location.search}`} />)}
-          <div ref={loadMore} className="grid min-h-16 place-items-center">
-            {transactions.isFetchingNextPage ? <span className="inline-flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={17} />다음 거래를 불러오는 중…</span> : transactions.hasNextPage ? <Button variant="ghost" onClick={() => transactions.fetchNextPage()}>거래 더 보기</Button> : <p className="text-xs text-[var(--muted)]">이 달의 거래를 모두 확인했어요.</p>}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-x-8 xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-x-10">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+          <div className="mt-5 flex items-center justify-between gap-3 lg:mt-0">
+            <Button variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={20} /></Button>
+            <h2 className="text-xl font-semibold tabular-nums">{monthTitle(month)}</h2>
+            <Button variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={20} /></Button>
           </div>
+
+          {transactionStatus(location.state)}
+          {ledgerLifecycleStatus(location.state)}
         </div>
-      ) : <EmptyTransactions />}
+
+        <aside className="mt-4 border-y border-[var(--line)] lg:sticky lg:top-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:border-y-0 lg:border-l lg:pl-7" aria-label="이번 달 요약" data-home-desktop-summary>
+          <h2 className="hidden text-xs font-semibold tracking-[.08em] text-[var(--muted)] lg:block">이번 달 요약</h2>
+          <div className="grid grid-cols-3 py-3 text-center lg:mt-3 lg:grid-cols-1 lg:py-0 lg:text-left">
+            <SummaryValue label="수입" value={calendar.data?.totalIncomeWon} tone="income" />
+            <SummaryValue label="지출" value={calendar.data?.totalExpenseWon} tone="expense" />
+            <SummaryValue label="순액" value={calendar.data?.netWon} tone="net" />
+          </div>
+        </aside>
+
+        <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+          <div className="mt-5 flex border-b border-[var(--line)]" role="group" aria-label="가계부 보기 방식">
+            <ViewButton active={view === 'calendar'} onClick={() => changeView('calendar')}>월간 달력</ViewButton>
+            <ViewButton active={view === 'daily'} onClick={() => changeView('daily')}>일별 보기</ViewButton>
+          </div>
+
+          {view === 'daily' && calendar.isError ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3 text-sm"><p role="alert">월 합계를 불러오지 못했어요. 일별 거래는 계속 볼 수 있어요.</p><Button variant="ghost" onClick={() => calendar.refetch()}>합계 다시 불러오기</Button></div> : null}
+
+          {view === 'calendar' ? (
+            calendar.isPending ? <LoadingRows label="달력을 불러오는 중…" /> : calendar.isError ? <HomeError onRetry={() => calendar.refetch()} /> : <MonthCalendar month={month} days={calendar.data?.days ?? []} />
+          ) : transactions.isPending ? <LoadingRows label="거래를 불러오는 중…" /> : transactions.isError ? <HomeError onRetry={() => transactions.refetch()} /> : groups.length ? (
+            <div className="mt-2">
+              {groups.map((group) => <DayTransactions key={group.date} date={group.date} items={group.items} returnTo={`${location.pathname}${location.search}`} />)}
+              <div ref={loadMore} className="grid min-h-16 place-items-center">
+                {transactions.isFetchingNextPage ? <span className="inline-flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={17} />다음 거래를 불러오는 중…</span> : transactions.hasNextPage ? <Button variant="ghost" onClick={() => transactions.fetchNextPage()}>거래 더 보기</Button> : <p className="text-xs text-[var(--muted)]">이 달의 거래를 모두 확인했어요.</p>}
+              </div>
+            </div>
+          ) : <EmptyTransactions />}
+        </div>
+      </div>
     </section>
   )
 }
@@ -206,7 +210,7 @@ function SummaryValue({ label, value, tone }: { label: string; value?: number; t
     : tone === 'expense'
       ? 'text-[var(--expense)]'
       : ''
-  return <dl className="min-w-0 border-r border-[var(--line)] px-2 last:border-r-0"><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className={`mt-1 truncate text-sm font-semibold tabular-nums xs:text-base ${color}`} title={shown}>{shown}</dd></dl>
+  return <dl className="min-w-0 border-r border-[var(--line)] px-2 last:border-r-0 lg:border-r-0 lg:border-b lg:px-0 lg:py-4 lg:last:border-b-0"><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className={`mt-1 truncate text-sm font-semibold tabular-nums xs:text-base lg:mt-2 lg:text-xl ${color}`} title={shown}>{shown}</dd></dl>
 }
 
 function ViewButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
@@ -252,7 +256,7 @@ function TransactionRow({ transaction, returnTo }: { transaction: Transaction; r
   const amount = `${transactionRowAmountPrefix(transaction)}${formatWon(transaction.amountWon)}`
   const tone = transactionRowTone(transaction)
   const label = transaction.description || transaction.category?.name || transactionTypeLabel(transaction)
-  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><p className="mt-1 truncate text-xs text-[var(--muted)]">{postingLabel(transaction)}{transaction.performedBy ? ` · ${transaction.performedBy.displayName}` : ''}{transaction.installmentCount && transaction.installmentCount > 1 ? ` · ${transaction.installmentCount}개월` : ''}</p></div><div className="text-right"><strong className={`text-sm font-semibold tabular-nums ${tone}`}>{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
+  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><span className="truncate">{postingLabel(transaction)}</span>{transaction.performedBy ? <><span aria-hidden="true">·</span><MemberAvatar displayName={transaction.performedBy.displayName} memberId={transaction.performedBy.memberId} size="xs" /><span className="truncate">{transaction.performedBy.displayName}</span></> : null}{transaction.installmentCount && transaction.installmentCount > 1 ? <><span aria-hidden="true">·</span><span className="shrink-0">{transaction.installmentCount}개월</span></> : null}</div></div><div className="text-right"><strong className={`text-sm font-semibold tabular-nums ${tone}`}>{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
   const destination = transactionRowDestination(transaction)
   return <li className="border-b border-[var(--line)] last:border-b-0">{destination ? <Link to={destination} state={{ returnTo }} aria-label={transactionRowAccessibleName(transaction, label, amount)} className="group grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 transition-colors hover:bg-forest-50 dark:hover:bg-forest-800 md:px-2">{content}</Link> : <div className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 md:px-2">{content}</div>}</li>
 }

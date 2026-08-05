@@ -1,6 +1,6 @@
 import { Monitor, Moon, Sun } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { applyTheme, saveTheme, storedTheme, type Theme } from '../lib/theme'
+import { useSyncExternalStore } from 'react'
+import { saveTheme, storedTheme, subscribeTheme, type Theme } from '../lib/theme'
 import { Button } from './ui/Button'
 
 const nextTheme: Record<Theme, Theme> = { system: 'light', light: 'dark', dark: 'system' }
@@ -11,18 +11,10 @@ const themeLabel: Record<Theme, string> = {
 }
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(storedTheme)
-
-  useEffect(() => {
-    saveTheme(theme)
-    const media = matchMedia('(prefers-color-scheme: dark)')
-    const syncSystem = () => { if (theme === 'system') applyTheme('system') }
-    media.addEventListener('change', syncSystem)
-    return () => media.removeEventListener('change', syncSystem)
-  }, [theme])
+  const theme = useSyncExternalStore<Theme>(subscribeTheme, storedTheme, () => 'system')
 
   return (
-    <Button variant="ghost" size="icon" aria-label={themeLabel[theme]} onClick={() => setTheme(nextTheme[theme])}>
+    <Button variant="ghost" size="icon" aria-label={themeLabel[theme]} onClick={() => saveTheme(nextTheme[theme])}>
       {theme === 'system' ? <Monitor size={19} /> : theme === 'dark' ? <Moon size={19} /> : <Sun size={19} />}
     </Button>
   )

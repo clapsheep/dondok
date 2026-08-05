@@ -2,6 +2,9 @@
 
 set -Eeuo pipefail
 umask 077
+export LC_ALL=C
+export LANG=C
+export LC_CTYPE=C
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPOSITORY_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"

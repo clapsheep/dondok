@@ -3,6 +3,7 @@ import { ArrowLeft, Check, LoaderCircle, RotateCcw, Save } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
+import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
@@ -477,7 +478,7 @@ function PurchaseSummary({ management }: { management: CardPurchaseManagementVie
         <Value label="구매 금액" value={formatWon(purchase.amountWon)} />
         <Value label="결제 카드" value={management.billingSnapshot.cardAssetName} />
         <Value label="분류" value={purchase.category?.name ?? '분류 없음'} />
-        <Value label={performerPersonLabel('EXPENSE')} value={purchase.performedBy?.displayName ?? '구성원 없음'} />
+        <Value label={performerPersonLabel('EXPENSE')} value={purchase.performedBy ? <span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={purchase.performedBy.displayName} memberId={purchase.performedBy.memberId} size="xs" /><span>{purchase.performedBy.displayName}</span></span> : '구성원 없음'} />
         <Value label="결제 방식" value={management.billingSnapshot.installmentCount > 1 ? `${management.billingSnapshot.installmentCount}개월 할부` : '일시불'} />
         <Value className="sm:col-span-2" label="내용" value={purchase.description || '내용 없음'} />
       </dl>
@@ -619,7 +620,7 @@ function TextAreaField({ id, label, value, onChange, error, disabled = false }: 
   return <TextareaField id={id} label={label} value={value} onChange={onChange} error={error} disabled={disabled} maxLength={500} className="grid gap-1 border-b border-[var(--line)] py-5" />
 }
 
-function Value({ label, value, className = '' }: { label: string; value: string; className?: string }) {
+function Value({ label, value, className = '' }: { label: string; value: ReactNode; className?: string }) {
   return <div className={className}><dt className="text-[var(--muted)]">{label}</dt><dd className="mt-0.5 min-w-0 break-words font-semibold">{value}</dd></div>
 }
 

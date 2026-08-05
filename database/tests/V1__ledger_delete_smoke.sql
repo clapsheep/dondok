@@ -25,7 +25,8 @@ insert into ledger_invitation (
     id,
     book_id,
     inviter_member_id,
-    code_digest,
+    link_token_digest,
+    direct_code_digest,
     status,
     redeemed_at
 )
@@ -34,6 +35,7 @@ values (
     '00000000-0000-7000-8000-000000000110',
     '00000000-0000-7000-8000-000000000111',
     repeat('b', 64),
+    repeat('d', 64),
     'REDEEMED',
     now()
 );

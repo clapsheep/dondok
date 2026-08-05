@@ -23,8 +23,19 @@ export function buildAssetOwnerViews(members: readonly LedgerMember[]): AssetOwn
   ]
 }
 
-export function resolveAssetOwnerView(requestedKey: string | null, views: readonly AssetOwnerView[]): AssetOwnerView {
-  return views.find((view) => view.key === requestedKey) ?? views[0]
+export function defaultAssetOwnerViewKey(members: readonly LedgerMember[]): string {
+  const currentMember = members.find((member) => member.currentUser)
+  return currentMember ? `${MEMBER_ASSET_OWNER_VIEW_PREFIX}${currentMember.memberId}` : ALL_ASSET_OWNER_VIEW
+}
+
+export function resolveAssetOwnerView(
+  requestedKey: string | null,
+  views: readonly AssetOwnerView[],
+  defaultKey = ALL_ASSET_OWNER_VIEW,
+): AssetOwnerView {
+  return views.find((view) => view.key === requestedKey)
+    ?? views.find((view) => view.key === defaultKey)
+    ?? views[0]
 }
 
 export function filterAssetsByOwner<T extends OwnedAsset>(assets: readonly T[], ownerViewKey: string): T[] {

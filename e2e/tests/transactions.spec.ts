@@ -24,9 +24,11 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await createBankAsset(page, '현금 지갑', '100000')
 
   await recordNavigation(page).click()
+  await expect(page.getByRole('heading', { name: '거래 기록', level: 1 })).toHaveCount(1)
   await expectInputBodyOpensDatePicker(page, page.getByLabel('날짜', { exact: true }), '거래 날짜')
   await expect(page.getByRole('radiogroup', { name: '누가 썼나요?' })).toBeVisible()
   await expect(page.getByRole('radio', { name: new RegExp(displayName) })).toBeChecked()
+  await expect(page.getByRole('radiogroup', { name: '누가 썼나요?' }).locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '거')
   await page.getByRole('button', { name: '수입', exact: true }).click()
   await expect(page.getByRole('radiogroup', { name: '누가 받았나요?' })).toBeVisible()
   await page.getByLabel('금액').fill('200000')
@@ -117,6 +119,7 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(transactionRow(page, 'QC 공동 수입').getByText('+200,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 지출').getByText('-50,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 자산 이체').getByText('30,000원', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 공동 지출').locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '거')
 
   expect(listRequests.length).toBeGreaterThanOrEqual(2)
   expect(listRequests.some((url) => new URL(url).searchParams.has('cursor'))).toBe(true)
@@ -181,7 +184,8 @@ async function expectTransactionFormLayout(page: Page, width: number) {
     const wrapper = element.closest('[data-slot="field"], [data-slot="money-field"]') ?? element.parentElement
     if (!wrapper) throw new Error('거래 Field wrapper를 찾지 못했습니다.')
     const rect = wrapper.getBoundingClientRect()
-    return { top: rect.top, bottom: rect.bottom, width: rect.width }
+    const control = wrapper.querySelector<HTMLElement>('input, button, select')
+    return { top: rect.top, bottom: rect.bottom, width: rect.width, controlHeight: control?.getBoundingClientRect().height ?? 0 }
   })
   const [amount, date, category, asset] = await Promise.all([
     fieldRect(page.getByLabel('금액', { exact: true })),
@@ -189,13 +193,42 @@ async function expectTransactionFormLayout(page: Page, width: number) {
     fieldRect(transactionCategoryTrigger(page)),
     fieldRect(page.getByLabel('입금 자산', { exact: true })),
   ])
+  expect(Math.abs(amount.top - date.top), `${width}px 금액과 날짜는 같은 거래 시점 행에 있어야 합니다`).toBeLessThanOrEqual(1)
+  expect(Math.abs(amount.width - date.width), `${width}px 금액과 날짜는 같은 폭으로 보여야 합니다`).toBeLessThanOrEqual(2)
+  expect(Math.abs(amount.controlHeight - date.controlHeight), `${width}px 금액과 날짜 control 높이가 같아야 합니다`).toBeLessThanOrEqual(1)
+
+  const mobileContextHeader = page.locator('[data-mobile-context-header]')
+  const pageBackLink = page.locator('[data-page-back-link]')
+  const desktopSummary = page.locator('[data-transaction-desktop-summary]')
   if (width < 768) {
-    expect(date.top, `${width}px 날짜는 금액 아래에 있어야 합니다`).toBeGreaterThanOrEqual(amount.bottom - 1)
+    await expect(mobileContextHeader, `${width}px 거래 기록은 앱형 문맥 header를 사용해야 합니다`).toBeVisible()
+    await expect(pageBackLink, `${width}px에서 별도 가계부로 돌아가기 행을 만들면 안 됩니다`).toBeHidden()
+    await expect(desktopSummary).toBeHidden()
     expect(asset.top, `${width}px 입금 자산은 분류 아래에 있어야 합니다`).toBeGreaterThanOrEqual(category.bottom - 1)
+
+    const navGeometry = await page.locator('[data-mobile-navigation]').evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      return {
+        left: rect.left,
+        right: rect.right,
+        bottom: innerHeight - rect.bottom,
+        radius: Math.max(parseFloat(style.borderTopLeftRadius), parseFloat(style.borderTopRightRadius)),
+      }
+    })
+    expect(navGeometry.left, `${width}px 하단 navigation은 화면 가장자리에 붙지 않아야 합니다`).toBeGreaterThanOrEqual(8)
+    expect(navGeometry.right, `${width}px 하단 navigation은 오른쪽 가장자리에 붙지 않아야 합니다`).toBeLessThanOrEqual(width - 8)
+    expect(navGeometry.bottom, `${width}px 하단 navigation은 기기 하단 edge와 간격을 둬야 합니다`).toBeGreaterThanOrEqual(8)
+    expect(navGeometry.radius, `${width}px 하단 navigation은 둥근 기기 edge에 맞는 곡률을 가져야 합니다`).toBeGreaterThanOrEqual(16)
     return
   }
-  expect(Math.abs(amount.top - date.top), `${width}px 금액과 날짜는 같은 거래 시점 행에 있어야 합니다`).toBeLessThanOrEqual(1)
-  expect(amount.width, `${width}px 금액 입력은 날짜보다 넓어야 합니다`).toBeGreaterThan(date.width)
+  await expect(mobileContextHeader).toBeHidden()
+  await expect(pageBackLink).toBeVisible()
+  if (width >= 1024) {
+    await expect(desktopSummary, `${width}px 데스크톱은 현재 입력 요약 rail을 보여야 합니다`).toBeVisible()
+    await expect(desktopSummary, `${width}px 요약 rail은 같은 거래 draft의 금액을 즉시 반영해야 합니다`).toContainText('200,000원')
+  }
+  else await expect(desktopSummary).toBeHidden()
   expect(Math.abs(category.top - asset.top), `${width}px 분류와 입금 자산은 같은 분류 행에 있어야 합니다`).toBeLessThanOrEqual(1)
 }
 
@@ -211,9 +244,11 @@ async function expectBankingMoneyPresentation(amount: Locator) {
       suffix: wrapper?.querySelector('[aria-hidden="true"]')?.textContent,
     }
   })
-  expect(presentation.fontSize, '금액은 일반 입력보다 큰 글자로 보여야 합니다').toBeGreaterThanOrEqual(20)
+  expect(presentation.fontSize, '금액은 날짜와 어울리는 compact 강조 크기여야 합니다').toBeGreaterThanOrEqual(18)
+  expect(presentation.fontSize, '금액 글자가 날짜보다 과도하게 커지면 안 됩니다').toBeLessThanOrEqual(20)
   expect(presentation.fontWeight, '금액은 한눈에 읽히는 굵기로 보여야 합니다').toBeGreaterThanOrEqual(600)
-  expect(presentation.height, '금액 입력은 은행 앱처럼 충분한 높이를 가져야 합니다').toBeGreaterThanOrEqual(56)
+  expect(presentation.height, '금액 입력은 모바일 조작 영역을 유지해야 합니다').toBeGreaterThanOrEqual(48)
+  expect(presentation.height, '금액 입력이 날짜보다 과도하게 높아지면 안 됩니다').toBeLessThanOrEqual(50)
   expect(presentation.textAlign).toBe('right')
   expect(presentation.suffix).toBe('원')
 }

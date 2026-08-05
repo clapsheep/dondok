@@ -3,6 +3,7 @@ import { AlertTriangle, Archive, ArrowLeft, Link2, LoaderCircle, RotateCcw, Save
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
+import { MemberPicker } from '../../components/MemberPicker'
 import { Button } from '../../components/ui/Button'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
@@ -54,6 +55,7 @@ type AssetDraft = {
   settlementAssetId: string
   autoSettlementEnabled: boolean
   debitCardPaymentAssetId: string
+  savingsAutoTransferEnabled: boolean
   savingsTransferAssetId: string
   savingsTransferDay: string
   expectedVersion: number
@@ -83,7 +85,7 @@ const CARD_SETTING_FIELDS = new Set<keyof AssetDraft>([
   'autoSettlementEnabled',
 ])
 const DEBIT_CARD_SETTING_FIELDS = new Set<keyof AssetDraft>(['debitCardPaymentAssetId'])
-const SAVINGS_SETTING_FIELDS = new Set<keyof AssetDraft>(['savingsTransferAssetId', 'savingsTransferDay'])
+const SAVINGS_SETTING_FIELDS = new Set<keyof AssetDraft>(['savingsAutoTransferEnabled', 'savingsTransferAssetId', 'savingsTransferDay'])
 
 export function AssetFormPage({ ledger }: { ledger: LedgerBook }) {
   const { assetId } = useParams()
@@ -109,7 +111,7 @@ export function AssetFormPage({ ledger }: { ledger: LedgerBook }) {
       <section className="py-5 md:py-8">
         <Button asChild variant="ghost"><Link to="/assets"><ArrowLeft size={17} />자산 목록</Link></Button>
         {pending ? (
-          <div className="grid min-h-[28rem] place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">자산 정보를 준비하는 중…</p></div></div>
+          <div className="grid min-h-[28rem] place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600 dark:text-forest-100" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">자산 정보를 준비하는 중…</p></div></div>
         ) : unavailable || !types.data || !assets.data || (editing && !detail.data) ? (
           <div className="mt-6 border-y border-[var(--line)] py-10 text-center">
             <p role="alert">자산 정보를 불러오지 못했어요.</p>
@@ -315,6 +317,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
       settlementAssetId: undefined,
       autoSettlementEnabled: undefined,
       debitCardPaymentAssetId: undefined,
+      savingsAutoTransferEnabled: undefined,
       savingsTransferAssetId: undefined,
       savingsTransferDay: undefined,
     }))
@@ -436,7 +439,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
                 <OwnershipOption label="공동 소유" description="가계부 구성원의 공동 자산" value="JOINT" checked={draft.ownershipScope === 'JOINT'} />
               </RadioGroup>
             </fieldset>
-            {draft.ownershipScope === 'PERSONAL' ? <SelectField id="ownerMember" label="소유자" value={draft.ownerMemberId} onChange={(value) => update('ownerMemberId', value)} error={fieldErrors.ownerMemberId}>{ledger.members.map((member) => <option key={member.memberId} value={member.memberId}>{member.displayName}{member.currentUser ? ' (나)' : ''}</option>)}</SelectField> : null}
+            {draft.ownershipScope === 'PERSONAL' ? <MemberPicker id="ownerMember" label="소유자" members={ledger.members} value={draft.ownerMemberId} onChange={(value) => update('ownerMemberId', value)} error={fieldErrors.ownerMemberId} /> : null}
             {ownerChangedToPersonal ? (
               <label className="flex min-h-11 cursor-pointer items-start gap-3 border-y border-[var(--line)] px-1 py-3" htmlFor="reassignTransactionsToNewOwner">
                 <Checkbox id="reassignTransactionsToNewOwner" className="mt-1" checked={draft.reassignTransactionsToNewOwner} onCheckedChange={(checked) => update('reassignTransactionsToNewOwner', checked)} />
@@ -744,16 +747,35 @@ function SavingsSettingsFields({ draft, update, errors, candidates, onCreatePaym
   return (
     <fieldset className="mt-5 border-t border-[var(--line)] pt-4" aria-label="적금 설정">
       <legend className="pr-3 text-sm font-semibold">적금 설정</legend>
-      <div className="mt-3 grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(9rem,.38fr)] md:gap-5">
-        <div>
-          <SelectField id="savingsTransferAsset" label="자동이체 계좌" value={draft.savingsTransferAssetId} onChange={(value) => update('savingsTransferAssetId', value)} error={errors.savingsTransferAssetId} required>
-            <option value="">자동이체 계좌를 선택해 주세요</option>
-            {candidates.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name} · {formatWon(asset.currentBalanceWon)}</option>)}
-          </SelectField>
-          <PaymentSourceAction hasCandidates={candidates.length > 0} emptyMessage="자동이체 계좌가 없어 적금을 저장할 수 없어요. 계좌를 추가해 계속할 수 있어요." triggerLabel="적금 자동이체 계좌 만들기" onCreate={onCreatePaymentSource} />
-        </div>
-        <Field id="savingsTransferDay" name="savingsTransferDay" label="자동이체일" hint="1일부터 31일까지" value={draft.savingsTransferDay} onChange={(event) => update('savingsTransferDay', event.target.value)} type="number" min={1} max={31} inputMode="numeric" error={errors.savingsTransferDay} required />
+      <div className="mt-3 flex min-h-11 items-start gap-3 border-y border-[var(--line)] px-1 py-3">
+        <Switch
+          id="savingsAutoTransferEnabled"
+          className="mt-0.5"
+          checked={draft.savingsAutoTransferEnabled}
+          aria-describedby="savings-auto-transfer-description"
+          aria-controls="savings-auto-transfer-fields"
+          onCheckedChange={(checked) => {
+            update('savingsAutoTransferEnabled', checked)
+            if (!checked) {
+              update('savingsTransferAssetId', draft.savingsTransferAssetId)
+              update('savingsTransferDay', draft.savingsTransferDay)
+            }
+          }}
+        />
+        <div><label className="cursor-pointer text-sm font-semibold" htmlFor="savingsAutoTransferEnabled">자동이체 설정</label><p id="savings-auto-transfer-description" className="mt-1 text-xs leading-5 text-[var(--muted)]">필요할 때만 계좌와 이체일을 함께 설정해요.</p></div>
       </div>
+      {draft.savingsAutoTransferEnabled ? (
+        <div id="savings-auto-transfer-fields" className="mt-4 grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(9rem,.38fr)] md:gap-5">
+          <div>
+            <SelectField id="savingsTransferAsset" label="자동이체 계좌" value={draft.savingsTransferAssetId} onChange={(value) => update('savingsTransferAssetId', value)} error={errors.savingsTransferAssetId} required>
+              <option value="">자동이체 계좌를 선택해 주세요</option>
+              {candidates.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name} · {formatWon(asset.currentBalanceWon)}</option>)}
+            </SelectField>
+            <PaymentSourceAction hasCandidates={candidates.length > 0} emptyMessage="자동이체에 사용할 계좌가 없어요. 계좌를 추가해 계속할 수 있어요." triggerLabel="적금 자동이체 계좌 만들기" onCreate={onCreatePaymentSource} />
+          </div>
+          <Field id="savingsTransferDay" name="savingsTransferDay" label="자동이체일" hint="1일부터 31일까지" value={draft.savingsTransferDay} onChange={(event) => update('savingsTransferDay', event.target.value)} type="number" min={1} max={31} inputMode="numeric" error={errors.savingsTransferDay} required />
+        </div>
+      ) : null}
     </fieldset>
   )
 }
@@ -940,8 +962,9 @@ function ConflictPanel({ latest, loading, loadError, draft, draftName, draftType
       { id: 'debit-payment-asset', label: '체크카드 결제 계좌', latest: latestIsDebitCard ? latestDebitPaymentAsset : '해당 없음', draft: draftIsDebitCard ? draftDebitPaymentAsset : '해당 없음' },
     ] : []),
     ...(latestIsSavings || draftIsSavings ? [
-      { id: 'savings-transfer-asset', label: '자동이체 계좌', latest: latestIsSavings ? latestSavingsTransferAsset : '해당 없음', draft: draftIsSavings ? draftSavingsTransferAsset : '해당 없음' },
-      { id: 'savings-transfer-day', label: '자동이체일', latest: latestIsSavings ? dayOfMonthLabel(latest.savingsSettings?.transferDay) : '해당 없음', draft: draftIsSavings ? dayOfMonthLabel(Number(draft.savingsTransferDay)) : '해당 없음' },
+      { id: 'savings-auto-transfer', label: '자동이체', latest: latestIsSavings ? (latest?.savingsSettings ? '사용' : '사용 안 함') : '해당 없음', draft: draftIsSavings ? (draft.savingsAutoTransferEnabled ? '사용' : '사용 안 함') : '해당 없음' },
+      { id: 'savings-transfer-asset', label: '자동이체 계좌', latest: latestIsSavings && latest?.savingsSettings ? latestSavingsTransferAsset : '설정 안 함', draft: draftIsSavings && draft.savingsAutoTransferEnabled ? draftSavingsTransferAsset : '설정 안 함' },
+      { id: 'savings-transfer-day', label: '자동이체일', latest: latestIsSavings && latest?.savingsSettings ? dayOfMonthLabel(latest.savingsSettings.transferDay) : '설정 안 함', draft: draftIsSavings && draft.savingsAutoTransferEnabled ? dayOfMonthLabel(Number(draft.savingsTransferDay)) : '설정 안 함' },
     ] : []),
   ] : []
   const changedRows = comparisonRows.filter((row) => row.latest !== row.draft)
@@ -1004,6 +1027,7 @@ function newDraft(types: AssetType[], ledger: LedgerBook, preferredSystemCode: s
     settlementAssetId: '',
     autoSettlementEnabled: false,
     debitCardPaymentAssetId: '',
+    savingsAutoTransferEnabled: false,
     savingsTransferAssetId: '',
     savingsTransferDay: '',
     expectedVersion: 0,
@@ -1026,6 +1050,7 @@ function draftFromAsset(asset: Asset): AssetDraft {
     settlementAssetId: asset.cardSettings?.settlementAssetId ?? '',
     autoSettlementEnabled: asset.cardSettings?.autoSettlementEnabled ?? false,
     debitCardPaymentAssetId: asset.debitCardSettings?.paymentAssetId ?? '',
+    savingsAutoTransferEnabled: Boolean(asset.savingsSettings),
     savingsTransferAssetId: asset.savingsSettings?.transferAssetId ?? '',
     savingsTransferDay: asset.savingsSettings ? String(asset.savingsSettings.transferDay) : '',
     expectedVersion: asset.version,
@@ -1061,7 +1086,7 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
     if (!draft.debitCardPaymentAssetId) errors.debitCardPaymentAssetId = '결제 계좌를 선택해 주세요.'
     debitCardSettings = { paymentAssetId: draft.debitCardPaymentAssetId }
   }
-  if (selectedType?.behavior === 'SAVINGS') {
+  if (selectedType?.behavior === 'SAVINGS' && draft.savingsAutoTransferEnabled) {
     const transferDay = Number(draft.savingsTransferDay)
     if (!draft.savingsTransferAssetId) errors.savingsTransferAssetId = '자동이체 계좌를 선택해 주세요.'
     if (!Number.isInteger(transferDay) || transferDay < 1 || transferDay > 31) errors.savingsTransferDay = '1일부터 31일 사이로 입력해 주세요.'
@@ -1101,6 +1126,7 @@ function fieldErrorsFromApi(error: ApiError, editing: boolean, input: CreateAsse
     settlementAssetId: 'settlementAssetId',
     autoSettlementEnabled: 'autoSettlementEnabled',
     paymentAssetId: 'debitCardPaymentAssetId',
+    savingsAutoTransferEnabled: 'savingsAutoTransferEnabled',
     transferAssetId: 'savingsTransferAssetId',
     transferDay: 'savingsTransferDay',
   }

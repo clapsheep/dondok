@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle, Plus, RefreshCw, WalletCards } from 'lucide-react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
+import { JointAvatar, MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { cn } from '../../lib/cn'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
@@ -9,13 +10,13 @@ import type { LedgerBook } from '../membership/api'
 import { assetApi, assetKeys, type Asset } from './api'
 import { formatWon } from './format'
 import { shouldStackMoneyRail } from './moneyRail'
-import { ALL_ASSET_OWNER_VIEW, JOINT_ASSET_OWNER_VIEW, buildAssetOwnerViews, filterAssetsByOwner, resolveAssetOwnerView, type AssetOwnerView } from './ownerView'
+import { ALL_ASSET_OWNER_VIEW, JOINT_ASSET_OWNER_VIEW, buildAssetOwnerViews, defaultAssetOwnerViewKey, filterAssetsByOwner, resolveAssetOwnerView, type AssetOwnerView } from './ownerView'
 import { buildAssetStatusOverview, type AssetGroupSummary, type AssetOverview } from './overview'
 
 const ASSET_LIMIT = 50
-const infoMoneyLayoutClassName = 'grid min-w-0 grid-cols-1 gap-2 px-1 min-[22.5rem]:grid-cols-[minmax(0,1fr)_auto] min-[22.5rem]:items-start min-[22.5rem]:gap-3 sm:px-2'
-const cardInfoMoneyLayoutClassName = 'grid min-w-0 grid-cols-1 gap-2 px-1 sm:px-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-3'
-const moneyRailWidthClassName = 'w-full min-[22.5rem]:w-[14.5rem] md:w-64 xl:w-80'
+const infoMoneyLayoutClassName = 'grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-0 sm:px-2 md:gap-3'
+const cardInfoMoneyLayoutClassName = 'grid min-w-0 grid-cols-1 gap-1 px-0 sm:px-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-3'
+const moneyRailWidthClassName = 'w-48 md:w-64 xl:w-80'
 const cardMoneyRailWidthClassName = 'w-full md:w-80 xl:w-96'
 
 type MoneyRailLine = {
@@ -39,7 +40,8 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
   const assetCount = assets.data?.filter((asset) => asset.status === 'ACTIVE').length ?? 0
   const limitReached = assetCount >= ASSET_LIMIT
   const ownerViews = buildAssetOwnerViews(ledger.members)
-  const selectedOwnerView = resolveAssetOwnerView(searchParams.get('owner'), ownerViews)
+  const defaultOwnerViewKey = defaultAssetOwnerViewKey(ledger.members)
+  const selectedOwnerView = resolveAssetOwnerView(searchParams.get('owner'), ownerViews, defaultOwnerViewKey)
   const filteredAssets = assets.data ? filterAssetsByOwner(assets.data, selectedOwnerView.key) : undefined
   const overview = filteredAssets ? buildAssetStatusOverview(filteredAssets) : undefined
   const navigationState = location.state as { assetCreated?: boolean; createdAssetId?: string; assetRemoved?: { disposition: 'DELETED' | 'ARCHIVED'; name: string } } | null
@@ -47,17 +49,17 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
   const createdAssetId = navigationState?.createdAssetId
   const selectOwnerView = (ownerViewKey: string) => {
     const nextSearchParams = new URLSearchParams(searchParams)
-    if (ownerViewKey === ALL_ASSET_OWNER_VIEW) nextSearchParams.delete('owner')
+    if (ownerViewKey === defaultOwnerViewKey) nextSearchParams.delete('owner')
     else nextSearchParams.set('owner', ownerViewKey)
     setSearchParams(nextSearchParams, { replace: true })
   }
 
   return (
     <AppShell ledgerNavigation>
-      <section className="py-5 md:py-8">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <h1 className="text-2xl font-semibold tracking-[-.035em] sm:text-3xl">자산 현황</h1>
+      <section className="py-4 md:py-8">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-baseline gap-x-2">
+            <h1 className="whitespace-nowrap text-xl font-semibold tracking-[-.035em] sm:text-3xl">자산 현황</h1>
             <p className="whitespace-nowrap text-xs text-[var(--muted)]">활성 <strong className="font-semibold text-ink-900 dark:text-white">{assetCount}</strong> / {ASSET_LIMIT}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -86,7 +88,7 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
         ) : null}
 
         {assets.isPending ? (
-          <div className="grid min-h-64 place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">자산을 불러오는 중…</p></div></div>
+          <div className="grid min-h-64 place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600 dark:text-forest-100" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">자산을 불러오는 중…</p></div></div>
         ) : assets.isError && !assets.data ? (
           <div className="mt-6 border-y border-[var(--line)] py-10 text-center">
             <p role="alert">자산을 불러오지 못했어요.</p>
@@ -94,7 +96,7 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
           </div>
         ) : assets.data?.length === 0 ? (
           <div className="mt-6 grid min-h-72 place-items-center border-y border-[var(--line)] px-6 text-center">
-            <div><WalletCards className="mx-auto text-forest-700" size={30} /><h2 className="mt-4 text-xl font-semibold">첫 자산을 등록해 보세요</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">현금, 계좌, 카드처럼 현재 함께 관리할 자산부터 시작할 수 있어요.</p><Button asChild className="mt-5"><Link to="/assets/new"><Plus size={18} />자산 등록하기</Link></Button></div>
+            <div><WalletCards className="mx-auto text-forest-700 dark:text-forest-100" size={30} /><h2 className="mt-4 text-xl font-semibold">첫 자산을 등록해 보세요</h2><p className="mt-2 text-sm leading-6 text-[var(--muted)]">현금, 계좌, 카드처럼 현재 함께 관리할 자산부터 시작할 수 있어요.</p><Button asChild className="mt-5"><Link to="/assets/new"><Plus size={18} />자산 등록하기</Link></Button></div>
           </div>
         ) : overview ? (
           <AssetOverviewContent
@@ -127,11 +129,11 @@ function AssetOwnerSubmenu({ ownerViews, selectedOwnerViewKey, resultCount, onSe
     : `${selectedOwnerView.label} 소유 자산 ${resultCount}개`
 
   return (
-    <div className="mt-2">
+    <div className="-mx-4 mt-1 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xs:-mx-6 xs:px-6 md:mx-0 md:px-0">
       <span id="asset-owner-view-label" className="sr-only">소유자별 보기</span>
       <p id="asset-owner-view-description" className="sr-only">소유 표시는 권한과 관계없는 보기 기준입니다.</p>
       <span className="sr-only" aria-live="polite" aria-label="표시 중인 자산 수">{resultAnnouncement}</span>
-      <div className="flex min-w-0 flex-wrap items-end gap-x-1" role="group" aria-labelledby="asset-owner-view-label" aria-describedby="asset-owner-view-description">
+      <div className="flex min-w-max items-end gap-x-1" role="group" aria-labelledby="asset-owner-view-label" aria-describedby="asset-owner-view-description">
         {ownerViews.map((ownerView) => {
           const selected = ownerView.key === selectedOwnerViewKey
           const accessibleLabel = ownerView.key === ALL_ASSET_OWNER_VIEW
@@ -143,14 +145,15 @@ function AssetOwnerSubmenu({ ownerViews, selectedOwnerViewKey, resultCount, onSe
               type="button"
               variant="ghost"
               className={cn(
-                'min-h-11 max-w-full border-b-2 border-transparent px-2.5 text-sm font-medium text-[var(--muted)] transition-colors hover:text-ink-900 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-white',
+                'min-h-11 shrink-0 border-b-2 border-transparent px-2.5 text-sm font-medium text-[var(--muted)] transition-colors hover:text-ink-900 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-white',
                 selected && 'border-forest-700 font-semibold text-forest-800 dark:border-forest-300 dark:text-forest-100',
               )}
               aria-pressed={selected}
               aria-label={accessibleLabel}
               onClick={() => onSelect(ownerView.key)}
             >
-              <span className="block max-w-[min(12rem,100%)] truncate" title={ownerView.label}>{ownerView.label}</span>
+              {ownerView.key === JOINT_ASSET_OWNER_VIEW ? <JointAvatar size="xs" /> : ownerView.key.startsWith('member:') ? <MemberAvatar displayName={ownerView.label} memberId={ownerView.key.slice('member:'.length)} size="xs" /> : null}
+              <span className="block whitespace-nowrap" title={ownerView.label}>{ownerView.label}</span>
             </Button>
           )
         })}
@@ -174,7 +177,7 @@ function AssetOverviewContent({ summaryOverview, activeOverview, archivedAssets,
       {hasFilteredAssets ? (
         <>
           <AssetFinancialSnapshot overview={summaryOverview} />
-          {activeOverview.groups.length ? <div className="mt-6 grid gap-7 md:mt-7 md:gap-8 xl:mt-8 xl:gap-9">
+          {activeOverview.groups.length ? <div className="mt-4 grid gap-5 md:mt-7 md:gap-8 xl:mt-8 xl:gap-9">
             {activeOverview.groups.map((group) => <AssetGroup key={group.key} group={group} ledger={ledger} showOwnerMetadata={showOwnerMetadata} />)}
           </div> : <p className="mt-6 border-y border-[var(--line)] py-5 text-sm text-[var(--muted)]" role="status">이 보기에는 활성 자산이 없어요.</p>}
           {archivedAssets.length ? <ArchivedAssetList assets={archivedAssets} ledger={ledger} showOwnerMetadata={showOwnerMetadata} /> : null}
@@ -200,8 +203,8 @@ function AssetFinancialSnapshot({ overview }: { overview: AssetOverview }) {
   return (
     <section aria-labelledby="asset-summary-title">
       <h2 id="asset-summary-title" className="sr-only">자산 요약</h2>
-      <div className="grid gap-y-3 border-b border-[var(--line)] px-1 pb-4 pt-2.5 sm:px-2 sm:pb-5 sm:pt-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-        <dl className="px-1 sm:px-2">
+      <div className="grid gap-y-2 border-b border-[var(--line)] px-0 pb-3 pt-2 sm:px-2 sm:pb-5 sm:pt-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <dl className="px-0 sm:px-2">
           <dt className="text-xs font-medium text-[var(--muted)]">순자산 <span>· 보관 자산 포함</span></dt>
           <dd className={`mt-0.5 whitespace-nowrap text-3xl font-semibold tracking-[-.035em] tabular-nums sm:text-4xl ${overview.netWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`} title={formatWon(overview.netWon)}>{formatWon(overview.netWon)}</dd>
         </dl>
@@ -226,7 +229,7 @@ function AssetFinancialSnapshot({ overview }: { overview: AssetOverview }) {
 
 function ArchivedAssetList({ assets, ledger, showOwnerMetadata }: { assets: Asset[]; ledger: LedgerBook; showOwnerMetadata: boolean }) {
   return (
-    <details className="mt-8 border-y border-[var(--line)]">
+    <details className="mt-6 border-y border-[var(--line)] md:mt-8">
       <summary className="flex min-h-11 cursor-pointer items-center py-3 text-sm font-semibold">보관 자산 {assets.length}개</summary>
       <p className="border-t border-[var(--line)] py-3 text-xs leading-5 text-[var(--muted)]">과거 거래와 잔액을 유지하며 새 거래와 연결 계좌 선택에서는 제외돼요.</p>
       <ul className="divide-y divide-[var(--line-subtle)] border-t border-[var(--line-subtle)]">
@@ -243,8 +246,8 @@ function ArchivedAssetRow({ asset, ledger, showOwnerMetadata }: { asset: Asset; 
   const accessibleName = `${asset.name}, ${asset.assetTypeName}, ${owner}, 보관됨, 현재 잔액 ${formatWon(asset.currentBalanceWon)}`
   return (
     <li>
-      <Link className="grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100" to={`/assets/${asset.assetId}`} aria-label={accessibleName}>
-        <span className="min-w-0"><strong className="block truncate text-sm">{asset.name}</strong><span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{asset.assetTypeName}{showOwnerMetadata ? ` · ${visibleOwner}` : ''} · 보관됨</span></span>
+      <Link className="grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2.5 transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100 sm:gap-3 sm:py-3" to={`/assets/${asset.assetId}`} aria-label={accessibleName}>
+        <span className="min-w-0"><strong className="block break-words text-sm sm:truncate">{asset.name}</strong><span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 break-words text-xs text-[var(--muted)] sm:flex-nowrap"><span className="sm:truncate">{asset.assetTypeName}</span>{showOwnerMetadata ? <><span aria-hidden="true">·</span><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span className="sm:truncate" data-asset-owner>{visibleOwner}</span></> : null}<span aria-hidden="true">·</span><span>보관됨</span></span></span>
         <span className={`whitespace-nowrap text-sm font-semibold tabular-nums ${asset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : ''}`}>{formatWon(asset.currentBalanceWon)}</span>
       </Link>
     </li>
@@ -268,8 +271,8 @@ function AssetGroup({ group, ledger, showOwnerMetadata }: { group: AssetGroupSum
   const layoutClassName = isCardGroup ? cardInfoMoneyLayoutClassName : infoMoneyLayoutClassName
 
   return (
-    <section className="min-w-0 border-t border-[var(--line)] pt-[10px] md:pt-3" aria-labelledby={`asset-group-${group.key}`}>
-      <header className={`${layoutClassName} gap-y-1 border-b border-[var(--line-subtle)] pb-2 sm:pb-2.5`}>
+    <section className="min-w-0 border-t border-[var(--line)] pt-2 md:pt-3" aria-labelledby={`asset-group-${group.key}`}>
+      <header className={`${layoutClassName} border-b border-[var(--line-subtle)] pb-1.5 sm:pb-2.5`}>
         <div className="min-w-0">
           <h2 id={`asset-group-${group.key}`} className="text-sm font-semibold leading-5 text-ink-900 dark:text-white">
             {group.label}<span className="ml-1 text-[0.6875rem] font-normal leading-4 text-[var(--muted)]">· {group.items.length}개</span>
@@ -326,15 +329,15 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
 
   return (
     <li>
-      <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-11 py-2 transition-colors hover:bg-forest-50 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800`}>
-        <span className="flex min-w-0 items-baseline whitespace-nowrap" data-asset-identity>
-          <strong className="min-w-0 shrink truncate font-semibold group-hover:text-forest-700 dark:group-hover:text-forest-100" title={asset.name} data-asset-name>{asset.name}</strong>
+      <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-11 py-1.5 transition-colors hover:bg-forest-50 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800 sm:py-2`}>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1 leading-5 whitespace-normal md:flex-nowrap md:gap-x-0 md:whitespace-nowrap" data-asset-identity>
+          <strong className="min-w-0 break-words font-semibold leading-5 group-hover:text-forest-700 dark:group-hover:text-forest-100 md:shrink md:truncate" title={asset.name} data-asset-name>{asset.name}</strong>
           {showAssetType || showOwnerMetadata ? (
-            <span className="max-w-[45%] shrink-0 truncate whitespace-nowrap text-xs text-[var(--muted)]" data-asset-metadata>
+            <span className="min-w-0 break-words text-xs text-[var(--muted)] md:max-w-[45%] md:shrink-0 md:truncate md:whitespace-nowrap" data-asset-metadata>
               <span aria-hidden="true"> · </span>
               {showAssetType ? <span data-asset-type>{asset.assetTypeName}</span> : null}
               {showAssetType && showOwnerMetadata ? <span aria-hidden="true"> · </span> : null}
-              {showOwnerMetadata ? <span data-asset-owner>{visibleOwner}</span> : null}
+              {showOwnerMetadata ? <span className="inline-flex items-center gap-1 align-middle"><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span data-asset-owner>{visibleOwner}</span></span> : null}
             </span>
           ) : null}
         </span>
@@ -356,6 +359,11 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
       </Link>
     </li>
   )
+}
+
+function AssetOwnerAvatar({ asset, ownerMember }: { asset: Asset; ownerMember?: LedgerBook['members'][number] }) {
+  if (asset.ownershipScope === 'JOINT') return <JointAvatar size="xs" />
+  return <MemberAvatar displayName={ownerMember?.displayName ?? '구성원'} memberId={ownerMember?.memberId ?? asset.ownerMemberId ?? asset.assetId} size="xs" />
 }
 
 function isDefaultAssetName(name: string, assetTypeName: string) {

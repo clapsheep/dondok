@@ -4,6 +4,7 @@ import {
   ALL_ASSET_OWNER_VIEW,
   JOINT_ASSET_OWNER_VIEW,
   buildAssetOwnerViews,
+  defaultAssetOwnerViewKey,
   filterAssetsByOwner,
   resolveAssetOwnerView,
 } from '../src/features/assets/ownerView.ts'
@@ -34,8 +35,22 @@ test('소유 marker 기준으로 공동과 구성원 자산을 필터링한다',
   assert.deepEqual(filterAssetsByOwner(assets, 'member:member-a').map(({ assetId }) => assetId), ['a'])
 })
 
-test('알 수 없는 URL 보기는 전체로 복구한다', () => {
+test('첫 진입과 알 수 없는 URL 보기는 현재 사용자 자산으로 복구한다', () => {
   const views = buildAssetOwnerViews(members)
-  assert.equal(resolveAssetOwnerView('member:missing', views).key, ALL_ASSET_OWNER_VIEW)
+  const defaultKey = defaultAssetOwnerViewKey(members)
+
+  assert.equal(defaultKey, 'member:member-a')
+  assert.equal(resolveAssetOwnerView(null, views, defaultKey).key, 'member:member-a')
+  assert.equal(resolveAssetOwnerView('member:missing', views, defaultKey).key, 'member:member-a')
+  assert.equal(resolveAssetOwnerView(ALL_ASSET_OWNER_VIEW, views, defaultKey).key, ALL_ASSET_OWNER_VIEW)
   assert.deepEqual(filterAssetsByOwner(assets, 'unknown').map(({ assetId }) => assetId), ['joint', 'a', 'b'])
+})
+
+test('현재 사용자 표시가 없으면 전체 보기를 안전한 기본값으로 사용한다', () => {
+  const membersWithoutCurrentUser = members.map((member) => ({ ...member, currentUser: false }))
+  const views = buildAssetOwnerViews(membersWithoutCurrentUser)
+  const defaultKey = defaultAssetOwnerViewKey(membersWithoutCurrentUser)
+
+  assert.equal(defaultKey, ALL_ASSET_OWNER_VIEW)
+  assert.equal(resolveAssetOwnerView(null, views, defaultKey).key, ALL_ASSET_OWNER_VIEW)
 })

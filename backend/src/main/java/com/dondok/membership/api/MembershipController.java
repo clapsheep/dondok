@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
@@ -101,7 +102,10 @@ public class MembershipController {
     }
 
     public record InvitationCodeRequest(
-            @NotBlank @Size(min = 32, max = 100) String code
+            @NotBlank
+            @Size(max = 100)
+            @Pattern(regexp = "(?:[0-9]{6}|[A-Za-z0-9_-]{32,100})")
+            String code
     ) {
     }
 

@@ -78,6 +78,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   await typeGroup.getByRole('button', { name: '체크카드', exact: true }).click()
   await expect(parentForm.getByRole('button', { name: '체크카드 결제 계좌 만들기' })).toBeVisible()
   await typeGroup.getByRole('button', { name: '적금', exact: true }).click()
+  await parentForm.getByRole('switch', { name: '자동이체 설정', exact: true }).click()
   await expect(parentForm.getByRole('button', { name: '적금 자동이체 계좌 만들기' })).toBeVisible()
   await typeGroup.getByRole('button', { name: '신용카드', exact: true }).click()
   await expect(parentName).toHaveValue('QC 생활비 신용카드')
@@ -163,6 +164,7 @@ for (const scenario of LINKED_ASSET_SCENARIOS) {
     await parentAmount.fill('270000')
     await parentOpenedOn.fill('2026-07-08')
     if (scenario.typeName === '적금') {
+      await parentForm.getByRole('switch', { name: '자동이체 설정', exact: true }).click()
       await parentForm.getByRole('spinbutton', { name: '자동이체일', exact: true }).fill('27')
     }
 
@@ -200,6 +202,10 @@ test('기본 계좌 후보가 있어도 카드와 적금에서 계좌를 추가�
 
   for (const scenario of EXISTING_PAYMENT_SOURCE_SCENARIOS) {
     await typeGroup.getByRole('button', { name: scenario.typeName, exact: true }).click()
+    if (scenario.typeName === '적금') {
+      const autoTransferSwitch = parentForm.getByRole('switch', { name: '자동이체 설정', exact: true })
+      if (!(await autoTransferSwitch.isChecked())) await autoTransferSwitch.click()
+    }
     const linkedAsset = parentForm.getByLabel(scenario.selectName, { exact: true })
     await expect.poll(
       () => linkedAsset.locator('option').count(),

@@ -98,7 +98,7 @@ export function SettingsPage({ ledger }: { ledger: LedgerBook }) {
             {issued ? (
               <div className="mt-5 border-l-4 border-forest-600 px-4 py-2" role="status">
                 <p className="font-semibold">초대가 준비됐어요</p>
-                <p className="mt-1 text-sm text-[var(--muted)]">보안을 위해 코드와 URL은 지금만 다시 볼 수 있어요.</p>
+                <p className="mt-1 text-sm text-[var(--muted)]">6자리 코드는 직접 입력할 때, URL은 링크로 공유할 때 사용해요. 둘 다 지금만 다시 볼 수 있어요.</p>
                 <CopyRow label="초대 코드" value={issued.code} copied={copied === 'code'} onCopy={() => copy('code', issued.code)} />
                 <CopyRow label="초대 URL" value={issued.inviteUrl} copied={copied === 'url'} onCopy={() => copy('url', issued.inviteUrl)} />
               </div>
@@ -122,7 +122,7 @@ export function SettingsPage({ ledger }: { ledger: LedgerBook }) {
 
         <section className="mt-10 max-w-4xl border-y border-[var(--line)]" aria-labelledby="category-settings-title">
           <Link to="/settings/categories" className="group grid min-h-20 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-1 py-4 sm:px-2">
-            <Tags className="text-forest-700" size={22} aria-hidden="true" />
+            <Tags className="text-forest-700 dark:text-forest-100" size={22} aria-hidden="true" />
             <span className="min-w-0"><span id="category-settings-title" className="block font-semibold group-hover:text-forest-700 dark:group-hover:text-forest-100">분류 설정</span><span className="mt-1 block text-sm text-[var(--muted)]">공동으로 쓰는 수입·지출 분류를 추가하거나 이름을 바꾸고 정리해요.</span></span>
             <ArrowRight className="text-[var(--muted)]" size={19} aria-hidden="true" />
           </Link>

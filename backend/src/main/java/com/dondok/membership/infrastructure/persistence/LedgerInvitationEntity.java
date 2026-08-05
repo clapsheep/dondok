@@ -24,8 +24,11 @@ public class LedgerInvitationEntity {
     @Column(name = "inviter_member_id", nullable = false)
     private UUID inviterMemberId;
 
-    @Column(name = "code_digest", nullable = false, length = 64)
-    private String codeDigest;
+    @Column(name = "link_token_digest", nullable = false, length = 64)
+    private String linkTokenDigest;
+
+    @Column(name = "direct_code_digest", length = 64)
+    private String directCodeDigest;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -47,24 +50,6 @@ public class LedgerInvitationEntity {
     private Long version;
 
     protected LedgerInvitationEntity() {
-    }
-
-    public LedgerInvitationEntity(
-            UUID id,
-            UUID bookId,
-            UUID inviterMemberId,
-            String codeDigest,
-            Instant createdAt,
-            Instant expiresAt
-    ) {
-        this.id = id;
-        this.bookId = bookId;
-        this.inviterMemberId = inviterMemberId;
-        this.codeDigest = codeDigest;
-        this.status = InvitationStatus.ACTIVE;
-        this.createdAt = createdAt;
-        this.expiresAt = expiresAt;
-        this.updatedAt = createdAt;
     }
 
     public InvitationStatus statusAt(Instant now) {

@@ -4,7 +4,7 @@ export type AssetBehavior = 'STANDARD' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'SAVINGS
 export type OwnershipScope = 'PERSONAL' | 'JOINT'
 export type AssetStatus = 'ACTIVE' | 'ARCHIVED'
 export type AssetListStatus = AssetStatus | 'ALL'
-export type AssetTypeSystemCode = 'CASH' | 'BANK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'SAVINGS' | 'INVESTMENT' | 'OVERDRAFT' | 'LOAN' | 'INSURANCE' | 'OTHER'
+export type AssetTypeSystemCode = 'CASH' | 'BANK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'SAVINGS' | 'INVESTMENT' | 'LOAN' | 'INSURANCE' | 'OTHER'
 
 export type AssetType = {
   assetTypeId: string

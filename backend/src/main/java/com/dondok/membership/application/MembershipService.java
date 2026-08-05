@@ -31,8 +31,10 @@ import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -42,6 +44,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class MembershipService {
 
     private static final Duration INVITATION_TTL = Duration.ofDays(7);
+    private static final int INVITATION_ISSUE_ATTEMPTS = 32;
+    private static final Pattern DIRECT_CODE_PATTERN = Pattern.compile("\\d{6}");
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
     private static final String LEDGER_DELETION_CONFIRMATION = "가계부 삭제";
 
@@ -52,6 +56,8 @@ public class MembershipService {
     private final LedgerInvitationRedemptionRepository redemptions;
     private final AppUserRepository users;
     private final SecretTokenService tokenService;
+    private final DirectInvitationCodeGenerator directCodeGenerator;
+    private final InvitationAttemptLimiter invitationAttemptLimiter;
     private final PublicUrlProperties publicUrlProperties;
     private final EntityManager entityManager;
     private final Clock clock;
@@ -67,6 +73,8 @@ public class MembershipService {
             LedgerInvitationRedemptionRepository redemptions,
             AppUserRepository users,
             SecretTokenService tokenService,
+            DirectInvitationCodeGenerator directCodeGenerator,
+            InvitationAttemptLimiter invitationAttemptLimiter,
             PublicUrlProperties publicUrlProperties,
             EntityManager entityManager,
             Clock clock,
@@ -81,6 +89,8 @@ public class MembershipService {
         this.redemptions = redemptions;
         this.users = users;
         this.tokenService = tokenService;
+        this.directCodeGenerator = directCodeGenerator;
+        this.invitationAttemptLimiter = invitationAttemptLimiter;
         this.publicUrlProperties = publicUrlProperties;
         this.entityManager = entityManager;
         this.clock = clock;
@@ -132,25 +142,40 @@ public class MembershipService {
     public IssuedInvitation issueInvitation(UUID userId) {
         LedgerMutationGuard.LockedLedger lockedLedger = mutationGuard.lockCurrentLedgerExclusively(userId);
         LedgerMemberEntity member = lockedLedger.member();
-        SecretTokenService.IssuedToken token = tokenService.issue();
         Instant now = clock.instant();
-        LedgerInvitationEntity invitation = invitations.save(new LedgerInvitationEntity(
-                UuidV7.next(),
-                member.getBookId(),
-                member.getId(),
-                token.digest(),
-                now,
-                now.plus(INVITATION_TTL)));
-        lockedLedger.book().touch(now);
-        books.flush();
+        Instant expiresAt = now.plus(INVITATION_TTL);
 
-        return new IssuedInvitation(
-                invitation.getId(),
-                InvitationStatus.ACTIVE,
-                invitation.getCreatedAt(),
-                invitation.getExpiresAt(),
-                token.rawToken(),
-                invitationUrl(token.rawToken()));
+        for (int attempt = 0; attempt < INVITATION_ISSUE_ATTEMPTS; attempt++) {
+            UUID invitationId = UuidV7.next();
+            SecretTokenService.IssuedToken linkToken = tokenService.issue();
+            String directCode = directCodeGenerator.issue();
+            int inserted = invitations.insertIssuedInvitation(
+                    invitationId,
+                    member.getBookId(),
+                    member.getId(),
+                    linkToken.digest(),
+                    tokenService.digest(directCode),
+                    now,
+                    expiresAt);
+            if (inserted == 0) {
+                continue;
+            }
+
+            lockedLedger.book().touch(now);
+            books.flush();
+            return new IssuedInvitation(
+                    invitationId,
+                    InvitationStatus.ACTIVE,
+                    now,
+                    expiresAt,
+                    directCode,
+                    invitationUrl(linkToken.rawToken()));
+        }
+
+        throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "INVITATION_CODE_UNAVAILABLE",
+                "초대 코드를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
 
     @Transactional
@@ -181,7 +206,8 @@ public class MembershipService {
 
     @Transactional(readOnly = true)
     public InvitationPreview previewInvitation(UUID userId, String rawCode) {
-        LedgerInvitationEntity invitation = invitations.findByCodeDigest(tokenService.digest(rawCode))
+        checkDirectCodeAttempt(userId, rawCode);
+        LedgerInvitationEntity invitation = findInvitation(rawCode)
                 .orElseThrow(this::invalidInvitation);
         requireUsable(invitation, clock.instant());
         if (members.existsByUserId(userId)) {
@@ -202,9 +228,9 @@ public class MembershipService {
 
     @Transactional
     public LedgerBookView redeemInvitation(UUID userId, String rawCode) {
+        checkDirectCodeAttempt(userId, rawCode);
         lockUser(userId);
-        String codeDigest = tokenService.digest(rawCode);
-        LedgerInvitationRepository.InvitationTarget invitationTarget = invitations.findTargetByCodeDigest(codeDigest)
+        LedgerInvitationRepository.InvitationTarget invitationTarget = findInvitationTarget(rawCode)
                 .orElseThrow(this::invalidInvitation);
         LedgerBookEntity book = books.findByIdForUpdate(invitationTarget.getBookId())
                 .filter(candidate -> candidate.getStatus() == LedgerBookStatus.ACTIVE)
@@ -359,6 +385,32 @@ public class MembershipService {
                     HttpStatus.CONFLICT,
                     "INVITATION_REVOKED",
                     "취소된 초대입니다.");
+        }
+    }
+
+    private Optional<LedgerInvitationEntity> findInvitation(String rawCode) {
+        String digest = tokenService.digest(rawCode);
+        if (isDirectCode(rawCode)) {
+            return invitations.findByDirectCodeDigest(digest);
+        }
+        return invitations.findByLinkTokenDigest(digest);
+    }
+
+    private Optional<LedgerInvitationRepository.InvitationTarget> findInvitationTarget(String rawCode) {
+        String digest = tokenService.digest(rawCode);
+        if (isDirectCode(rawCode)) {
+            return invitations.findTargetByDirectCodeDigest(digest);
+        }
+        return invitations.findTargetByLinkTokenDigest(digest);
+    }
+
+    private boolean isDirectCode(String rawCode) {
+        return DIRECT_CODE_PATTERN.matcher(rawCode).matches();
+    }
+
+    private void checkDirectCodeAttempt(UUID userId, String rawCode) {
+        if (isDirectCode(rawCode)) {
+            invitationAttemptLimiter.check(userId);
         }
     }
 
