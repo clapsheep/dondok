@@ -16,7 +16,7 @@ import { buildAssetStatusOverview, type AssetGroupSummary, type AssetOverview } 
 const ASSET_LIMIT = 50
 const infoMoneyLayoutClassName = 'grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-0 sm:px-2 md:gap-3'
 const cardInfoMoneyLayoutClassName = 'grid min-w-0 grid-cols-1 gap-1 px-0 sm:px-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-3'
-const moneyRailWidthClassName = 'w-44 md:w-64 xl:w-80'
+const moneyRailWidthClassName = 'w-48 md:w-64 xl:w-80'
 const cardMoneyRailWidthClassName = 'w-full md:w-80 xl:w-96'
 
 type MoneyRailLine = {
