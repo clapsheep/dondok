@@ -286,6 +286,10 @@ Mac mini의 사용자 launchd가 매일 운영 Compose의 정확한 working dire
 
 DBeaver 같은 운영자 도구는 같은 신뢰 LAN에서만 운영 PostgreSQL에 직접 연결할 수 있다. Compose의 안전한 기본 bind는 `127.0.0.1:15432`이며 Mac mini 운영 환경에서만 고정 사설 주소 `192.168.100.7:15432`로 명시적으로 덮어쓴다. `0.0.0.0`, IPv6 wildcard와 bare host port bind를 금지하고 공유기에는 15432 또는 5432 포트포워딩을 만들지 않는다. DBeaver는 애플리케이션 DB owner가 아니라 강한 별도 비밀번호, 접속 수 제한과 public schema 조회 권한만 가진 `dondok_reader`를 사용한다. 이 예외는 WAN 공개를 허용하지 않으며 Mac mini의 LAN 주소가 바뀌면 운영 환경값과 접속 설정을 함께 갱신한다.
 
+### D-045 일일 변경 기반 운영 배포
+
+private `dondok-deploy` workflow는 매일 `03:00 Asia/Seoul`에 한 번 실행해 CI가 성공한 최신 public `main` SHA를 확인한다. Mac mini의 `$DONDOK_STATE_DIR/current-revision`과 같으면 checkout·백업·빌드·Compose·외부 smoke를 모두 건너뛰고, 다른 경우에만 기존 백업·복원 drill·health·rollback 계약으로 배포한다. 사용자가 긴급 즉시 배포를 명시적으로 요청한 경우에만 `workflow_dispatch`로 같은 절차를 바로 실행하며 임의 branch·임의 SHA·CI 미통과 revision은 허용하지 않는다. `DEPLOYMENT_ENABLED=true`가 정상 자동 운영 상태이고 `false`는 예약과 수동 배포를 함께 막는 emergency kill switch다. 예약과 수동 실행이 겹치면 단일 production concurrency group으로 직렬화한다.
+
 ## 현재 단계
 
 - 완료: 요구사항 및 역할별 교차 검토
@@ -331,6 +335,7 @@ DBeaver 같은 운영자 도구는 같은 신뢰 LAN에서만 운영 PostgreSQL�
 - 완료: 동일 권한 구성원의 가계부 전체 삭제와 계정·세션 복귀 수직 기능
 - 완료: Mac mini PostgreSQL 일일 백업·30일 보존과 live DB 비의존 격리 복원 drill 기반
 - 완료: 운영 PostgreSQL의 사설 LAN 주소 전용 bind와 DBeaver 읽기 전용 접근 정책
+- 완료: 매일 03:00 KST 변경 revision 전용 자동 배포와 긴급 수동 배포 경로
 - 다음: off-device 암호화 백업과 삭제 가계부 재등장 방지 복구 지점
 
 상세 문서:
