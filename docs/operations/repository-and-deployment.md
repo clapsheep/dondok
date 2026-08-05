@@ -180,12 +180,17 @@ DONDOK_SMTP_STARTTLS=true
 
 1. GitHub-hosted runner가 public `dondok` 저장소의 현재 `main` SHA를 읽는다.
 2. 같은 SHA의 `CI` push run이 성공했는지 확인하고, 다르면 배포하지 않는다.
-3. private 저장소에만 연결된 Mac mini runner가 검증된 SHA를 checkout한다.
-4. [`infra/deploy-production.sh`](../../infra/deploy-production.sh)가 SHA tag로 backend·frontend image를 build한다.
-5. 기존 DB가 실행 중이면 새 배포 전에 daily bundle과 격리 복원 drill을 성공시킨다.
-6. 운영 전용 checkout을 해당 SHA로 전환하고 `docker compose up --no-build --wait`로 교체한다.
-7. 실패하면 migration 이전 backup을 남긴 채 직전 SHA image와 checkout으로 애플리케이션 rollback을 시도한다.
-8. GitHub-hosted runner가 공개 URL의 HTTPS, HSTS, HTTP redirect, `/healthz`, CSRF endpoint를 외부에서 확인한다.
+3. private 저장소에만 연결된 Mac mini runner가 검증된 SHA와 `$DONDOK_STATE_DIR/current-revision`을 비교한다. 같으면 checkout·백업·빌드·Compose·외부 smoke를 모두 건너뛴다.
+4. 변경된 SHA일 때만 검증된 revision을 checkout한다.
+5. [`infra/deploy-production.sh`](../../infra/deploy-production.sh)가 SHA tag로 backend·frontend image를 build한다.
+6. 기존 DB가 실행 중이면 새 배포 전에 daily bundle과 격리 복원 drill을 성공시킨다.
+7. 운영 전용 checkout을 해당 SHA로 전환하고 `docker compose up --no-build --wait`로 교체한다.
+8. 실패하면 migration 이전 backup을 남긴 채 직전 SHA image와 checkout으로 애플리케이션 rollback을 시도한다.
+9. GitHub-hosted runner가 공개 URL의 HTTPS, HSTS, HTTP redirect, `/healthz`, CSRF endpoint를 외부에서 확인한다.
+
+예약 확인은 GitHub Actions의 IANA timezone schedule로 매일 `03:00 Asia/Seoul`에 한 번 실행한다. GitHub의 예약 실행은 부하에 따라 몇 분 늦게 시작할 수 있지만 같은 날 중복 배포하지 않는다. 사용자가 긴급 배포를 명시적으로 요청했을 때만 private workflow의 `workflow_dispatch`를 실행해 다음 새벽 3시를 기다리지 않는다. 수동 실행도 임의 branch나 SHA를 받지 않고 CI가 성공한 최신 public `main`만 대상으로 하며, 이미 같은 revision이면 배포하지 않는다.
+
+private 저장소의 repository variable `DEPLOYMENT_ENABLED`는 정상 운영 중 `true`로 유지하고, 예약·수동 배포를 모두 멈춰야 할 때만 emergency kill switch로 `false`를 사용한다. `concurrency: dondok-production`은 예약과 긴급 실행이 겹쳐도 한 번에 하나만 진행하게 한다.
 
 private 배포 저장소 workflow만 GitHub environment의 다음 비민감 변수를 사용한다. 실제 비밀번호나 SMTP credential은 GitHub에 복제하지 않는다.
 
