@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Dondok API
-  version: 0.11.0
+  version: 0.12.0
   description: 돈독 프론트엔드와 백엔드 사이의 HTTP 계약
   license:
     name: All rights reserved
@@ -102,7 +102,7 @@ paths:
           headers:
             Set-Cookie:
               schema: { type: string }
-              description: HttpOnly DONDOK_SESSION cookie
+              description: 최대 90일 유지되는 HttpOnly DONDOK_SESSION cookie. 서버 세션은 마지막 사용 후 30일 또는 생성 후 90일에 만료된다.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SessionUser" }
@@ -1418,6 +1418,10 @@ components:
             type: { type: string, const: INCOME }
             categoryId: { type: string, format: uuid }
             assetId: { type: string, format: uuid }
+            excludedFromStatistics:
+              type: boolean
+              default: false
+              description: true면 posting과 자산 잔액은 반영하되 달력·통계 집계에서 제외한다.
     CreateExpenseRequest:
       allOf:
         - { $ref: "#/components/schemas/TransactionInput" }
@@ -1428,6 +1432,10 @@ components:
             categoryId: { type: string, format: uuid }
             assetId: { type: string, format: uuid }
             installmentCount: { type: integer, minimum: 1, maximum: 60, default: 1 }
+            excludedFromStatistics:
+              type: boolean
+              default: false
+              description: true면 posting과 자산 잔액은 반영하되 달력·통계 집계에서 제외한다.
     CreateTransferRequest:
       allOf:
         - { $ref: "#/components/schemas/TransactionInput" }
@@ -1451,6 +1459,10 @@ components:
         performedByMemberId: { type: string, format: uuid }
         description: { type: string, maxLength: 500 }
         expectedVersion: { type: integer, format: int64, minimum: 0 }
+        excludedFromStatistics:
+          type: boolean
+          default: false
+          description: INCOME·EXPENSE에서만 사용하며 true면 잔액은 반영하고 달력·통계 집계에서 제외한다.
     TransactionCategory:
       type: object
       required: [categoryId, name]
@@ -1491,6 +1503,7 @@ components:
         - createdBy
         - asset
         - description
+        - excludedFromStatistics
         - postings
         - installmentCount
         - version
@@ -1534,6 +1547,9 @@ components:
           oneOf:
             - { type: string }
             - { type: "null" }
+        excludedFromStatistics:
+          type: boolean
+          description: 사용자 선택으로 월간 달력·통계 집계에서 제외된 수입·지출인지 나타낸다.
         postings:
           type: array
           minItems: 1
@@ -1706,12 +1722,13 @@ components:
         amountWon: { type: integer, format: int64, minimum: 1 }
     CardPurchaseRefund:
       type: object
-      required: [refundId, refundTransactionId, refundedOn, amountWon, unpaidCardReductionWon, accountReturns]
+      required: [refundId, refundTransactionId, refundedOn, amountWon, excludedFromStatistics, unpaidCardReductionWon, accountReturns]
       properties:
         refundId: { type: string, format: uuid }
         refundTransactionId: { type: string, format: uuid }
         refundedOn: { type: string, format: date }
         amountWon: { type: integer, format: int64, minimum: 1 }
+        excludedFromStatistics: { type: boolean }
         unpaidCardReductionWon: { type: integer, format: int64, minimum: 0 }
         accountReturns:
           type: array
@@ -1746,6 +1763,10 @@ components:
         description: { type: string, maxLength: 500 }
         installmentCount: { type: integer, minimum: 1, maximum: 60 }
         expectedVersion: { type: integer, format: int64, minimum: 0 }
+        excludedFromStatistics:
+          type: boolean
+          default: false
+          description: true면 카드 posting·명세는 반영하고 구매일 지출 집계에서 제외한다.
     ApplyCardPurchaseCorrectionRequest:
       allOf:
         - { $ref: "#/components/schemas/CardPurchaseCorrectionRequest" }
@@ -1771,6 +1792,10 @@ components:
         amountWon: { type: integer, format: int64, minimum: 1 }
         expectedVersion: { type: integer, format: int64, minimum: 0 }
         description: { type: string, maxLength: 500 }
+        excludedFromStatistics:
+          type: boolean
+          default: false
+          description: true면 환불 posting은 반영하고 환불일 지출 집계에서는 제외한다.
     ApplyCardPurchaseRefundRequest:
       allOf:
         - { $ref: "#/components/schemas/CardPurchaseRefundRequest" }

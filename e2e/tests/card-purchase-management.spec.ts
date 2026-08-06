@@ -58,8 +58,8 @@ test.afterEach(async ({ page }, testInfo) => {
 
 test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달력·카드 결제 예정액을 함께 맞춘다', async ({ page, request }, testInfo) => {
   const month = currentMonthInSeoul()
-  const purchaseDate = `${month}-05`
-  const refundDate = `${month}-06`
+  const purchaseDate = todayInSeoul()
+  const refundDate = purchaseDate
   const purchaseDescription = `QC 원 구매 ${Date.now().toString().slice(-6)}`
   const refundDescription = `QC 미결제 환불 ${Date.now().toString().slice(-6)}`
   const account = await registerAndLogin(page, request, `카드 환불 QC ${test.info().workerIndex}`)
@@ -97,6 +97,8 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await amount.fill('30,000')
   await date.fill(refundDate)
   await description.fill(refundDescription)
+  await page.getByRole('switch', { name: '지출에 포함하지 않기' }).click()
+  await expect(page.getByText('자산 잔액은 바뀌지만 달력과 통계 합계에는 반영하지 않아요.')).toBeVisible()
   await expectDraftAndFocusAcrossViewports(page, description, refundDescription, '환불 내용 확인')
 
   const releaseRefundPreview = await delayNextRequest(page, '**/card-purchase-refunds/preview')
@@ -110,6 +112,7 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await expect(refundPreview.getByRole('heading', { name: '환불 반영 내용' })).toBeFocused()
   await expect(refundPreview.getByText('미결제 카드 금액 감소').locator('..')).toContainText('30,000원')
   await expect(refundPreview).toContainText('원 결제 계좌에 반환 기록할 금액이 없어요.')
+  await expect(refundPreview.getByText('달력·통계', { exact: true }).locator('..')).toContainText('집계 제외')
   await expectTouchTarget(refundPreview.getByRole('button', { name: '환불 기록' }), '환불 기록')
   await refundPreview.getByRole('button', { name: '환불 기록' }).click()
 
@@ -119,6 +122,7 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await expect(page.getByText('내용', { exact: true }).locator('..')).toContainText(purchaseDescription)
   await expect(page.getByText('환불 가능 50,000원', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('heading', { name: '환불 처리 내역' }).locator('..')).toContainText('+30,000원')
+  await expect(page.getByRole('heading', { name: '환불 처리 내역' }).locator('..')).toContainText('집계 제외')
 
   await page.getByRole('link', { name: '가계부로 돌아가기' }).click()
   await expect(page.getByRole('button', { name: '일별 보기' })).toHaveAttribute('aria-pressed', 'true')
@@ -126,14 +130,15 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   const refundRow = transactionRow(page, refundDescription)
   await expect(refundRow.getByText('+30,000원', { exact: true })).toBeVisible()
   await expect(refundRow.getByText('환불', { exact: true })).toBeVisible()
-  await refundRow.getByRole('link', { name: `${refundDescription}, 환불 +30,000원, 원 카드 구매 상세` }).click()
+  await expect(refundRow.getByText('집계 제외', { exact: true })).toBeVisible()
+  await refundRow.getByRole('link', { name: new RegExp(`${refundDescription}.*환불.*원 카드 구매 상세`) }).click()
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
 
   await page.getByRole('link', { name: '가계부로 돌아가기' }).click()
   await page.getByRole('button', { name: '월간 달력' }).click()
-  await expect(page.getByTitle('-50,000원', { exact: true }).first()).toBeVisible()
+  await expect(page.getByTitle('-80,000원', { exact: true }).first()).toBeVisible()
   await expect(page.getByTitle('지출 -80,000원', { exact: true })).toBeVisible()
-  await expect(page.getByTitle('환불 +30,000원', { exact: true })).toBeVisible()
+  await expect(page.getByTitle('환불 +30,000원', { exact: true })).toHaveCount(0)
   expect(await hasPageOverflow(page)).toBe(false)
 
   await page.goto('/assets')
@@ -143,8 +148,8 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
 
 test('카드 구매 기록 정정은 preview 뒤 변경된 구매와 명세를 원 구매 대신 반영한다', async ({ page, request }, testInfo) => {
   const month = currentMonthInSeoul()
-  const purchaseDate = `${month}-08`
-  const correctedDate = `${month}-09`
+  const purchaseDate = todayInSeoul()
+  const correctedDate = purchaseDate
   const originalDescription = `QC 정정 전 ${Date.now().toString().slice(-6)}`
   const correctedDescription = `QC 정정 후 ${Date.now().toString().slice(-6)}`
   const account = await registerAndLogin(page, request, `카드 정정 QC ${test.info().workerIndex}`)
@@ -171,6 +176,7 @@ test('카드 구매 기록 정정은 preview 뒤 변경된 구매와 명세를 �
   await amount.fill('60,000')
   await date.fill(correctedDate)
   await description.fill(correctedDescription)
+  await page.getByRole('switch', { name: '지출에 포함하지 않기' }).click()
   await expectDraftAndFocusAcrossViewports(page, description, correctedDescription, '변경 내용 확인')
 
   await page.getByRole('button', { name: '변경 내용 확인' }).click()
@@ -195,12 +201,15 @@ test('카드 구매 기록 정정은 preview 뒤 변경된 구매와 명세를 �
   await expect(page.getByText('구매 날짜', { exact: true }).locator('..')).toContainText(correctedDate)
   await expect(page.getByText('구매 금액', { exact: true }).locator('..')).toContainText('65,000원')
   await expect(page.getByText('내용', { exact: true }).locator('..')).toContainText(correctedDescription)
+  await expect(page.getByText('달력·통계', { exact: true }).locator('..')).toContainText('집계 제외')
 
   await page.getByRole('link', { name: '가계부로 돌아가기' }).click()
   await expect(transactionRow(page, originalDescription)).toHaveCount(0)
-  await expect(transactionRow(page, correctedDescription).getByText('-65,000원', { exact: true })).toBeVisible()
+  const correctedRow = transactionRow(page, correctedDescription)
+  await expect(correctedRow.getByText('-65,000원', { exact: true })).toBeVisible()
+  await expect(correctedRow.getByText('집계 제외', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '월간 달력' }).click()
-  await expect(page.getByTitle('지출 -65,000원', { exact: true })).toBeVisible()
+  await expect(page.getByTitle('지출 -65,000원', { exact: true })).toHaveCount(0)
   await expect(page.getByTitle('지출 -90,000원', { exact: true })).toHaveCount(0)
   expect(await hasPageOverflow(page)).toBe(false)
 
@@ -309,9 +318,11 @@ async function attachSeedManifest(testInfo: TestInfo, page: Page, loginId: strin
 }
 
 function currentMonthInSeoul() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' })
-    .format(new Date())
-    .slice(0, 7)
+  return todayInSeoul().slice(0, 7)
+}
+
+function todayInSeoul() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
 async function hasPageOverflow(page: Page) {

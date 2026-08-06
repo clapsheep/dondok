@@ -43,7 +43,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남은 결제·통계 제외를 확인한다', async ({ page, request }, testInfo) => {
   const month = currentMonthInSeoul()
-  const purchaseDate = `${month}-05`
+  const purchaseDate = todayInSeoul()
   const purchaseDescription = `QC 복수 선결제 ${Date.now().toString().slice(-6)}`
   const account = await registerAndLogin(page, request, `선결제 QC ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
@@ -115,7 +115,7 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
 
 test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 최신 명세에 다시 계산한다', async ({ page, request, browser }, testInfo) => {
   const month = currentMonthInSeoul()
-  const purchaseDate = `${month}-07`
+  const purchaseDate = todayInSeoul()
   const purchaseDescription = `QC 선결제 충돌 ${Date.now().toString().slice(-6)}`
   const account = await registerAndLogin(page, request, `선결제 충돌 QC ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()

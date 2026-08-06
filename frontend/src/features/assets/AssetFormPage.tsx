@@ -233,7 +233,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   })
   const resolvedAssetName = draft.name.trim() || fallbackAssetName
   const selectedTypeDisplayName = selectedType?.name ?? '선택한 자산 종류'
-  const amountLabel = selectedType?.systemCode === 'LOAN' ? '대출금' : '최초 금액'
+  const amountLabel = selectedType?.systemCode === 'LOAN' ? '기준일 대출 잔액' : '기준일 잔액'
   const paymentSourceCandidates = assets.filter((asset) => asset.paymentSourceCapable && asset.assetId !== initialAsset?.assetId)
   const ownerChangedToPersonal = Boolean(initialAsset)
     && draft.ownershipScope === 'PERSONAL'
@@ -448,8 +448,8 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
             ) : null}
           </> : null}
           <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
-            <MoneyField id="openingBalanceWon" name="openingBalanceWon" label={amountLabel} hint="비워 두면 0원으로 등록해요. 부채는 - 기호를 붙여 주세요." value={draft.openingBalanceWon} onValueChange={(value) => update('openingBalanceWon', value)} placeholder="0" error={fieldErrors.openingBalanceWon} allowNegative />
-            <Field id="openedOn" name="openedOn" label="등록일" value={draft.openedOn} onChange={(event) => update('openedOn', event.target.value)} type="date" error={fieldErrors.openedOn} required />
+            <MoneyField id="openingBalanceWon" name="openingBalanceWon" label={amountLabel} hint="이 날짜가 시작될 때 실제로 있던 금액이에요. 비우면 0원, 부채는 - 금액으로 등록해요." value={draft.openingBalanceWon} onValueChange={(value) => update('openingBalanceWon', value)} placeholder="0" error={fieldErrors.openingBalanceWon} allowNegative />
+            <Field id="openedOn" name="openedOn" label="잔액 기준일" hint="이 날짜보다 앞선 기록은 통계에는 남지만 현재 잔액을 바꾸지 않아요." value={draft.openedOn} onChange={(event) => update('openedOn', event.target.value)} type="date" error={fieldErrors.openedOn} required />
           </div>
           {editing ? <TextareaField id="assetMemo" name="assetMemo" label="메모 (선택)" value={draft.memo} onChange={(value) => update('memo', value)} maxLength={1000} error={fieldErrors.memo} /> : null}
         </div>
@@ -487,9 +487,9 @@ function ArchivedAssetDetail({ asset, assets, ledger }: { asset: Asset; assets: 
       <dl className="grid gap-x-6 gap-y-4 border-b border-[var(--line)] py-5 text-sm min-[30rem]:grid-cols-2" aria-label="보관 자산 정보">
         <ReadOnlyAssetValue label="종류" value={asset.assetTypeName} />
         <ReadOnlyAssetValue label="소유" value={ownerLabel(asset.ownershipScope, asset.ownerMemberId, ledger)} />
-        <ReadOnlyAssetValue label="등록일" value={asset.openedOn} />
+        <ReadOnlyAssetValue label="잔액 기준일" value={asset.openedOn} />
         <ReadOnlyAssetValue label="보관 일시" value={asset.archivedAt ? archivedAtFormat.format(new Date(asset.archivedAt)) : '확인할 수 없음'} />
-        <ReadOnlyAssetValue label="최초 금액" value={formatWon(asset.openingBalanceWon)} />
+        <ReadOnlyAssetValue label="기준일 잔액" value={formatWon(asset.openingBalanceWon)} />
         <ReadOnlyAssetValue label="현재 잔액 · 순자산 포함" value={formatWon(asset.currentBalanceWon)} />
         {asset.behavior === 'CREDIT_CARD' ? <><ReadOnlyAssetValue label="이번 달 결제 예정" value={formatWon(asset.currentMonthCardPaymentDueWon)} /><ReadOnlyAssetValue label="다음 달 결제 예정" value={formatWon(asset.nextMonthCardPaymentDueWon)} /></> : null}
         {asset.memo ? <ReadOnlyAssetValue label="메모" value={asset.memo} className="min-[30rem]:col-span-2" /> : null}
@@ -855,7 +855,7 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
     const normalizedAmount = openingBalanceWon.replaceAll(',', '').trim()
     const parsedAmount = normalizedAmount === '' ? 0 : Number(normalizedAmount)
     if (normalizedAmount !== '' && (!/^-?\d+$/.test(normalizedAmount) || !Number.isSafeInteger(parsedAmount))) nextErrors.openingBalanceWon = '원 단위 정수 금액을 입력해 주세요.'
-    if (!openedOn) nextErrors.openedOn = '등록일을 선택해 주세요.'
+    if (!openedOn) nextErrors.openedOn = '잔액 기준일을 선택해 주세요.'
     setErrors(nextErrors)
     if (hasFieldErrors(nextErrors)) return
     const input: CreateAssetInput = {
@@ -896,8 +896,8 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
           <div className="grid gap-3 py-4 sm:gap-4 sm:py-5">
             <Field id="paymentSourceName" name="paymentSourceName" label="자산 이름 (선택)" hint={`비워 두면 ‘${fallbackName}’으로 저장해요.`} value={name} onChange={(event) => updateName(event.target.value)} maxLength={100} placeholder={fallbackName} error={errors.name} autoFocus />
             <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
-              <MoneyField id="paymentSourceOpeningBalance" name="paymentSourceOpeningBalance" label="최초 금액" hint="비우면 0원, 부채는 - 금액으로 등록해요." value={openingBalanceWon} onValueChange={updateOpeningBalance} placeholder="0" error={errors.openingBalanceWon} allowNegative />
-              <Field id="paymentSourceOpenedOn" name="paymentSourceOpenedOn" label="등록일" value={openedOn} onChange={(event) => updateOpenedOn(event.target.value)} type="date" error={errors.openedOn} required />
+              <MoneyField id="paymentSourceOpeningBalance" name="paymentSourceOpeningBalance" label="기준일 잔액" hint="비우면 0원, 부채는 - 금액으로 등록해요." value={openingBalanceWon} onValueChange={updateOpeningBalance} placeholder="0" error={errors.openingBalanceWon} allowNegative />
+              <Field id="paymentSourceOpenedOn" name="paymentSourceOpenedOn" label="잔액 기준일" value={openedOn} onChange={(event) => updateOpenedOn(event.target.value)} type="date" error={errors.openedOn} required />
             </div>
           </div>
 
@@ -948,8 +948,8 @@ function ConflictPanel({ latest, loading, loadError, draft, draftName, draftType
     { id: 'name', label: '이름', latest: latest.name, draft: draftName },
     { id: 'type', label: '종류', latest: latest.assetTypeName, draft: draftTypeName },
     { id: 'owner', label: '소유', latest: latestOwner, draft: draftOwner },
-    { id: 'opening-balance', label: '최초 금액', latest: formatWon(latest.openingBalanceWon), draft: `${draft.openingBalanceWon || '0'}원` },
-    { id: 'opened-on', label: '등록일', latest: latest.openedOn, draft: draft.openedOn },
+    { id: 'opening-balance', label: '기준일 잔액', latest: formatWon(latest.openingBalanceWon), draft: `${draft.openingBalanceWon || '0'}원` },
+    { id: 'opened-on', label: '잔액 기준일', latest: latest.openedOn, draft: draft.openedOn },
     { id: 'memo', label: '메모', latest: latest.memo || '없음', draft: draft.memo.trim() || '없음' },
     ...(latestIsCreditCard || draftIsCreditCard ? [
       { id: 'card-closing-day', label: '정산일', latest: latestIsCreditCard && latest.cardSettings ? `${latest.cardSettings.statementClosingDay}일` : '해당 없음', draft: draftIsCreditCard ? `${draft.statementClosingDay}일` : '해당 없음' },
@@ -1066,7 +1066,7 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
   const openingBalanceWon = normalizedAmount === '' ? 0 : Number(normalizedAmount)
   if (!selectedType) errors.assetTypeId = '자산 종류를 선택해 주세요.'
   if (editing && draft.ownershipScope === 'PERSONAL' && !draft.ownerMemberId) errors.ownerMemberId = '소유자를 선택해 주세요.'
-  if (!draft.openedOn) errors.openedOn = '등록일을 선택해 주세요.'
+  if (!draft.openedOn) errors.openedOn = '잔액 기준일을 선택해 주세요.'
   if (normalizedAmount !== '' && (!/^-?\d+$/.test(normalizedAmount) || !Number.isSafeInteger(openingBalanceWon))) errors.openingBalanceWon = '원 단위 정수 금액을 입력해 주세요.'
 
   let cardSettings: CardSettingsInput | null = null

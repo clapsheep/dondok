@@ -102,27 +102,32 @@ public class TransactionController {
             UUID destinationAssetId,
             @NotNull UUID performedByMemberId,
             @Size(max = 500) String description,
-            Integer installmentCount
+            Integer installmentCount,
+            Boolean excludedFromStatistics
     ) {
         TransactionService.CreateCommand toCommand() {
+            boolean statisticsExcluded = Boolean.TRUE.equals(excludedFromStatistics);
             return switch (type) {
                 case INCOME -> {
                     require(categoryId != null && assetId != null
                             && sourceAssetId == null && destinationAssetId == null
                             && installmentCount == null);
                     yield new TransactionService.CreateIncome(
-                            occurredOn, amountWon, categoryId, assetId, performedByMemberId, description);
+                            occurredOn, amountWon, categoryId, assetId, performedByMemberId,
+                            description, statisticsExcluded);
                 }
                 case EXPENSE -> {
                     require(categoryId != null && assetId != null
                             && sourceAssetId == null && destinationAssetId == null);
                     yield new TransactionService.CreateExpense(
                             occurredOn, amountWon, categoryId, assetId, performedByMemberId,
-                            description, installmentCount == null ? 1 : installmentCount);
+                            description, installmentCount == null ? 1 : installmentCount,
+                            statisticsExcluded);
                 }
                 case TRANSFER -> {
                     require(categoryId == null && assetId == null && installmentCount == null
-                            && sourceAssetId != null && destinationAssetId != null);
+                            && sourceAssetId != null && destinationAssetId != null
+                            && !statisticsExcluded);
                     yield new TransactionService.CreateTransfer(
                             occurredOn, amountWon, sourceAssetId, destinationAssetId,
                             performedByMemberId, description);
@@ -148,12 +153,14 @@ public class TransactionController {
             UUID destinationAssetId,
             @NotNull UUID performedByMemberId,
             @Size(max = 500) String description,
-            @NotNull @Min(0) Long expectedVersion
+            @NotNull @Min(0) Long expectedVersion,
+            Boolean excludedFromStatistics
     ) {
         TransactionService.UpdateCommand toCommand() {
             return new TransactionService.UpdateCommand(
                     type, occurredOn, amountWon, categoryId, assetId, sourceAssetId,
-                    destinationAssetId, performedByMemberId, description, expectedVersion);
+                    destinationAssetId, performedByMemberId, description, expectedVersion,
+                    Boolean.TRUE.equals(excludedFromStatistics));
         }
     }
 }

@@ -73,6 +73,14 @@ class MonthlyStatisticsServiceIntegrationTest {
                 new TransactionService.CreateExpense(
                         LocalDate.of(2026, 7, 11), 200_000, food, bank.assetId(),
                         fixture.memberId(), "생활비", 1));
+        transactionService.create(fixture.userId(), "statistics-excluded-income",
+                new TransactionService.CreateIncome(
+                        LocalDate.of(2026, 7, 11), 123_123, incomeOther, bank.assetId(),
+                        fixture.memberId(), "달력·통계 제외 수입", true));
+        transactionService.create(fixture.userId(), "statistics-excluded-expense",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 7, 11), 45_678, food, bank.assetId(),
+                        fixture.memberId(), "달력·통계 제외 지출", 1, true));
         transactionService.create(fixture.userId(), "statistics-transfer",
                 new TransactionService.CreateTransfer(
                         LocalDate.of(2026, 7, 12), 50_000, bank.assetId(), transferDestination.assetId(),

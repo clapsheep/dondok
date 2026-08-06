@@ -14,13 +14,15 @@ import { ALL_ASSET_OWNER_VIEW, JOINT_ASSET_OWNER_VIEW, buildAssetOwnerViews, def
 import { buildAssetStatusOverview, type AssetGroupSummary, type AssetOverview } from './overview'
 
 const ASSET_LIMIT = 50
-const infoMoneyLayoutClassName = 'grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-0 sm:px-2 md:gap-3'
-const cardInfoMoneyLayoutClassName = 'grid min-w-0 grid-cols-1 gap-1 px-0 sm:px-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-3'
-const moneyRailWidthClassName = 'w-48 md:w-64 xl:w-80'
-const cardMoneyRailWidthClassName = 'w-full md:w-80 xl:w-96'
+const infoMoneyLayoutClassName = 'grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3'
+const cardInfoMoneyLayoutClassName = 'grid min-w-0 grid-cols-1 gap-2 xs:grid-cols-[minmax(0,1fr)_minmax(12.5rem,19rem)] xs:items-center xs:gap-4'
+const moneyRailWidthClassName = 'min-w-[7.5rem] max-w-full md:min-w-[9rem]'
+const cardMoneyRailWidthClassName = 'w-full min-w-0 xs:w-[19rem]'
 
 type MoneyRailLine = {
   label: string
+  shortLabel?: string
+  hideLabel?: boolean
   value: string
   tone?: string
   title?: string
@@ -175,13 +177,17 @@ function AssetOverviewContent({ summaryOverview, activeOverview, archivedAssets,
   return (
     <div className="mt-1">
       {hasFilteredAssets ? (
-        <>
-          <AssetFinancialSnapshot overview={summaryOverview} />
-          {activeOverview.groups.length ? <div className="mt-4 grid gap-5 md:mt-7 md:gap-8 xl:mt-8 xl:gap-9">
-            {activeOverview.groups.map((group) => <AssetGroup key={group.key} group={group} ledger={ledger} showOwnerMetadata={showOwnerMetadata} />)}
-          </div> : <p className="mt-6 border-y border-[var(--line)] py-5 text-sm text-[var(--muted)]" role="status">이 보기에는 활성 자산이 없어요.</p>}
-          {archivedAssets.length ? <ArchivedAssetList assets={archivedAssets} ledger={ledger} showOwnerMetadata={showOwnerMetadata} /> : null}
-        </>
+        <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start xl:gap-10">
+          <div className="xl:sticky xl:top-8 xl:col-start-2 xl:row-start-1">
+            <AssetFinancialSnapshot overview={summaryOverview} />
+          </div>
+          <div className="mt-5 min-w-0 xl:col-start-1 xl:row-start-1 xl:mt-0">
+            {activeOverview.groups.length ? <div className="grid gap-6 md:gap-8">
+              {activeOverview.groups.map((group) => <AssetGroup key={group.key} group={group} ledger={ledger} showOwnerMetadata={showOwnerMetadata} />)}
+            </div> : <p className="border-y border-[var(--line)] py-5 text-sm text-[var(--muted)]" role="status">이 보기에는 활성 자산이 없어요.</p>}
+            {archivedAssets.length ? <ArchivedAssetList assets={archivedAssets} ledger={ledger} showOwnerMetadata={showOwnerMetadata} /> : null}
+          </div>
+        </div>
       ) : (
         <div className="border-b border-[var(--line)] px-1 py-6" role="status">
           <p className="text-sm text-[var(--muted)]">{emptyMessage}</p>
@@ -201,25 +207,28 @@ function AssetFinancialSnapshot({ overview }: { overview: AssetOverview }) {
   const currentMonthTone = overview.currentMonthCardPaymentDueWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]'
   const nextMonthTone = overview.nextMonthCardPaymentDueWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]'
   return (
-    <section aria-labelledby="asset-summary-title">
+    <section className="border-y border-[var(--line)] py-4 xl:border-y-0 xl:border-l xl:py-0 xl:pl-6" aria-labelledby="asset-summary-title">
       <h2 id="asset-summary-title" className="sr-only">자산 요약</h2>
-      <div className="grid gap-y-2 border-b border-[var(--line)] px-0 pb-3 pt-2 sm:px-2 sm:pb-5 sm:pt-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-        <dl className="px-0 sm:px-2">
-          <dt className="text-xs font-medium text-[var(--muted)]">순자산 <span>· 보관 자산 포함</span></dt>
-          <dd className={`mt-0.5 whitespace-nowrap text-3xl font-semibold tracking-[-.035em] tabular-nums sm:text-4xl ${overview.netWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`} title={formatWon(overview.netWon)}>{formatWon(overview.netWon)}</dd>
+      <dl>
+        <dt className="text-xs font-medium text-[var(--muted)]">순자산 <span>· 보관 자산 포함</span></dt>
+        <dd className={`mt-1 whitespace-nowrap text-[2rem] font-semibold leading-none tracking-[-.04em] tabular-nums md:text-4xl ${overview.netWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`} title={formatWon(overview.netWon)}>{formatWon(overview.netWon)}</dd>
+      </dl>
+      <div className={cn('mt-4 grid min-w-0 gap-x-3 border-t border-[var(--line-subtle)] pt-3', stacked ? 'grid-cols-1 gap-y-2' : 'grid-cols-2')}>
+        <dl className="min-w-0">
+          <RailLine line={{ label: '총자산', value: assets, valueClassName: 'text-base' }} />
         </dl>
-        <div className={cn('grid min-w-0 justify-self-end gap-x-2', cardMoneyRailWidthClassName, stacked ? 'grid-cols-1' : 'grid-cols-2')}>
-          <dl className={cn('min-w-0', !stacked && 'col-start-1 row-start-1')}>
-            <RailLine line={{ label: '총부채', value: debt, tone: 'text-[var(--expense)]' }} />
+        <dl className={cn('min-w-0', !stacked && 'border-l border-[var(--line-subtle)] pl-3')}>
+          <RailLine line={{ label: '총부채', value: debt, tone: 'text-[var(--expense)]', valueClassName: 'text-base' }} />
+        </dl>
+      </div>
+      <div className="mt-4 border-t border-[var(--line-subtle)] pt-3">
+        <p className="text-xs font-semibold text-[var(--muted)]">카드 결제 예정</p>
+        <div className={cn('mt-2 grid min-w-0 gap-x-3', stacked ? 'grid-cols-1 gap-y-2' : 'grid-cols-2')}>
+          <dl className="min-w-0">
+            <RailLine line={{ label: '이번 달 카드 결제 금액', shortLabel: '이번 달', value: currentMonthPayment, tone: currentMonthTone, valueClassName: 'text-base' }} />
           </dl>
-          <dl className={cn('min-w-0', !stacked && 'col-start-2 row-start-1 border-l border-[var(--line)] pl-2')}>
-            <RailLine line={{ label: '총자산', value: assets }} />
-          </dl>
-          <dl className={cn('min-w-0 pt-1.5', !stacked && 'col-start-1 row-start-2')}>
-            <RailLine line={{ label: '이번 달 카드 결제 금액', value: currentMonthPayment, tone: currentMonthTone }} />
-          </dl>
-          <dl className={cn('min-w-0 pt-1.5', !stacked && 'col-start-2 row-start-2 border-l border-[var(--line)] pl-2')}>
-            <RailLine line={{ label: '다음 달 카드 결제 예정 금액', value: nextMonthPayment, tone: nextMonthTone }} />
+          <dl className={cn('min-w-0', !stacked && 'border-l border-[var(--line-subtle)] pl-3')}>
+            <RailLine line={{ label: '다음 달 카드 결제 예정 금액', shortLabel: '다음 달', value: nextMonthPayment, tone: nextMonthTone, valueClassName: 'text-base' }} />
           </dl>
         </div>
       </div>
@@ -271,11 +280,11 @@ function AssetGroup({ group, ledger, showOwnerMetadata }: { group: AssetGroupSum
   const layoutClassName = isCardGroup ? cardInfoMoneyLayoutClassName : infoMoneyLayoutClassName
 
   return (
-    <section className="min-w-0 border-t border-[var(--line)] pt-2 md:pt-3" aria-labelledby={`asset-group-${group.key}`}>
-      <header className={`${layoutClassName} border-b border-[var(--line-subtle)] pb-1.5 sm:pb-2.5`}>
+    <section className="min-w-0 border-t border-[var(--line)]" aria-labelledby={`asset-group-${group.key}`}>
+      <header className={`${layoutClassName} border-b border-[var(--line-subtle)] py-2.5 md:py-3`}>
         <div className="min-w-0">
           <h2 id={`asset-group-${group.key}`} className="text-sm font-semibold leading-5 text-ink-900 dark:text-white">
-            {group.label}<span className="ml-1 text-[0.6875rem] font-normal leading-4 text-[var(--muted)]">· {group.items.length}개</span>
+            {group.label}<span className="ml-1.5 text-[0.6875rem] font-normal leading-4 text-[var(--muted)]">{group.items.length}개</span>
           </h2>
         </div>
         {isLiquidGroup ? (
@@ -329,12 +338,11 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
 
   return (
     <li>
-      <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-11 py-1.5 transition-colors hover:bg-forest-50 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800 sm:py-2`}>
-        <span className="flex min-w-0 flex-wrap items-center gap-x-1 leading-5 whitespace-normal md:flex-nowrap md:gap-x-0 md:whitespace-nowrap" data-asset-identity>
-          <strong className="min-w-0 break-words font-semibold leading-5 group-hover:text-forest-700 dark:group-hover:text-forest-100 md:shrink md:truncate" title={asset.name} data-asset-name>{asset.name}</strong>
+      <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-12 py-2.5 transition-colors hover:bg-forest-50 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800 md:px-1`}>
+        <span className="min-w-0 leading-5" data-asset-identity>
+          <strong className="block min-w-0 break-words text-[0.9375rem] font-semibold leading-5 group-hover:text-forest-700 dark:group-hover:text-forest-100 md:truncate" title={asset.name} data-asset-name>{asset.name}</strong>
           {showAssetType || showOwnerMetadata ? (
-            <span className="min-w-0 break-words text-xs text-[var(--muted)] md:max-w-[45%] md:shrink-0 md:truncate md:whitespace-nowrap" data-asset-metadata>
-              <span aria-hidden="true"> · </span>
+            <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-4 text-[var(--muted)] md:flex-nowrap md:truncate" data-asset-metadata>
               {showAssetType ? <span data-asset-type>{asset.assetTypeName}</span> : null}
               {showAssetType && showOwnerMetadata ? <span aria-hidden="true"> · </span> : null}
               {showOwnerMetadata ? <span className="inline-flex items-center gap-1 align-middle"><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span data-asset-owner>{visibleOwner}</span></span> : null}
@@ -347,6 +355,7 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
             valueWon={asset.currentBalanceWon}
             title={`현재 잔액 ${formatWon(asset.currentBalanceWon)}`}
             valueClassName="text-sm"
+            hideLabel
           />
         ) : isCardAsset ? (
           <CardPaymentRail
@@ -381,26 +390,28 @@ function MoneyRail({ debtLines, assetLines, zeroLine }: {
 
   return (
     <div className={cn('min-w-0', moneyRailWidthClassName)}>
-      <div className={cn('grid min-w-0 gap-x-2', stacked ? 'grid-cols-1' : 'grid-cols-2')}>
+      <div className={cn('grid min-w-0 gap-x-3', stacked ? 'grid-cols-1 gap-y-1.5' : 'grid-cols-2')}>
         {debtLines.length ? <MoneyRailCell className={stacked ? undefined : 'col-start-1 row-start-1'} lines={debtLines} /> : null}
-        {assetLines.length ? <MoneyRailCell className={stacked ? undefined : 'col-start-2 row-start-1 border-l border-[var(--line)] pl-2'} lines={assetLines} /> : null}
+        {assetLines.length ? <MoneyRailCell className={stacked ? undefined : 'col-start-2 row-start-1 border-l border-[var(--line-subtle)] pl-3'} lines={assetLines} /> : null}
         {zeroLine ? <dl className={cn('min-w-0', stacked ? 'col-span-1' : 'col-span-2 col-start-1 row-start-1')}><RailLine line={zeroLine} /></dl> : null}
       </div>
     </div>
   )
 }
 
-function SignedBalanceRail({ label, valueWon, title, valueClassName = 'text-base' }: {
+function SignedBalanceRail({ label, valueWon, title, valueClassName = 'text-base', hideLabel = false }: {
   label: string
   valueWon: number
   title?: string
   valueClassName?: string
+  hideLabel?: boolean
 }) {
   return (
-    <div className={cn('grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem] gap-x-2', moneyRailWidthClassName)} data-money-rail="signed-balance">
-      <dl className="col-start-2 min-w-0 border-l border-[var(--line)] pl-2">
+    <div className={cn('min-w-0 text-right', moneyRailWidthClassName)} data-money-rail="signed-balance">
+      <dl className="min-w-0">
         <RailLine line={{
           label,
+          hideLabel,
           value: formatWon(valueWon),
           title,
           tone: valueWon < 0 ? 'text-[var(--expense)]' : undefined,
@@ -417,19 +428,21 @@ function CardPaymentRail({ currentMonthWon, nextMonthWon, valueClassName = 'text
   valueClassName?: string
 }) {
   return (
-    <div className={cn('grid min-w-0 grid-cols-2 gap-x-2', cardMoneyRailWidthClassName)} data-money-rail="card-payment">
+    <div className={cn('grid min-w-0 grid-cols-2 gap-x-3', cardMoneyRailWidthClassName)} data-money-rail="card-payment">
       <dl className="col-start-1 min-w-0">
         <RailLine line={{
           label: '이번 달 결제 금액',
+          shortLabel: '이번 달',
           value: formatWon(currentMonthWon),
           title: `이번 달 결제 금액 ${formatWon(currentMonthWon)}`,
           tone: currentMonthWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]',
           valueClassName,
         }} />
       </dl>
-      <dl className="col-start-2 min-w-0 border-l border-[var(--line)] pl-2">
+      <dl className="col-start-2 min-w-0 border-l border-[var(--line-subtle)] pl-3">
         <RailLine line={{
           label: '다음 달 결제 예정 금액',
+          shortLabel: '다음 달',
           value: formatWon(nextMonthWon),
           title: `다음 달 결제 예정 금액 ${formatWon(nextMonthWon)}`,
           tone: nextMonthWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]',
@@ -451,7 +464,11 @@ function MoneyRailCell({ lines, className }: { lines: MoneyRailLine[]; className
 function RailLine({ line }: { line: MoneyRailLine }) {
   return (
     <div className="min-w-0 text-right">
-      <dt className="whitespace-nowrap text-[0.6875rem] leading-4 text-[var(--muted)]">{line.label}</dt>
+      <dt className={line.hideLabel ? 'sr-only' : 'whitespace-nowrap text-[0.6875rem] leading-4 text-[var(--muted)]'}>
+        {line.shortLabel
+          ? <><span aria-hidden="true">{line.shortLabel}</span><span className="sr-only">{line.label}</span></>
+          : line.label}
+      </dt>
       <dd className={cn('block min-w-0 whitespace-nowrap text-sm font-semibold leading-5 tabular-nums', line.tone, line.valueClassName)} title={line.title}>{line.value}</dd>
     </div>
   )

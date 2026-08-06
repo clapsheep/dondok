@@ -28,7 +28,23 @@ test('회원가입, 이메일 인증, 세션 로그인, 비밀번호 재설정�
   await page.getByRole('button', { name: '로그인', exact: true }).click()
   await expect(page.getByRole('heading', { name: '초대 코드를 받으셨나요?' })).toBeVisible()
 
+  const sessionCookie = (await page.context().cookies()).find((cookie) => cookie.name === 'DONDOK_SESSION')
+  expect(sessionCookie).toBeDefined()
+  expect(sessionCookie!.httpOnly).toBe(true)
+  expect(sessionCookie!.sameSite).toBe('Lax')
+  expect(sessionCookie!.expires).toBeGreaterThan(Date.now() / 1000 + 89 * 24 * 60 * 60)
+  expect(sessionCookie!.expires).toBeLessThan(Date.now() / 1000 + 91 * 24 * 60 * 60)
+
+  const browser = page.context().browser()
+  expect(browser).not.toBeNull()
+  const restoredContext = await browser!.newContext({ storageState: await page.context().storageState() })
+  const restoredPage = await restoredContext.newPage()
+  await restoredPage.goto(new URL(page.url()).origin)
+  await expect(restoredPage.getByRole('heading', { name: '초대 코드를 받으셨나요?' })).toBeVisible()
+  await restoredContext.close()
+
   await page.getByRole('button', { name: '로그아웃' }).click()
+  await expect.poll(async () => (await page.context().cookies()).some((cookie) => cookie.name === 'DONDOK_SESSION')).toBe(false)
   await page.getByLabel('아이디').fill(loginId)
   await page.getByLabel('비밀번호').fill(password)
   await page.getByRole('button', { name: '로그인', exact: true }).click()

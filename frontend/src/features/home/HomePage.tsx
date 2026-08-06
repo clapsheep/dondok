@@ -1,19 +1,21 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, SquarePen } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, SquarePen } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
-import { addMonths, currentMonthInSeoul, monthBounds, monthTitle } from '../../lib/month'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
+import { addMonths, currentMonthInSeoul, monthBounds, monthTitle, todayInSeoul } from '../../lib/month'
 import {
   membershipApi,
   membershipKeys,
   type CurrentLedgerBook,
 } from '../membership/api'
 import type { LedgerNavigationState } from '../membership/ledgerLifecycle'
-import { transactionApi, transactionKeys, type Transaction } from '../transactions/api'
+import { transactionApi, transactionKeys, type CalendarDay, type Transaction } from '../transactions/api'
 import { transactionRowAccessibleName, transactionRowAmountPrefix, transactionRowDestination, transactionRowTone, transactionTypeLabel } from '../transactions/transactionRow'
+import { compactCalendarWon, nextCalendarDate, selectedDateForMonth, shiftCalendarDate } from './calendarPresentation'
 
 function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null
@@ -86,7 +88,10 @@ function LedgerHome() {
   const [params, setParams] = useSearchParams()
   const month = /^\d{4}-\d{2}$/.test(params.get('month') ?? '') ? params.get('month')! : currentMonthInSeoul()
   const view = params.get('view') === 'daily' ? 'daily' : 'calendar'
+  const dayDetailOpen = view === 'calendar' && params.get('detail') === 'day'
   const bounds = monthBounds(month)
+  const selectedDate = selectedDateForMonth(params.get('date'), month, todayInSeoul())
+  const selectedDateToExclusive = nextCalendarDate(selectedDate)
   const calendar = useQuery({
     queryKey: transactionKeys.calendar(month),
     queryFn: () => transactionApi.calendar(month),
@@ -102,9 +107,20 @@ function LedgerHome() {
     staleTime: 0,
     refetchOnWindowFocus: 'always',
   })
+  const selectedTransactions = useInfiniteQuery({
+    queryKey: transactionKeys.list(selectedDate, selectedDateToExclusive),
+    queryFn: ({ pageParam }) => transactionApi.list({ from: selectedDate, toExclusive: selectedDateToExclusive, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: dayDetailOpen,
+    staleTime: 0,
+    refetchOnWindowFocus: 'always',
+  })
   const loadMore = useRef<HTMLDivElement>(null)
   const items = useMemo(() => transactions.data?.pages.flatMap((page) => page.items) ?? [], [transactions.data])
   const groups = useMemo(() => groupTransactions(items), [items])
+  const selectedItems = useMemo(() => selectedTransactions.data?.pages.flatMap((page) => page.items) ?? [], [selectedTransactions.data])
+  const selectedDaySummary = calendar.data?.days.find((day) => day.date === selectedDate)
   const fetchNextPage = transactions.fetchNextPage
   const hasNextPage = transactions.hasNextPage
   const isFetchingNextPage = transactions.isFetchingNextPage
@@ -125,6 +141,8 @@ function LedgerHome() {
       const updated = new URLSearchParams(current)
       updated.set('month', next)
       updated.set('view', view)
+      updated.delete('date')
+      updated.delete('detail')
       return updated
     })
   }
@@ -134,6 +152,38 @@ function LedgerHome() {
       const updated = new URLSearchParams(current)
       updated.set('month', month)
       updated.set('view', nextView)
+      if (nextView === 'daily') updated.delete('detail')
+      return updated
+    }, { replace: true })
+  }
+
+  function selectDate(date: string) {
+    setParams((current) => {
+      const updated = new URLSearchParams(current)
+      updated.set('month', date.slice(0, 7))
+      updated.set('view', 'calendar')
+      updated.set('date', date)
+      updated.set('detail', 'day')
+      return updated
+    })
+  }
+
+  function moveSelectedDate(offset: number) {
+    const nextDate = shiftCalendarDate(selectedDate, offset)
+    setParams((current) => {
+      const updated = new URLSearchParams(current)
+      updated.set('month', nextDate.slice(0, 7))
+      updated.set('view', 'calendar')
+      updated.set('date', nextDate)
+      updated.set('detail', 'day')
+      return updated
+    }, { replace: true })
+  }
+
+  function closeDayDetail() {
+    setParams((current) => {
+      const updated = new URLSearchParams(current)
+      updated.delete('detail')
       return updated
     }, { replace: true })
   }
@@ -178,7 +228,9 @@ function LedgerHome() {
           {view === 'daily' && calendar.isError ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3 text-sm"><p role="alert">월 합계를 불러오지 못했어요. 일별 거래는 계속 볼 수 있어요.</p><Button variant="ghost" onClick={() => calendar.refetch()}>합계 다시 불러오기</Button></div> : null}
 
           {view === 'calendar' ? (
-            calendar.isPending ? <LoadingRows label="달력을 불러오는 중…" /> : calendar.isError ? <HomeError onRetry={() => calendar.refetch()} /> : <MonthCalendar month={month} days={calendar.data?.days ?? []} />
+            calendar.isPending ? <LoadingRows label="달력을 불러오는 중…" /> : calendar.isError ? <HomeError onRetry={() => calendar.refetch()} /> : <>
+              <MonthCalendar month={month} days={calendar.data?.days ?? []} selectedDate={selectedDate} onSelectDate={selectDate} />
+            </>
           ) : transactions.isPending ? <LoadingRows label="거래를 불러오는 중…" /> : transactions.isError ? <HomeError onRetry={() => transactions.refetch()} /> : groups.length ? (
             <div className="mt-2">
               {groups.map((group) => <DayTransactions key={group.date} date={group.date} items={group.items} returnTo={`${location.pathname}${location.search}`} />)}
@@ -189,6 +241,23 @@ function LedgerHome() {
           ) : <EmptyTransactions />}
         </div>
       </div>
+      <DayDetailDialog
+        open={dayDetailOpen}
+        date={selectedDate}
+        summary={selectedDaySummary}
+        items={selectedItems}
+        isSummaryPending={calendar.isPending || calendar.isError}
+        isPending={selectedTransactions.isPending}
+        isError={selectedTransactions.isError}
+        hasNextPage={selectedTransactions.hasNextPage}
+        isFetchingNextPage={selectedTransactions.isFetchingNextPage}
+        onClose={closeDayDetail}
+        onPrevious={() => moveSelectedDate(-1)}
+        onNext={() => moveSelectedDate(1)}
+        onRetry={() => selectedTransactions.refetch()}
+        onLoadMore={() => selectedTransactions.fetchNextPage()}
+        returnTo={`${location.pathname}${location.search}`}
+      />
     </section>
   )
 }
@@ -217,7 +286,7 @@ function ViewButton({ active, onClick, children }: { active: boolean; onClick: (
   return <Button variant="ghost" className={`rounded-none border-b-2 px-4 ${active ? 'border-forest-700 text-forest-800 dark:border-forest-100 dark:text-white' : 'border-transparent text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`} type="button" aria-pressed={active} onClick={onClick}>{children}</Button>
 }
 
-function MonthCalendar({ month, days }: { month: string; days: { date: string; incomeWon: number; expenseWon: number }[] }) {
+function MonthCalendar({ month, days, selectedDate, onSelectDate }: { month: string; days: CalendarDay[]; selectedDate: string; onSelectDate: (date: string) => void }) {
   const { year, monthIndex, dayCount, leadingDays } = calendarMeta(month)
   const values = new Map(days.map((day) => [day.date, day]))
   const cellCount = Math.ceil((leadingDays + dayCount) / 7) * 7
@@ -232,14 +301,78 @@ function MonthCalendar({ month, days }: { month: string; days: { date: string; i
           const date = `${month}-${String(day).padStart(2, '0')}`
           const value = values.get(date)
           return (
-            <div className="min-h-20 min-w-0 border-r border-b border-[var(--line)] p-1.5 last:border-r-0 md:min-h-24 md:p-2 lg:min-h-28" role="gridcell" aria-label={calendarCellLabel(date, value)} key={date}>
-              <time className={`block text-xs tabular-nums ${date === today ? 'font-bold text-forest-700 underline decoration-2 underline-offset-4 dark:text-forest-100' : ''}`} dateTime={date}>{day}</time>
-              {value && (value.incomeWon !== 0 || value.expenseWon !== 0) ? <div className="mt-2 grid gap-1 overflow-hidden text-xs font-semibold tabular-nums">{value.incomeWon > 0 ? <span className="truncate text-[var(--income)]" title={`수입 +${formatWon(value.incomeWon)}`}>+{compactWon(value.incomeWon)}</span> : null}{value.expenseWon > 0 ? <span className="truncate text-[var(--expense)]" title={`지출 -${formatWon(value.expenseWon)}`}>-{compactWon(value.expenseWon)}</span> : value.expenseWon < 0 ? <span className="truncate text-[var(--transfer)]" title={`환불 +${formatWon(value.expenseWon)}`}>+{compactWon(value.expenseWon)}</span> : null}</div> : null}
+            <div className="min-h-20 min-w-0 border-r border-b border-[var(--line)] last:border-r-0 md:min-h-24 lg:min-h-28" role="gridcell" aria-label={calendarCellLabel(date, value)} aria-selected={date === selectedDate} key={date}>
+              <Button
+                type="button"
+                variant="ghost"
+                className={`h-full min-h-20 w-full flex-col items-stretch justify-start gap-0 rounded-none px-1 py-1.5 text-left text-ink-900 hover:bg-forest-50 hover:text-ink-900 focus-visible:z-[1] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-forest-700 dark:text-white dark:hover:bg-forest-800 md:min-h-24 md:px-2 md:py-2 lg:min-h-28 ${date === selectedDate ? 'bg-forest-50/80 shadow-[inset_0_0_0_1px_var(--income)] dark:bg-forest-800/80' : ''}`}
+                aria-label={`${calendarCellLabel(date, value)} 선택`}
+                aria-pressed={date === selectedDate}
+                onClick={() => onSelectDate(date)}
+              >
+                <time className={`block text-xs tabular-nums ${date === today ? 'font-bold text-forest-700 underline decoration-2 underline-offset-4 dark:text-forest-100' : ''}`} dateTime={date}>{day}</time>
+                {value && (value.incomeWon !== 0 || value.expenseWon !== 0) ? <span className="mt-2 grid gap-1 text-[10px] font-semibold leading-none tracking-[-.04em] tabular-nums xs:text-xs md:tracking-normal">{value.incomeWon > 0 ? <span className="block whitespace-nowrap text-[var(--income)]" title={`수입 +${formatWon(value.incomeWon)}`}>+{compactCalendarWon(value.incomeWon)}</span> : null}{value.expenseWon > 0 ? <span className="block whitespace-nowrap text-[var(--expense)]" title={`지출 -${formatWon(value.expenseWon)}`}>-{compactCalendarWon(value.expenseWon)}</span> : value.expenseWon < 0 ? <span className="block whitespace-nowrap text-[var(--transfer)]" title={`환불 +${formatWon(value.expenseWon)}`}>+{compactCalendarWon(value.expenseWon)}</span> : null}</span> : null}
+              </Button>
             </div>
           )
         })}
       </div>
     </div>
+  )
+}
+
+function DayDetailDialog({ open, date, summary, items, isSummaryPending, isPending, isError, hasNextPage, isFetchingNextPage, onClose, onPrevious, onNext, onRetry, onLoadMore, returnTo }: {
+  open: boolean
+  date: string
+  summary?: CalendarDay
+  items: Transaction[]
+  isSummaryPending: boolean
+  isPending: boolean
+  isError: boolean
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  onClose: () => void
+  onPrevious: () => void
+  onNext: () => void
+  onRetry: () => void
+  onLoadMore: () => void
+  returnTo: string
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
+      <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(46rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(42rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg">
+        <header className="grid shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-[var(--line)] px-2 pb-2 pt-[max(.5rem,env(safe-area-inset-top))] md:px-4 md:py-3">
+          <Button type="button" variant="ghost" size="icon" aria-label="달력으로 돌아가기" onClick={onClose}><ArrowLeft size={20} /></Button>
+          <div className="flex min-w-0 items-center justify-center gap-1">
+            <Button type="button" variant="ghost" size="icon" aria-label="이전 날" onClick={onPrevious}><ChevronLeft size={20} /></Button>
+            <DialogTitle className="min-w-24 truncate text-center text-base tabular-nums md:text-xl">{dayTitle(date)}</DialogTitle>
+            <Button type="button" variant="ghost" size="icon" aria-label="다음 날" onClick={onNext}><ChevronRight size={20} /></Button>
+          </div>
+          <span aria-hidden="true" />
+          <DialogDescription className="sr-only">선택한 날짜의 수입과 지출 기록을 확인합니다.</DialogDescription>
+        </header>
+
+        <section className="flex min-h-0 flex-1 flex-col" role="region" aria-label={`${date} 거래 상세`}>
+          <div className="shrink-0 border-b border-[var(--line)] px-4 py-3 md:px-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-[var(--muted)]">{isPending ? '거래를 불러오는 중' : `${items.length}${hasNextPage ? '건 이상' : '건'}`}</p>
+              <p className="text-xs text-[var(--muted)]">이체·집계 제외 기록은 합계에서 제외돼요</p>
+            </div>
+            <dl className="mt-3 grid grid-cols-2 divide-x divide-[var(--line)]">
+              <div className="pr-4"><dt className="text-xs text-[var(--muted)]">수입</dt><dd className="mt-1 text-base font-semibold tabular-nums text-[var(--income)] md:text-lg">{isSummaryPending ? '—' : summary?.incomeWon ? `+${formatWon(summary.incomeWon)}` : formatWon(0)}</dd></div>
+              <div className="pl-4 text-right"><dt className="text-xs text-[var(--muted)]">지출</dt><dd className={`mt-1 text-base font-semibold tabular-nums md:text-lg ${summary && summary.expenseWon < 0 ? 'text-[var(--transfer)]' : 'text-[var(--expense)]'}`}>{isSummaryPending ? '—' : summary?.expenseWon ? `${summary.expenseWon < 0 ? '+' : '-'}${formatWon(summary.expenseWon)}` : formatWon(0)}</dd></div>
+            </dl>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6 md:pb-6">
+            {isPending ? <LoadingRows label="선택한 날짜의 거래를 불러오는 중…" /> : isError ? <div className="py-10 text-center"><p role="alert">선택한 날짜의 거래를 불러오지 못했어요.</p><Button className="mt-4" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div> : items.length ? <>
+              <ul>{items.map((item) => <TransactionRow transaction={item} returnTo={returnTo} key={item.transactionId} />)}</ul>
+              {hasNextPage ? <div className="grid min-h-16 place-items-center"><Button variant="ghost" disabled={isFetchingNextPage} onClick={onLoadMore}>{isFetchingNextPage ? <><LoaderCircle className="animate-spin" size={17} />불러오는 중…</> : '거래 더 보기'}</Button></div> : null}
+            </> : <p className="py-12 text-center text-sm text-[var(--muted)]">이 날짜에 기록한 거래가 없어요.</p>}
+          </div>
+        </section>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -256,7 +389,7 @@ function TransactionRow({ transaction, returnTo }: { transaction: Transaction; r
   const amount = `${transactionRowAmountPrefix(transaction)}${formatWon(transaction.amountWon)}`
   const tone = transactionRowTone(transaction)
   const label = transaction.description || transaction.category?.name || transactionTypeLabel(transaction)
-  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><span className="truncate">{postingLabel(transaction)}</span>{transaction.performedBy ? <><span aria-hidden="true">·</span><MemberAvatar displayName={transaction.performedBy.displayName} memberId={transaction.performedBy.memberId} size="xs" /><span className="truncate">{transaction.performedBy.displayName}</span></> : null}{transaction.installmentCount && transaction.installmentCount > 1 ? <><span aria-hidden="true">·</span><span className="shrink-0">{transaction.installmentCount}개월</span></> : null}</div></div><div className="text-right"><strong className={`text-sm font-semibold tabular-nums ${tone}`}>{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
+  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><span className="truncate">{postingLabel(transaction)}</span>{transaction.performedBy ? <><span aria-hidden="true">·</span><MemberAvatar displayName={transaction.performedBy.displayName} memberId={transaction.performedBy.memberId} size="xs" /><span className="truncate">{transaction.performedBy.displayName}</span></> : null}{transaction.installmentCount && transaction.installmentCount > 1 ? <><span aria-hidden="true">·</span><span className="shrink-0">{transaction.installmentCount}개월</span></> : null}{transaction.excludedFromStatistics ? <><span aria-hidden="true">·</span><span className="shrink-0 font-semibold">집계 제외</span></> : null}</div></div><div className="text-right"><strong className={`text-sm font-semibold tabular-nums ${tone}`}>{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
   const destination = transactionRowDestination(transaction)
   return <li className="border-b border-[var(--line)] last:border-b-0">{destination ? <Link to={destination} state={{ returnTo }} aria-label={transactionRowAccessibleName(transaction, label, amount)} className="group grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 transition-colors hover:bg-forest-50 dark:hover:bg-forest-800 md:px-2">{content}</Link> : <div className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 md:px-2">{content}</div>}</li>
 }
@@ -320,20 +453,11 @@ function ledgerLifecycleStatus(state: unknown) {
   return message ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">{message}</p> : null
 }
 
-function todayInSeoul() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()) }
 function dayTitle(date: string) { return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: 'short', timeZone: 'Asia/Seoul' }).format(new Date(`${date}T00:00:00+09:00`)) }
 function calendarMeta(month: string) { const [year, value] = month.split('-').map(Number); return { year, monthIndex: value - 1, dayCount: new Date(Date.UTC(year, value, 0)).getUTCDate(), leadingDays: new Date(Date.UTC(year, value - 1, 1)).getUTCDay() } }
 function formatWon(value: number) { return `${new Intl.NumberFormat('ko-KR').format(Math.abs(value))}원` }
 function signedWon(value: number) { return `${value > 0 ? '+' : value < 0 ? '-' : ''}${formatWon(value)}` }
 
-function compactWon(value: number) {
-  const absolute = Math.abs(value)
-  if (absolute >= 100_000_000) return `${trimDecimal(absolute / 100_000_000)}억`
-  if (absolute >= 10_000) return `${trimDecimal(absolute / 10_000)}만`
-  return new Intl.NumberFormat('ko-KR').format(absolute)
-}
-
-function trimDecimal(value: number) { return value >= 100 ? Math.round(value).toString() : value.toFixed(1).replace(/\.0$/, '') }
 function calendarCellLabel(date: string, value?: { incomeWon: number; expenseWon: number }) {
   const amounts: string[] = []
   if (value && value.incomeWon > 0) amounts.push(`수입 +${formatWon(value.incomeWon)}`)

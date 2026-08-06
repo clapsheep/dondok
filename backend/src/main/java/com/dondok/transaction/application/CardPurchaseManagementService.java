@@ -20,6 +20,7 @@ import com.dondok.membership.infrastructure.persistence.LedgerMemberRepository;
 import com.dondok.transaction.domain.TransactionType;
 import com.dondok.transaction.infrastructure.persistence.CardPurchaseManagementRepository;
 import com.dondok.transaction.infrastructure.persistence.CardPurchaseManagementRepository.AccountAmount;
+import com.dondok.transaction.infrastructure.persistence.CardPurchaseManagementRepository.AnchorSettlement;
 import com.dondok.transaction.infrastructure.persistence.CardPurchaseManagementRepository.ChargeAllocation;
 import com.dondok.transaction.infrastructure.persistence.CardPurchaseManagementRepository.ChargeIdHolder;
 import com.dondok.transaction.infrastructure.persistence.CardPurchaseManagementRepository.ChargeRow;
@@ -115,9 +116,11 @@ public class CardPurchaseManagementService {
         LedgerMemberEntity member = currentMember(userId);
         PurchaseGraph graph = requirePurchase(repository.find(member.getBookId(), purchaseId));
         requireVersion(graph, command.expectedVersion());
-        RefundPlan plan = refundPlan(graph, command.amountWon());
+        AnchorSettlement anchor = repository.findAnchorSettlement(
+                member.getBookId(), graph.purchase().cardAssetId(), false);
+        RefundPlan plan = refundPlan(graph, anchor, command.amountWon());
         return new CardPurchaseRefundPreview(
-                refundPreviewToken(graph, command), graph.purchase().version(),
+                refundPreviewToken(graph, anchor, command), graph.purchase().version(),
                 graph.refundableAmountWon(), plan.unpaidCardReductionWon(),
                 accountReturnViews(plan.accountReturns()));
     }
@@ -148,9 +151,11 @@ public class CardPurchaseManagementService {
 
         PurchaseGraph graph = requirePurchase(repository.findForUpdate(member.getBookId(), purchaseId));
         requireVersion(graph, command.expectedVersion());
-        String currentToken = refundPreviewToken(graph, command.toPreviewCommand());
+        AnchorSettlement anchor = repository.findAnchorSettlement(
+                member.getBookId(), graph.purchase().cardAssetId(), true);
+        String currentToken = refundPreviewToken(graph, anchor, command.toPreviewCommand());
         requirePreviewToken(command.previewToken(), currentToken);
-        RefundPlan plan = refundPlan(graph, command.amountWon());
+        RefundPlan plan = refundPlan(graph, anchor, command.amountWon());
         UUID refundId = UuidV7.next();
         UUID refundTransactionId = UuidV7.next();
         repository.insertRefund(
@@ -159,7 +164,7 @@ public class CardPurchaseManagementService {
                         graph.purchase().cardAssetId(), graph.purchase().categoryId(),
                         graph.purchase().performedByMemberId(), member.getId(),
                         command.refundedOn(), command.amountWon(), stripToNull(command.description()),
-                        command.expectedVersion(), now),
+                        command.excludedFromStatistics(), command.expectedVersion(), now),
                 plan.chargeAllocations(), plan.paymentAllocations(),
                 plan.accountReturns(), plan.unpaidCardReductionWon());
         idempotency.complete(userId, REFUND_SCOPE, idempotencyKey, refundTransactionId, 201, now);
@@ -217,8 +222,10 @@ public class CardPurchaseManagementService {
         repository.correctPurchase(new CardPurchaseManagementRepository.CorrectionWrite(
                 purchaseId, member.getBookId(), command.cardAssetId(), command.occurredOn(),
                 command.amountWon(), command.categoryId(), command.performedByMemberId(),
-                stripToNull(command.description()), context.statementClosingDay(), context.paymentDay(),
+                stripToNull(command.description()), command.excludedFromStatistics(),
+                context.statementClosingDay(), context.paymentDay(),
                 context.paymentMonthOffset(), command.expectedVersion(), member.getId(), now,
+                context.absorbedByBalanceAnchor(),
                 plan.installments(), plan.historicalRefundAllocations(), plan.paymentReductions(), graph));
         List<UUID> affectedCardAssetIds = new ArrayList<>();
         affectedCardAssetIds.add(graph.purchase().cardAssetId());
@@ -232,7 +239,9 @@ public class CardPurchaseManagementService {
         return toManagement(userId, requirePurchase(repository.find(member.getBookId(), purchaseId)));
     }
 
-    private RefundPlan refundPlan(PurchaseGraph graph, long requestedAmountWon) {
+    private RefundPlan refundPlan(
+            PurchaseGraph graph, AnchorSettlement anchor, long requestedAmountWon
+    ) {
         if (requestedAmountWon <= 0) {
             throw error(HttpStatus.BAD_REQUEST, "CARD_REFUND_AMOUNT_INVALID",
                     "환불 금액은 0원보다 커야 합니다.");
@@ -286,6 +295,30 @@ public class CardPurchaseManagementService {
                 remaining -= allocated;
             }
         }
+        if (remaining > 0) {
+            long allocated = allocateAnchorAbsorbedCharges(
+                    graph, remaining, chargeRemaining, chargeAllocations);
+            remaining -= allocated;
+            long unpaidAnchorReduction = Math.min(
+                    allocated, anchor == null ? 0 : anchor.remainingAmountWon());
+            unpaidAllocated += unpaidAnchorReduction;
+            long paidAnchorReturn = allocated - unpaidAnchorReduction;
+            if (paidAnchorReturn > 0 && anchor != null) {
+                for (PaymentRow payment : anchor.payments()) {
+                    if (paidAnchorReturn == 0) {
+                        break;
+                    }
+                    long available = payment.effectiveAmountWon()
+                            - paymentAllocations.getOrDefault(payment.paymentId(), 0L);
+                    long returned = Math.min(paidAnchorReturn, Math.max(available, 0));
+                    if (returned > 0) {
+                        paymentAllocations.merge(payment.paymentId(), returned, Long::sum);
+                        paidAnchorReturn -= returned;
+                    }
+                }
+            }
+            unpaidAllocated += paidAnchorReturn;
+        }
         if (remaining != 0) {
             throw new IllegalStateException("refundable card purchase could not be allocated");
         }
@@ -297,11 +330,17 @@ public class CardPurchaseManagementService {
                 .toList();
         List<PaymentAllocation> paymentWrites = paymentAllocations.entrySet().stream()
                 .map(entry -> new PaymentAllocation(entry.getKey(), entry.getValue())).toList();
+        Map<UUID, PaymentRow> paymentRows = new LinkedHashMap<>();
+        graph.payments().forEach(payment -> paymentRows.put(payment.paymentId(), payment));
+        if (anchor != null) {
+            anchor.payments().forEach(payment -> paymentRows.putIfAbsent(payment.paymentId(), payment));
+        }
         Map<UUID, AccountAmount> accounts = new LinkedHashMap<>();
         for (PaymentAllocation allocation : paymentWrites) {
-            PaymentRow payment = graph.payments().stream()
-                    .filter(row -> row.paymentId().equals(allocation.paymentId()))
-                    .findFirst().orElseThrow();
+            PaymentRow payment = paymentRows.get(allocation.paymentId());
+            if (payment == null) {
+                throw new IllegalStateException("refund payment allocation is missing its payment");
+            }
             AccountAmount prior = accounts.get(payment.settlementAssetId());
             accounts.put(payment.settlementAssetId(), new AccountAmount(
                     payment.settlementAssetId(), payment.settlementAssetName(),
@@ -321,7 +360,36 @@ public class CardPurchaseManagementService {
         long remaining = requested;
         List<ChargeRow> charges = graph.charges().stream()
                 .filter(charge -> charge.statementId().equals(statementId))
+                .filter(charge -> !charge.absorbedByBalanceAnchor())
                 .sorted(Comparator.comparingInt(ChargeRow::installmentNo).reversed()
+                        .thenComparing(ChargeRow::chargeId, Comparator.reverseOrder()))
+                .toList();
+        for (ChargeRow charge : charges) {
+            if (remaining == 0) {
+                break;
+            }
+            long available = remainingByCharge.getOrDefault(charge.chargeId(), 0L);
+            long allocated = Math.min(remaining, available);
+            if (allocated > 0) {
+                allocations.merge(charge.chargeId(), allocated, Long::sum);
+                remainingByCharge.put(charge.chargeId(), available - allocated);
+                remaining -= allocated;
+            }
+        }
+        return requested - remaining;
+    }
+
+    private long allocateAnchorAbsorbedCharges(
+            PurchaseGraph graph,
+            long requested,
+            Map<UUID, Long> remainingByCharge,
+            Map<UUID, Long> allocations
+    ) {
+        long remaining = requested;
+        List<ChargeRow> charges = graph.charges().stream()
+                .filter(ChargeRow::absorbedByBalanceAnchor)
+                .sorted(Comparator.comparing(ChargeRow::expectedSettlementOn).reversed()
+                        .thenComparingInt(ChargeRow::installmentNo).reversed()
                         .thenComparing(ChargeRow::chargeId, Comparator.reverseOrder()))
                 .toList();
         for (ChargeRow charge : charges) {
@@ -395,7 +463,8 @@ public class CardPurchaseManagementService {
         List<InstallmentTarget> installments = installments(
                 command.occurredOn(), command.amountWon(), command.installmentCount(),
                 closingDay, paymentDay, paymentOffset);
-        return new CorrectionContext(card.getId(), closingDay, paymentDay, paymentOffset, installments);
+        return new CorrectionContext(card.getId(), closingDay, paymentDay, paymentOffset,
+                command.occurredOn().isBefore(card.getOpenedOn()), installments);
     }
 
     private List<InstallmentTarget> installments(
@@ -450,12 +519,16 @@ public class CardPurchaseManagementService {
         }
 
         Map<StatementKey, Long> targetEffective = new HashMap<>();
-        targets.forEach(target -> targetEffective.merge(
-                new StatementKey(target.cycleStart(), target.cycleEnd(), target.dueOn()),
-                targetRemaining.get(target), Long::sum));
+        if (!context.absorbedByBalanceAnchor()) {
+            targets.forEach(target -> targetEffective.merge(
+                    new StatementKey(target.cycleStart(), target.cycleEnd(), target.dueOn()),
+                    targetRemaining.get(target), Long::sum));
+        }
         Map<UUID, Long> oldEffective = new HashMap<>();
-        graph.charges().forEach(charge -> oldEffective.merge(
-                charge.statementId(), charge.refundableAmountWon(), Long::sum));
+        graph.charges().stream()
+                .filter(charge -> !charge.absorbedByBalanceAnchor())
+                .forEach(charge -> oldEffective.merge(
+                        charge.statementId(), charge.refundableAmountWon(), Long::sum));
         Map<UUID, List<PaymentRow>> paymentsByStatement = new HashMap<>();
         graph.payments().forEach(payment -> paymentsByStatement
                 .computeIfAbsent(payment.statementId(), ignored -> new ArrayList<>()).add(payment));
@@ -496,8 +569,10 @@ public class CardPurchaseManagementService {
             }
         }
         long oldEffectiveAmount = graph.charges().stream()
+                .filter(charge -> !charge.absorbedByBalanceAnchor())
                 .mapToLong(ChargeRow::refundableAmountWon).sum();
-        long newEffectiveAmount = targetRemaining.values().stream().mapToLong(Long::longValue).sum();
+        long newEffectiveAmount = context.absorbedByBalanceAnchor() ? 0
+                : targetRemaining.values().stream().mapToLong(Long::longValue).sum();
         long accountReturnAmount = accounts.values().stream().mapToLong(AccountAmount::amountWon).sum();
         long unpaidReduction = Math.max(0,
                 oldEffectiveAmount - newEffectiveAmount - accountReturnAmount);
@@ -538,7 +613,7 @@ public class CardPurchaseManagementService {
                         payments.getOrDefault(statement.statementId(), List.of()))).toList(),
                 graph.refunds().stream().map(refund -> new CardRefundView(
                         refund.refundId(), refund.refundTransactionId(), refund.refundedOn(),
-                        refund.amountWon(), refund.unpaidCardReductionWon(),
+                        refund.amountWon(), refund.excludedFromStatistics(), refund.unpaidCardReductionWon(),
                         refundAccounts.getOrDefault(refund.refundId(), List.of()))).toList());
     }
 
@@ -558,8 +633,12 @@ public class CardPurchaseManagementService {
                 account.assetId(), account.assetName(), account.amountWon())).toList();
     }
 
-    private String refundPreviewToken(PurchaseGraph graph, RefundCommand command) {
-        return hash(graph.concurrencyState() + "|refund|" + command);
+    private String refundPreviewToken(
+            PurchaseGraph graph, AnchorSettlement anchor, RefundCommand command
+    ) {
+        return hash(graph.concurrencyState() + "|anchor|"
+                + (anchor == null ? "none" : anchor.concurrencyState())
+                + "|refund|" + command);
     }
 
     private String correctionPreviewToken(
@@ -569,7 +648,8 @@ public class CardPurchaseManagementService {
     ) {
         return hash(graph.concurrencyState() + "|correction|" + command
                 + '|' + context.statementClosingDay() + '|' + context.paymentDay()
-                + '|' + context.paymentMonthOffset());
+                + '|' + context.paymentMonthOffset()
+                + '|' + context.absorbedByBalanceAnchor());
     }
 
     private PurchaseGraph requirePurchase(PurchaseGraph graph) {
@@ -642,8 +722,12 @@ public class CardPurchaseManagementService {
             LocalDate refundedOn,
             long amountWon,
             long expectedVersion,
-            String description
+            String description,
+            boolean excludedFromStatistics
     ) {
+        public RefundCommand(LocalDate refundedOn, long amountWon, long expectedVersion, String description) {
+            this(refundedOn, amountWon, expectedVersion, description, false);
+        }
     }
 
     public record RefundApplyCommand(
@@ -651,10 +735,19 @@ public class CardPurchaseManagementService {
             long amountWon,
             long expectedVersion,
             String description,
-            String previewToken
+            String previewToken,
+            boolean excludedFromStatistics
     ) {
+        public RefundApplyCommand(
+                LocalDate refundedOn, long amountWon, long expectedVersion,
+                String description, String previewToken
+        ) {
+            this(refundedOn, amountWon, expectedVersion, description, previewToken, false);
+        }
+
         public RefundCommand toPreviewCommand() {
-            return new RefundCommand(refundedOn, amountWon, expectedVersion, description);
+            return new RefundCommand(
+                    refundedOn, amountWon, expectedVersion, description, excludedFromStatistics);
         }
     }
 
@@ -666,8 +759,17 @@ public class CardPurchaseManagementService {
             UUID performedByMemberId,
             String description,
             int installmentCount,
-            long expectedVersion
+            long expectedVersion,
+            boolean excludedFromStatistics
     ) {
+        public CorrectionCommand(
+                LocalDate occurredOn, long amountWon, UUID categoryId, UUID cardAssetId,
+                UUID performedByMemberId, String description, int installmentCount,
+                long expectedVersion
+        ) {
+            this(occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
+                    description, installmentCount, expectedVersion, false);
+        }
     }
 
     public record CorrectionApplyCommand(
@@ -679,12 +781,22 @@ public class CardPurchaseManagementService {
             String description,
             int installmentCount,
             long expectedVersion,
-            String previewToken
+            String previewToken,
+            boolean excludedFromStatistics
     ) {
+        public CorrectionApplyCommand(
+                LocalDate occurredOn, long amountWon, UUID categoryId, UUID cardAssetId,
+                UUID performedByMemberId, String description, int installmentCount,
+                long expectedVersion, String previewToken
+        ) {
+            this(occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
+                    description, installmentCount, expectedVersion, previewToken, false);
+        }
+
         public CorrectionCommand toPreviewCommand() {
             return new CorrectionCommand(
                     occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
-                    description, installmentCount, expectedVersion);
+                    description, installmentCount, expectedVersion, excludedFromStatistics);
         }
     }
 
@@ -744,6 +856,7 @@ public class CardPurchaseManagementService {
             UUID refundTransactionId,
             LocalDate refundedOn,
             long amountWon,
+            boolean excludedFromStatistics,
             long unpaidCardReductionWon,
             List<AccountReturnView> accountReturns
     ) {
@@ -797,6 +910,7 @@ public class CardPurchaseManagementService {
             int statementClosingDay,
             int paymentDay,
             int paymentMonthOffset,
+            boolean absorbedByBalanceAnchor,
             List<InstallmentTarget> installments
     ) {
     }

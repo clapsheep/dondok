@@ -214,7 +214,8 @@ public class AssetService {
         UUID assetId = UuidV7.next();
         AssetEntity asset = assets.save(new AssetEntity(
                 assetId, member.getBookId(), type.getId(), command.ownershipScope(), ownerMemberId,
-                command.name().strip(), command.openedOn(), stripToNull(command.memo()), 0, member.getId(), now));
+                command.name().strip(), command.openedOn(), stripToNull(command.memo()),
+                command.openingBalanceWon(), 0, member.getId(), now));
         assets.flush();
         CardSettingEntity setting = synchronizeCardSetting(asset, type, cardCommand, now);
         synchronizeDebitCardSetting(asset, type, debitCommand, now);
@@ -223,6 +224,7 @@ public class AssetService {
                 member.getBookId(), assetId, member.getId(), command.openedOn(),
                 command.openingBalanceWon(), now);
         synchronizeCardOpening(asset, type, setting, openingTransactionId, command.openingBalanceWon(), now);
+        ledger.synchronizeCardChargeAnchors(member.getBookId(), assetId, command.openedOn(), now);
         ledger.synchronizeCardPaymentSchedules(member.getBookId(), assetId, setting, now);
         idempotency.complete(userId, idempotencyKey, assetId, now);
         return view(member.getBookId(), asset);
@@ -257,7 +259,8 @@ public class AssetService {
         requireOpeningMagnitude(input.openingBalanceWon());
 
         asset.update(type.getId(), input.ownershipScope(), ownerMemberId, input.name().strip(),
-                input.openedOn(), stripToNull(input.memo()), member.getId(), now);
+                input.openedOn(), stripToNull(input.memo()), input.openingBalanceWon(),
+                member.getId(), now);
         assets.flush();
         CardSettingEntity setting = synchronizeCardSetting(asset, type, cardCommand, now);
         synchronizeDebitCardSetting(asset, type, debitCommand, now);
@@ -266,6 +269,7 @@ public class AssetService {
                 member.getBookId(), assetId, member.getId(), input.openedOn(),
                 input.openingBalanceWon(), now);
         synchronizeCardOpening(asset, type, setting, openingTransactionId, input.openingBalanceWon(), now);
+        ledger.synchronizeCardChargeAnchors(member.getBookId(), assetId, input.openedOn(), now);
         ledger.synchronizeCardPaymentSchedules(member.getBookId(), assetId, setting, now);
         if (command.reassignTransactionsToNewOwner()) {
             ledger.reassignTransactionPerformers(member.getBookId(), assetId, ownerMemberId, member.getId(), now);
@@ -479,7 +483,6 @@ public class AssetService {
         Map<UUID, SavingsSettingEntity> savingsSettingsByAsset = savingsSettings
                 .findAllBySavingsAssetIdIn(ids).stream()
                 .collect(Collectors.toMap(SavingsSettingEntity::getSavingsAssetId, Function.identity()));
-        Map<UUID, Long> opening = ledger.openingBalances(bookId, ids);
         Map<UUID, Long> balances = ledger.currentBalances(bookId);
         List<UUID> cardIds = found.stream()
                 .filter(asset -> requiredType(types, asset.getAssetTypeId()).getBehavior()
@@ -489,7 +492,7 @@ public class AssetService {
         Map<UUID, CardPaymentDues> cardPaymentDues = currentAndNextMonthCardPaymentDues(bookId, cardIds);
         return found.stream().map(asset -> toView(asset, requiredType(types, asset.getAssetTypeId()),
                 settings.get(asset.getId()), debitSettings.get(asset.getId()),
-                savingsSettingsByAsset.get(asset.getId()), opening.getOrDefault(asset.getId(), 0L),
+                savingsSettingsByAsset.get(asset.getId()), asset.getBalanceAnchorWon(),
                 balances.getOrDefault(asset.getId(), 0L),
                 cardPaymentDues.getOrDefault(asset.getId(), NO_CARD_PAYMENT_DUES))).toList();
     }
@@ -504,7 +507,7 @@ public class AssetService {
         return toView(asset, type, cardSettings.findById(asset.getId()).orElse(null),
                 debitCardSettings.findById(asset.getId()).orElse(null),
                 savingsSettings.findById(asset.getId()).orElse(null),
-                ledger.openingBalance(bookId, asset.getId()), ledger.currentBalance(bookId, asset.getId()),
+                asset.getBalanceAnchorWon(), ledger.currentBalance(bookId, asset.getId()),
                 cardPaymentDues);
     }
 
@@ -603,7 +606,7 @@ public class AssetService {
 
     private void requireOpeningMagnitude(long value) {
         if (value == Long.MIN_VALUE) {
-            throw error(HttpStatus.BAD_REQUEST, "OPENING_BALANCE_INVALID", "최초 금액의 범위를 확인해 주세요.");
+            throw error(HttpStatus.BAD_REQUEST, "OPENING_BALANCE_INVALID", "기준일 잔액의 범위를 확인해 주세요.");
         }
     }
 

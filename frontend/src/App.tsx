@@ -1,4 +1,4 @@
-import { useQueries, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { ApiError, api, clearCsrfToken, subscribeLedgerNotFound, type SessionUser } from './lib/api'
@@ -14,6 +14,7 @@ import { TransactionFormPage } from './features/transactions/TransactionFormPage
 import { CardPurchaseManagementPage, type CardPurchaseAction } from './features/transactions/CardPurchaseManagementPage'
 import { CategorySettingsPage } from './features/categories/CategorySettingsPage'
 import { ledgerExitReasonAfterCurrentRead, replaceLedgerClientState, type LedgerNavigationState } from './features/membership/ledgerLifecycle'
+import { MobileLedgerNavigation } from './components/AppShell'
 
 const CardStatementPage = lazy(() => import('./features/card-statements/CardStatementPage').then((module) => ({ default: module.CardStatementPage })))
 const StatisticsPage = lazy(() => import('./features/statistics/StatisticsPage').then((module) => ({ default: module.StatisticsPage })))
@@ -134,6 +135,27 @@ function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 
   return <HomePage current={currentLedger} />
 }
 
+const ledgerRoutePrefixes = ['/assets', '/transactions', '/statistics', '/settings'] as const
+
+function PersistentMobileLedgerNavigation() {
+  const location = useLocation()
+  const isLedgerRoute = location.pathname === '/'
+    || ledgerRoutePrefixes.some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`))
+  const current = useQuery({
+    queryKey: membershipKeys.current,
+    queryFn: () => membershipApi.current().catch((error: { status?: number }) => {
+      if (error.status === 401 || error.status === 403) return null
+      throw error
+    }),
+    staleTime: 0,
+    refetchOnWindowFocus: 'always',
+    enabled: isLedgerRoute,
+  })
+
+  if (!isLedgerRoute || current.isError || !current.data?.ledger) return null
+  return <MobileLedgerNavigation />
+}
+
 export default function App() {
   return (
     <LedgerLifecycleBoundary>
@@ -160,6 +182,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <PersistentMobileLedgerNavigation />
       <UpdatePrompt />
     </LedgerLifecycleBoundary>
   )

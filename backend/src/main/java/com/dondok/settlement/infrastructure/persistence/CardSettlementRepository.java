@@ -174,6 +174,7 @@ public class CardSettlementRepository {
                               and purchase.id = charge.source_transaction_id
                               and purchase.deleted_at is null
                             where charge.statement_id = statement.id
+                              and not charge.absorbed_by_balance_anchor
                        ), 0),
                        finalized_at = coalesce(finalized_at, ?), settled_at = ?,
                        updated_at = ?, version = version + 1
@@ -251,6 +252,7 @@ public class CardSettlementRepository {
                               and purchase.id = charge.source_transaction_id
                               and purchase.deleted_at is null
                             where charge.statement_id = statement.id
+                              and not charge.absorbed_by_balance_anchor
                        ), 0),
                        finalized_at = coalesce(finalized_at, ?), settled_at = ?,
                        updated_at = ?, version = version + 1

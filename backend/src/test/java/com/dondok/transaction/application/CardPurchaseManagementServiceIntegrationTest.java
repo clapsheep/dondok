@@ -114,6 +114,138 @@ class CardPurchaseManagementServiceIntegrationTest {
     }
 
     @Test
+    void cardCorrectionAndRefundCanStayOutOfAggregatesWithoutChangingTheirPostings() {
+        Fixture fixture = fixture();
+        TransactionService.TransactionView purchase = purchase(
+                fixture, 100_000, "excluded-card-purchase");
+        CardPurchaseManagementService.CorrectionCommand correction =
+                new CardPurchaseManagementService.CorrectionCommand(
+                        purchase.occurredOn(), purchase.amountWon(), purchase.category().categoryId(),
+                        fixture.card().assetId(), fixture.memberId(), purchase.description(), 1,
+                        purchase.version(), true);
+        CardPurchaseManagementService.CardPurchaseCorrectionPreview correctionPreview =
+                managementService.previewCorrection(
+                        fixture.userId(), purchase.transactionId(), correction);
+        CardPurchaseManagementService.CardPurchaseManagementView corrected = managementService.correct(
+                fixture.userId(), purchase.transactionId(), "excluded-card-correction",
+                new CardPurchaseManagementService.CorrectionApplyCommand(
+                        correction.occurredOn(), correction.amountWon(), correction.categoryId(),
+                        correction.cardAssetId(), correction.performedByMemberId(),
+                        correction.description(), correction.installmentCount(),
+                        correction.expectedVersion(), correctionPreview.previewToken(), true));
+
+        assertThat(corrected.purchase().excludedFromStatistics()).isTrue();
+        assertThat(assetBalance(fixture.card().assetId())).isEqualTo(-100_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)).totalExpenseWon())
+                .isZero();
+
+        CardPurchaseManagementService.RefundCommand refund =
+                new CardPurchaseManagementService.RefundCommand(
+                        LocalDate.of(2026, 7, 22), 40_000,
+                        corrected.purchase().version(), "집계 제외 환불", true);
+        CardPurchaseManagementService.CardPurchaseRefundPreview refundPreview =
+                managementService.previewRefund(fixture.userId(), purchase.transactionId(), refund);
+        CardPurchaseManagementService.CardPurchaseRefundResult result = managementService.refund(
+                fixture.userId(), purchase.transactionId(), "excluded-card-refund",
+                new CardPurchaseManagementService.RefundApplyCommand(
+                        refund.refundedOn(), refund.amountWon(), refund.expectedVersion(),
+                        refund.description(), refundPreview.previewToken(), true));
+
+        assertThat(result.refundTransaction().excludedFromStatistics()).isTrue();
+        assertThat(managementService.management(fixture.userId(), purchase.transactionId()).refunds())
+                .singleElement()
+                .extracting(CardPurchaseManagementService.CardRefundView::excludedFromStatistics)
+                .isEqualTo(true);
+        assertThat(assetBalance(fixture.card().assetId())).isEqualTo(-60_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)).totalExpenseWon())
+                .isZero();
+    }
+
+    @Test
+    void refundAfterAnchorReducesTheAnchoredCardBalanceAndItsPaymentDue() {
+        Fixture fixture = fixture();
+        TransactionService.TransactionView purchase = purchase(
+                fixture, 100_000, "anchor-absorbed-purchase");
+        AssetService.CardSettingsCommand cardSettings = new AssetService.CardSettingsCommand(
+                14, 25, 1, fixture.bank().assetId(), false);
+        assetService.update(fixture.userId(), fixture.card().assetId(),
+                new AssetService.UpdateAssetCommand(
+                        new AssetService.AssetCommand(
+                                assetType(fixture.userId(), "CREDIT_CARD"),
+                                AssetOwnershipScope.PERSONAL, fixture.memberId(),
+                                fixture.card().name(), LocalDate.of(2026, 7, 21), null,
+                                -100_000, cardSettings),
+                        fixture.card().version(), false));
+
+        CardPurchaseManagementService.CardPurchaseRefundPreview preview = managementService.previewRefund(
+                fixture.userId(), purchase.transactionId(),
+                new CardPurchaseManagementService.RefundCommand(
+                        LocalDate.of(2026, 7, 22), 40_000, purchase.version(), "기준일 이후 환불"));
+
+        assertThat(preview.unpaidCardReductionWon()).isEqualTo(40_000);
+        managementService.refund(
+                fixture.userId(), purchase.transactionId(), "anchor-absorbed-refund",
+                new CardPurchaseManagementService.RefundApplyCommand(
+                        LocalDate.of(2026, 7, 22), 40_000, purchase.version(),
+                        "기준일 이후 환불", preview.previewToken()));
+
+        assertThat(assetBalance(fixture.card().assetId())).isEqualTo(-60_000);
+        assertThat(queryLong("""
+                select coalesce(sum(forecast.payment_amount_won), 0)
+                  from card_statement_forecast forecast
+                 where forecast.card_asset_id = ?
+                   and forecast.status in ('OPEN', 'FINALIZED')
+                """, fixture.card().assetId())).isEqualTo(60_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)).totalExpenseWon())
+                .isEqualTo(60_000);
+    }
+
+    @Test
+    void refundAfterPaidAnchorReturnsMoneyToTheActualPaymentAccount() {
+        Fixture fixture = fixture();
+        TransactionService.TransactionView purchase = purchase(
+                fixture, 100_000, "paid-anchor-absorbed-purchase");
+        insertPayment(fixture, statementId(purchase.transactionId()), fixture.bank().assetId(),
+                fixture.card().assetId(), 100_000, LocalDate.of(2026, 8, 21));
+        AssetService.CardSettingsCommand cardSettings = new AssetService.CardSettingsCommand(
+                14, 25, 1, fixture.bank().assetId(), false);
+        assetService.update(fixture.userId(), fixture.card().assetId(),
+                new AssetService.UpdateAssetCommand(
+                        new AssetService.AssetCommand(
+                                assetType(fixture.userId(), "CREDIT_CARD"),
+                                AssetOwnershipScope.PERSONAL, fixture.memberId(),
+                                fixture.card().name(), LocalDate.of(2026, 8, 20), null,
+                                -100_000, cardSettings),
+                        fixture.card().version(), false));
+
+        CardPurchaseManagementService.CardPurchaseRefundPreview preview = managementService.previewRefund(
+                fixture.userId(), purchase.transactionId(),
+                new CardPurchaseManagementService.RefundCommand(
+                        LocalDate.of(2026, 8, 22), 40_000, purchase.version(), null));
+
+        assertThat(preview.unpaidCardReductionWon()).isZero();
+        assertThat(preview.accountReturns())
+                .extracting(
+                        CardPurchaseManagementService.AccountReturnView::assetId,
+                        CardPurchaseManagementService.AccountReturnView::amountWon)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(
+                        fixture.bank().assetId(), 40_000L));
+        managementService.refund(
+                fixture.userId(), purchase.transactionId(), "paid-anchor-absorbed-refund",
+                new CardPurchaseManagementService.RefundApplyCommand(
+                        LocalDate.of(2026, 8, 22), 40_000, purchase.version(),
+                        null, preview.previewToken()));
+
+        assertThat(assetBalance(fixture.card().assetId())).isZero();
+        assertThat(assetBalance(fixture.bank().assetId())).isEqualTo(440_000);
+        assertThat(queryLong("""
+                select coalesce(sum(forecast.payment_amount_won), 0)
+                  from card_statement_forecast forecast
+                 where forecast.card_asset_id = ?
+                """, fixture.card().assetId())).isZero();
+    }
+
+    @Test
     void mixedRefundUsesStatementUnpaidThenLatestActualPaymentAccountWithOtherPurchasePresent() {
         Fixture fixture = fixture();
         AssetService.AssetView secondBank = createStandardAsset(

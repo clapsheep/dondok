@@ -25,10 +25,10 @@ async function expectFlatStructure(locator: Locator, label: string) {
   expect(style.shadow, `${label}에 카드형 그림자가 남아 있습니다`).toBe('none')
 }
 
-async function expectQuickCreateFields(page: Page, amountLabel: '최초 금액' | '대출금') {
+async function expectQuickCreateFields(page: Page, amountLabel: '기준일 잔액' | '기준일 대출 잔액') {
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toBeVisible()
   await expect(page.getByLabel(amountLabel, { exact: true })).toBeVisible()
-  await expect(page.getByLabel('등록일', { exact: true })).toHaveValue(todayInSeoul())
+  await expect(page.getByLabel('잔액 기준일', { exact: true })).toHaveValue(todayInSeoul())
   for (const hiddenField of [
     page.getByRole('group', { name: '소유 형태', exact: true }),
     page.getByRole('radiogroup', { name: '소유자', exact: true }),
@@ -67,12 +67,12 @@ async function expectQuickCreateAcrossBreakpoints(
   page: Page,
   typeGroup: Locator,
   selectedButton: Locator,
-  amountLabel: '최초 금액' | '대출금',
+  amountLabel: '기준일 잔액' | '기준일 대출 잔액',
   amount: string,
 ) {
   const nameField = page.getByLabel('자산 이름 (선택)', { exact: true })
   const amountField = page.getByLabel(amountLabel, { exact: true })
-  const openedOn = page.getByLabel('등록일', { exact: true })
+  const openedOn = page.getByLabel('잔액 기준일', { exact: true })
   const nameDraft = await nameField.inputValue()
   const openedOnDraft = await openedOn.inputValue()
   await selectedButton.focus()
@@ -81,7 +81,7 @@ async function expectQuickCreateAcrossBreakpoints(
     await expectQuickCreateFields(page, amountLabel)
     await expect(nameField, `${width}px에서 자산 이름 draft를 보존해야 합니다`).toHaveValue(nameDraft)
     await expect(amountField, `${width}px에서 금액 draft를 보존해야 합니다`).toHaveValue(formatInputWon(amount))
-    await expect(openedOn, `${width}px에서 등록일 draft를 보존해야 합니다`).toHaveValue(openedOnDraft)
+    await expect(openedOn, `${width}px에서 잔액 기준일 draft를 보존해야 합니다`).toHaveValue(openedOnDraft)
     await expect(selectedButton, `${width}px에서 자산 종류 focus를 보존해야 합니다`).toBeFocused()
     await expect(selectedButton, `${width}px에서 자산 종류 선택을 보존해야 합니다`).toHaveAttribute('aria-pressed', 'true')
     await expectTypeGrid(page, typeGroup, width)
@@ -90,7 +90,7 @@ async function expectQuickCreateAcrossBreakpoints(
     await expectFormTargetsAtLeast44(page, typeGroup, [
       [nameField, '자산 이름'],
       [amountField, amountLabel],
-      [openedOn, '등록일'],
+      [openedOn, '잔액 기준일'],
       [page.getByRole('link', { name: '취소' }), '취소'],
       [page.getByRole('button', { name: '자산 등록', exact: true }), '자산 등록'],
     ], width)
@@ -102,7 +102,7 @@ async function expectDetailAcrossBreakpoints(
   page: Page,
   typeGroup: Locator,
   selectedButton: Locator,
-  amountLabel: '최초 금액' | '대출금',
+  amountLabel: '기준일 잔액' | '기준일 대출 잔액',
   amount: string,
   memoDraft: string,
 ) {
@@ -116,7 +116,7 @@ async function expectDetailAcrossBreakpoints(
       page.getByRole('group', { name: '소유 형태', exact: true }),
       page.getByRole('radiogroup', { name: '소유자', exact: true }),
       page.getByLabel(amountLabel, { exact: true }),
-      page.getByLabel('등록일', { exact: true }),
+      page.getByLabel('잔액 기준일', { exact: true }),
       memo,
     ]) await expect(field, `${width}px 상세 필드는 모두 보여야 합니다`).toBeVisible()
     await expect(page.getByLabel(amountLabel, { exact: true })).toHaveValue(formatInputWon(amount))
@@ -131,7 +131,7 @@ async function expectDetailAcrossBreakpoints(
       [page.getByRole('radio', { name: '공동 소유 : 가계부 구성원의 공동 자산', exact: true }), '공동 소유'],
       [page.getByRole('radiogroup', { name: '소유자' }).locator('label').first(), '소유자'],
       [page.getByLabel(amountLabel, { exact: true }), amountLabel],
-      [page.getByLabel('등록일'), '등록일'],
+      [page.getByLabel('잔액 기준일'), '잔액 기준일'],
       [memo, '메모'],
       [page.getByRole('link', { name: '취소' }), '취소'],
       [page.getByRole('button', { name: '변경 저장' }), '변경 저장'],
@@ -142,13 +142,13 @@ async function expectDetailAcrossBreakpoints(
 
 async function expectCardCreateAcrossBreakpoints(page: Page, typeGroup: Locator, cardButton: Locator) {
   const paymentDay = page.getByRole('spinbutton', { name: '결제일', exact: true })
-  const openedOn = page.getByLabel('등록일', { exact: true })
+  const openedOn = page.getByLabel('잔액 기준일', { exact: true })
   const openedOnDraft = await openedOn.inputValue()
   await paymentDay.focus()
   for (const width of [320, 390, 768, 1024, 1280]) {
     await page.setViewportSize({ width, height: width < 768 ? 820 : 900 })
-    await expectQuickCreateFields(page, '최초 금액')
-    await expect(page.getByLabel('최초 금액')).toHaveValue('-180,000')
+    await expectQuickCreateFields(page, '기준일 잔액')
+    await expect(page.getByLabel('기준일 잔액')).toHaveValue('-180,000')
     await expect(openedOn).toHaveValue(openedOnDraft)
     await expect(page.getByLabel('정산일')).toHaveValue('15')
     await expect(paymentDay).toHaveValue('25')
@@ -157,12 +157,12 @@ async function expectCardCreateAcrossBreakpoints(page: Page, typeGroup: Locator,
     await expect(cardButton).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByRole('switch', { name: /^결제일에 자동 정산/ })).toHaveCount(0)
     await expectTypeGrid(page, typeGroup, width)
-    if (width < 768) await expectAmountAndDateControlsStacked(page, '최초 금액', width)
-    else await expectAmountAndDateControlsAligned(page, '최초 금액', width)
+    if (width < 768) await expectAmountAndDateControlsStacked(page, '기준일 잔액', width)
+    else await expectAmountAndDateControlsAligned(page, '기준일 잔액', width)
     await expectCardScheduleLayout(page, width)
     await expectFormTargetsAtLeast44(page, typeGroup, [
-      [page.getByLabel('최초 금액'), '최초 금액'],
-      [openedOn, '등록일'],
+      [page.getByLabel('기준일 잔액'), '기준일 잔액'],
+      [openedOn, '잔액 기준일'],
       [page.getByLabel('정산일'), '정산일'],
       [paymentDay, '결제일'],
       [page.getByLabel('결제 월'), '결제 월'],
@@ -191,8 +191,8 @@ async function expectConditionalCreateAcrossBreakpoints(
     await expect(focusedField, `${width}px에서 조건부 필드 focus를 보존해야 합니다`).toBeFocused()
     await expect(selectedButton, `${width}px에서 자산 종류 선택을 보존해야 합니다`).toHaveAttribute('aria-pressed', 'true')
     await expectTypeGrid(page, typeGroup, width)
-    if (width < 768) await expectAmountAndDateControlsStacked(page, '최초 금액', width)
-    else await expectAmountAndDateControlsAligned(page, '최초 금액', width)
+    if (width < 768) await expectAmountAndDateControlsStacked(page, '기준일 잔액', width)
+    else await expectAmountAndDateControlsAligned(page, '기준일 잔액', width)
     await expectFormTargetsAtLeast44(page, typeGroup, [
       ...expectedValues.map(([field, , label]): [Locator, string] => [field, label]),
       [page.getByRole('link', { name: '취소' }), '취소'],
@@ -250,7 +250,7 @@ async function expectHitTargetAtLeast44(locator: Locator, label: string) {
 async function expectAmountAndDateControlsAligned(page: Page, amountLabel: string, width: number) {
   const [amount, date] = await Promise.all([
     page.getByLabel(amountLabel, { exact: true }),
-    page.getByLabel('등록일', { exact: true }),
+    page.getByLabel('잔액 기준일', { exact: true }),
   ].map((field) => field.evaluate((element) => {
     const input = element.getBoundingClientRect()
     const wrapper = element.closest('[data-slot="field"], [data-slot="money-field"]')?.getBoundingClientRect()
@@ -258,11 +258,11 @@ async function expectAmountAndDateControlsAligned(page: Page, amountLabel: strin
     if (!wrapper || !label) throw new Error('접근 가능한 label 또는 Field wrapper를 찾지 못했습니다.')
     return { inputTop: input.top, inputHeight: input.height, labelTop: label.top, wrapperTop: wrapper.top, wrapperWidth: wrapper.width }
   })))
-  expect(Math.abs(amount.wrapperTop - date.wrapperTop), `${width}px 금액과 등록일 wrapper는 같은 행에서 시작해야 합니다`).toBeLessThanOrEqual(1)
+  expect(Math.abs(amount.wrapperTop - date.wrapperTop), `${width}px 금액과 잔액 기준일 wrapper는 같은 행에서 시작해야 합니다`).toBeLessThanOrEqual(1)
   expect(amount.wrapperWidth, `${width}px에서 금액 입력은 날짜보다 넓어야 합니다`).toBeGreaterThan(date.wrapperWidth)
-  expect(Math.abs(amount.labelTop - date.labelTop), `${width}px 금액과 등록일 label은 같은 높이여야 합니다`).toBeLessThanOrEqual(1)
-  expect(Math.abs(amount.inputTop - date.inputTop), `${width}px 금액과 등록일 input은 정렬되어야 합니다`).toBeLessThanOrEqual(1)
-  expect(amount.inputHeight, `${width}px 금액 입력은 등록일보다 강조되어야 합니다`).toBeGreaterThan(date.inputHeight)
+  expect(Math.abs(amount.labelTop - date.labelTop), `${width}px 금액과 잔액 기준일 label은 같은 높이여야 합니다`).toBeLessThanOrEqual(1)
+  expect(Math.abs(amount.inputTop - date.inputTop), `${width}px 금액과 잔액 기준일 input은 정렬되어야 합니다`).toBeLessThanOrEqual(1)
+  expect(amount.inputHeight, `${width}px 금액 입력은 잔액 기준일보다 강조되어야 합니다`).toBeGreaterThan(date.inputHeight)
 }
 
 async function expectCardScheduleLayout(page: Page, width: number) {
@@ -287,13 +287,13 @@ async function expectCardScheduleLayout(page: Page, width: number) {
 async function expectAmountAndDateControlsStacked(page: Page, amountLabel: string, width: number) {
   const [amount, date] = await Promise.all([
     page.getByLabel(amountLabel, { exact: true }),
-    page.getByLabel('등록일', { exact: true }),
+    page.getByLabel('잔액 기준일', { exact: true }),
   ].map((field) => field.evaluate((element) => {
     const wrapper = element.closest('[data-slot="field"], [data-slot="money-field"]')?.getBoundingClientRect()
-    if (!wrapper) throw new Error('금액 또는 등록일 Field wrapper를 찾지 못했습니다.')
+    if (!wrapper) throw new Error('금액 또는 잔액 기준일 Field wrapper를 찾지 못했습니다.')
     return { top: wrapper.top, bottom: wrapper.bottom }
   })))
-  expect(date.top, `${width}px에서는 등록일이 금액 아래에 적층되어야 합니다`).toBeGreaterThanOrEqual(amount.bottom - 1)
+  expect(date.top, `${width}px에서는 잔액 기준일이 금액 아래에 적층되어야 합니다`).toBeGreaterThanOrEqual(amount.bottom - 1)
 }
 
 async function openNewAssetForm(page: Page) {
@@ -303,14 +303,14 @@ async function openNewAssetForm(page: Page) {
   await expect(page.getByRole('heading', { name: '자산 등록', exact: true })).toBeVisible()
 }
 
-test('일반 자산 최초 금액은 빈 값과 직접 입력한 0을 모두 0원으로 등록한다', async ({ page, request }) => {
+test('일반 자산 기준일 잔액은 빈 값과 직접 입력한 0을 모두 0원으로 등록한다', async ({ page, request }) => {
   await registerAndLogin(page, request, `자산 0원 사용자 ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
   await page.getByRole('link', { name: '자산', exact: true }).click()
   await page.getByRole('link', { name: '자산 추가' }).click()
 
-  const amount = page.getByLabel('최초 금액', { exact: true })
+  const amount = page.getByLabel('기준일 잔액', { exact: true })
   await expect(amount).toHaveValue('')
   await expect(amount).toHaveAttribute('placeholder', '0')
 
@@ -321,16 +321,16 @@ test('일반 자산 최초 금액은 빈 값과 직접 입력한 0을 모두 0�
       assetPostPayloads.push(assetRequest.postDataJSON() as { openingBalanceWon?: number })
     }
   })
-  await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('빈 최초 금액 자산')
+  await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('빈 기준일 잔액 자산')
   await page.getByRole('button', { name: '자산 등록', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
   await expect(page.getByRole('status')).toContainText('자산을 등록했어요.')
   expect(assetPostPayloads).toHaveLength(1)
-  expect(assetPostPayloads[0]?.openingBalanceWon, '빈 최초 금액은 payload에서 0원이어야 합니다').toBe(0)
-  await expect(balanceAssetRow(page, '빈 최초 금액 자산', '0원')).toBeVisible()
+  expect(assetPostPayloads[0]?.openingBalanceWon, '빈 기준일 잔액은 payload에서 0원이어야 합니다').toBe(0)
+  await expect(balanceAssetRow(page, '빈 기준일 잔액 자산', '0원')).toBeVisible()
 
   await page.getByRole('link', { name: '자산 추가' }).click()
-  const explicitZeroAmount = page.getByLabel('최초 금액', { exact: true })
+  const explicitZeroAmount = page.getByLabel('기준일 잔액', { exact: true })
   await expect(explicitZeroAmount).toHaveValue('')
   await explicitZeroAmount.fill('0')
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('명시적 0원 자산')
@@ -376,15 +376,15 @@ test('새 가계부의 기본 자산과 이름을 포함한 빠른 자산 등록
   const loanButton = typeGroup.getByRole('button', { name: '대출', exact: true })
   await expect(cashButton, '첫 focus는 기본 선택된 종류여야 합니다').toBeFocused()
   await expect(cashButton).toHaveAttribute('aria-pressed', 'true')
-  await expectQuickCreateFields(page, '최초 금액')
-  await expectInputBodyOpensDatePicker(page, page.getByLabel('등록일', { exact: true }), '신규 자산 등록일')
+  await expectQuickCreateFields(page, '기준일 잔액')
+  await expectInputBodyOpensDatePicker(page, page.getByLabel('잔액 기준일', { exact: true }), '신규 자산 잔액 기준일')
 
   await otherButton.click()
   await loanButton.click()
-  await expect(page.getByLabel('최초 금액', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('기준일 잔액', { exact: true })).toHaveCount(0)
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('신혼집 대출')
-  await page.getByLabel('대출금', { exact: true }).fill('-25000000')
-  await expectQuickCreateAcrossBreakpoints(page, typeGroup, loanButton, '대출금', '-25000000')
+  await page.getByLabel('기준일 대출 잔액', { exact: true }).fill('-25000000')
+  await expectQuickCreateAcrossBreakpoints(page, typeGroup, loanButton, '기준일 대출 잔액', '-25000000')
 
   await page.getByRole('button', { name: '자산 등록', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
@@ -399,11 +399,11 @@ test('새 가계부의 기본 자산과 이름을 포함한 빠른 자산 등록
   const ownerGroup = page.getByRole('radiogroup', { name: '소유자' })
   await expect(ownerGroup.getByRole('radio').first()).toBeChecked()
   await expect(ownerGroup.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '빠')
-  await expect(page.getByLabel('등록일')).toHaveValue(todayInSeoul())
+  await expect(page.getByLabel('잔액 기준일')).toHaveValue(todayInSeoul())
   await expect(page.getByLabel('메모 (선택)')).toHaveValue('')
   const detailTypes = page.getByRole('group', { name: '자산 종류' })
   const detailLoan = detailTypes.getByRole('button', { name: '대출', exact: true })
-  await expectDetailAcrossBreakpoints(page, detailTypes, detailLoan, '대출금', '-25000000', '상세에서 보완한 대출 메모')
+  await expectDetailAcrossBreakpoints(page, detailTypes, detailLoan, '기준일 대출 잔액', '-25000000', '상세에서 보완한 대출 메모')
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('신혼집 공동 대출')
   await page.getByRole('button', { name: '변경 저장' }).click()
   await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요')
@@ -452,8 +452,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   let debitCardButton = typeGroup.getByRole('button', { name: '체크카드', exact: true })
   let savingsButton = typeGroup.getByRole('button', { name: '적금', exact: true })
   await debitCardButton.click()
-  const debitAmount = page.getByLabel('최초 금액', { exact: true })
-  const debitOpenedOn = page.getByLabel('등록일', { exact: true })
+  const debitAmount = page.getByLabel('기준일 잔액', { exact: true })
+  const debitOpenedOn = page.getByLabel('잔액 기준일', { exact: true })
   const settlementAccount = page.getByLabel('결제 계좌', { exact: true })
   await debitAmount.fill('180000')
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('생활 체크카드')
@@ -474,8 +474,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await selectAssetTypeWithKeyboard(page, debitCardButton, '체크카드')
   await expect(settlementAccount).toHaveValue(settlementAccountId)
   await expectConditionalCreateAcrossBreakpoints(page, typeGroup, debitCardButton, [
-    [debitAmount, '180,000', '최초 금액'],
-    [debitOpenedOn, '2026-06-20', '등록일'],
+    [debitAmount, '180,000', '기준일 잔액'],
+    [debitOpenedOn, '2026-06-20', '잔액 기준일'],
     [settlementAccount, settlementAccountId, '결제 계좌'],
   ], settlementAccount)
 
@@ -486,7 +486,7 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await expectCardPaymentAmounts(debitCardRow)
   await debitCardRow.getByRole('link').click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
-  await expect(page.getByLabel('등록일', { exact: true })).toHaveValue('2026-06-20')
+  await expect(page.getByLabel('잔액 기준일', { exact: true })).toHaveValue('2026-06-20')
   await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveValue(settlementAccountId)
   await expect(page.getByLabel('결제 계좌', { exact: true }).locator('option:checked')).toContainText(paymentAssetName)
 
@@ -495,8 +495,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   debitCardButton = typeGroup.getByRole('button', { name: '체크카드', exact: true })
   savingsButton = typeGroup.getByRole('button', { name: '적금', exact: true })
   await savingsButton.click()
-  const savingsAmount = page.getByLabel('최초 금액', { exact: true })
-  const savingsOpenedOn = page.getByLabel('등록일', { exact: true })
+  const savingsAmount = page.getByLabel('기준일 잔액', { exact: true })
+  const savingsOpenedOn = page.getByLabel('잔액 기준일', { exact: true })
   const autoTransferSwitch = page.getByRole('switch', { name: '자동이체 설정', exact: true })
   await expect(autoTransferSwitch).not.toBeChecked()
   await expect(page.getByLabel('자동이체 계좌', { exact: true })).toHaveCount(0)
@@ -511,7 +511,7 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await expect(savingsRow).toBeVisible()
   await savingsRow.getByRole('link').click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
-  await expect(page.getByLabel('등록일', { exact: true })).toHaveValue('2026-07-03')
+  await expect(page.getByLabel('잔액 기준일', { exact: true })).toHaveValue('2026-07-03')
   const detailAutoTransferSwitch = page.getByRole('switch', { name: '자동이체 설정', exact: true })
   await expect(detailAutoTransferSwitch).not.toBeChecked()
 
@@ -532,8 +532,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await autoTransferDay.fill('27')
 
   await expectConditionalCreateAcrossBreakpoints(page, page.getByRole('group', { name: '자산 종류' }), page.getByRole('group', { name: '자산 종류' }).getByRole('button', { name: '적금', exact: true }), [
-    [page.getByLabel('최초 금액', { exact: true }), '430,000', '최초 금액'],
-    [page.getByLabel('등록일', { exact: true }), '2026-07-03', '등록일'],
+    [page.getByLabel('기준일 잔액', { exact: true }), '430,000', '기준일 잔액'],
+    [page.getByLabel('잔액 기준일', { exact: true }), '2026-07-03', '잔액 기준일'],
     [autoTransferAccount, autoTransferAccountId, '자동이체 계좌'],
     [autoTransferDay, '27', '자동이체일'],
   ], autoTransferDay, '변경 저장')
@@ -560,10 +560,10 @@ test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산
   await cardButton.click()
   const cardSettings = page.getByRole('group', { name: '신용카드 설정' })
   await expectFlatStructure(cardSettings, '신용카드 설정 fieldset')
-  await expectQuickCreateFields(page, '최초 금액')
+  await expectQuickCreateFields(page, '기준일 잔액')
   await expect(page.getByRole('switch', { name: /^결제일에 자동 정산/ })).toHaveCount(0)
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('생활비 신용카드')
-  await page.getByLabel('최초 금액').fill('-180000')
+  await page.getByLabel('기준일 잔액').fill('-180000')
   await page.getByLabel('정산일').fill('15')
   await page.getByRole('spinbutton', { name: '결제일', exact: true }).fill('25')
   await page.getByLabel('결제 월').selectOption('1')
@@ -573,7 +573,7 @@ test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산
   await expect(page.getByRole('alert').filter({ hasText: '입력하지 않았거나 확인이 필요한 항목이 있어요.' })).toBeVisible()
   await expect(page.getByRole('alert').filter({ hasText: '결제 계좌를 선택해 주세요.' })).toBeVisible()
   await expect(page).toHaveURL(/\/assets\/new/)
-  await expect(page.getByLabel('최초 금액')).toHaveValue('-180,000')
+  await expect(page.getByLabel('기준일 잔액')).toHaveValue('-180,000')
   await expect(page.getByLabel('정산일')).toHaveValue('15')
   await expect(page.getByRole('spinbutton', { name: '결제일', exact: true })).toHaveValue('25')
   await expect(page.getByLabel('결제 월')).toHaveValue('1')

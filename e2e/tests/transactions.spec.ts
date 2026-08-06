@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
-import { submitQuickAsset } from './support/assets'
+import { balanceAssetRow, submitQuickAsset } from './support/assets'
 import { registerAndLogin } from './support/auth'
 import { expectInputBodyOpensDatePicker } from './support/date-picker'
 import { transactionCategoryTrigger } from './support/transactions'
@@ -39,6 +39,16 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
 
   await recordNavigation(page).click()
+  await page.getByLabel('금액').fill('7000')
+  await page.getByLabel('내용 (선택)').fill('QC 집계 제외 지출')
+  const exclusionSwitch = page.getByRole('switch', { name: '지출에 포함하지 않기' })
+  await exclusionSwitch.click()
+  await expect(exclusionSwitch).toBeChecked()
+  await expect(page.getByText('자산 잔액은 바뀌지만 달력과 통계 합계에는 반영하지 않아요.')).toBeVisible()
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  await recordNavigation(page).click()
   await page.getByLabel('금액').fill('50000')
   await page.getByLabel('내용 (선택)').fill('QC 공동 지출')
   const addedCategoryName = `QC 즉석 분류 ${test.info().workerIndex}`
@@ -69,17 +79,23 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   const sourceAccount = page.getByLabel('보내는 계좌')
   const destinationAccount = page.getByLabel('받는 계좌')
   const transferOptions = await sourceAccount.locator('option').allTextContents()
-  expect(transferOptions).toEqual(expect.arrayContaining(['생활비 계좌', '현금 지갑']))
+  expect(transferOptions).toEqual(expect.arrayContaining(['생활비 계좌 · 나', '현금 지갑 · 나']))
   expect(await destinationAccount.locator('option').allTextContents()).toEqual(transferOptions)
   expect(transferOptions).not.toContain('현금')
   expect(transferOptions).not.toContain('신용카드')
   expect(transferOptions).not.toContain('체크카드')
   await page.getByLabel('금액').fill('30000')
-  await sourceAccount.selectOption({ label: '생활비 계좌' })
-  await destinationAccount.selectOption({ label: '현금 지갑' })
+  await sourceAccount.selectOption({ label: '생활비 계좌 · 나' })
+  await destinationAccount.selectOption({ label: '현금 지갑 · 나' })
   await page.getByLabel('내용 (선택)').fill('QC 자산 이체')
+  const balancesBeforeTransfer = await currentAssetBalances(page, ['생활비 계좌', '현금 지갑'])
   await page.getByRole('button', { name: '기록 저장' }).click()
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  await appNavigation(page, '자산').click()
+  await expect(balanceAssetRow(page, '생활비 계좌', formatWon(balancesBeforeTransfer['생활비 계좌'] - 30_000)), '이체 직후 출금 계좌가 정확히 감소해야 합니다').toBeVisible()
+  await expect(balanceAssetRow(page, '현금 지갑', formatWon(balancesBeforeTransfer['현금 지갑'] + 30_000)), '이체 직후 입금 계좌가 정확히 증가해야 합니다').toBeVisible()
+  await appNavigation(page, '홈').click()
 
   await page.getByRole('button', { name: '월간 달력' }).click()
   await expect(page.getByTitle('+200,000원', { exact: true })).toBeVisible()
@@ -92,7 +108,54 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(calendarCell.getByTitle('수입 +200,000원')).toHaveCSS('color', await cssVariableColor(page, '--income'))
   await expect(calendarCell.getByTitle('지출 -50,000원')).toHaveCSS('color', await cssVariableColor(page, '--expense'))
   await expect(calendarCell).toHaveCSS('border-radius', '0px')
-  expect(await hasPageOverflow(page)).toBe(false)
+  const calendarAmounts = calendarCell.locator('[title^="수입 "], [title^="지출 "]')
+  await expect(calendarAmounts).toHaveCount(2)
+  const originalViewport = page.viewportSize()
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }]) {
+    await page.setViewportSize(viewport)
+    await expectCalendarAmountsFit(page, calendarAmounts)
+  }
+  if (originalViewport) await page.setViewportSize(originalViewport)
+
+  await calendarCell.getByRole('button').click()
+  expect(new URL(page.url()).searchParams.get('date')).toBe(today)
+  expect(new URL(page.url()).searchParams.get('detail')).toBe('day')
+  let selectedDayDetail = page.getByRole('region', { name: `${today} 거래 상세` })
+  await expect(selectedDayDetail).toBeVisible()
+  const selectedIncome = selectedDayDetail.getByRole('listitem').filter({ hasText: 'QC 공동 수입' })
+  const selectedExpense = selectedDayDetail.getByRole('listitem').filter({ hasText: 'QC 공동 지출' })
+  const selectedExcludedExpense = selectedDayDetail.getByRole('listitem').filter({ hasText: 'QC 집계 제외 지출' })
+  await expect(selectedIncome.getByText('+200,000원', { exact: true })).toBeVisible()
+  await expect(selectedExpense.getByText('-50,000원', { exact: true })).toBeVisible()
+  await expect(selectedExcludedExpense.getByText('-7,000원', { exact: true })).toBeVisible()
+  await expect(selectedExcludedExpense.getByText('집계 제외', { exact: true })).toBeVisible()
+
+  const dayDialog = page.getByRole('dialog')
+  await assertDayDetailLayout(page, dayDialog, 390)
+  const previousDay = shiftDate(today, -1)
+  await dayDialog.getByRole('button', { name: '이전 날' }).click()
+  expect(new URL(page.url()).searchParams.get('date')).toBe(previousDay)
+  selectedDayDetail = page.getByRole('region', { name: `${previousDay} 거래 상세` })
+  await expect(selectedDayDetail).toBeVisible()
+  await dayDialog.getByRole('button', { name: '다음 날' }).click()
+  expect(new URL(page.url()).searchParams.get('date')).toBe(today)
+  await assertDayDetailLayout(page, dayDialog, 1280)
+  await dayDialog.getByRole('button', { name: '달력으로 돌아가기' }).click()
+  await expect(dayDialog).toHaveCount(0)
+  expect(new URL(page.url()).searchParams.get('detail')).toBeNull()
+
+  await calendarCell.getByRole('button').click()
+  await page.reload()
+  await expect(page.getByRole('region', { name: `${today} 거래 상세` })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(new URL(page.url()).searchParams.get('detail')).toBeNull()
+
+  await calendarCell.getByRole('button').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect.poll(() => new URL(page.url()).searchParams.get('detail')).toBeNull()
 
   const listRequests: string[] = []
   page.on('response', (response) => {
@@ -115,9 +178,12 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   }
   await expect(page.getByText('QC 공동 수입', { exact: true })).toBeVisible()
   await expect(page.getByText('QC 공동 지출', { exact: true })).toBeVisible()
+  await expect(page.getByText('QC 집계 제외 지출', { exact: true })).toBeVisible()
   await expect(page.getByText('QC 자산 이체', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 수입').getByText('+200,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 지출').getByText('-50,000원', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 집계 제외 지출').getByText('-7,000원', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 집계 제외 지출').getByText('집계 제외', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 자산 이체').getByText('30,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 지출').locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '거')
 
@@ -144,10 +210,14 @@ async function createBankAsset(page: Page, name: string, openingBalance: string)
 }
 
 function recordNavigation(page: Page) {
+  return appNavigation(page, '기록')
+}
+
+function appNavigation(page: Page, label: '홈' | '기록' | '자산') {
   const mobile = page.getByRole('navigation', { name: '주요 메뉴' })
-    .getByRole('link', { name: '기록', exact: true })
+    .getByRole('link', { name: label, exact: true })
   const wide = page.getByRole('complementary', { name: '주요 메뉴' })
-    .getByRole('link', { name: '기록', exact: true })
+    .getByRole('link', { name: label, exact: true })
   return mobile.or(wide)
 }
 
@@ -163,6 +233,32 @@ async function expectBottomDrawerOnMobile(page: Page, dialog: Locator) {
     expect(Math.abs(box!.y + box!.height - viewport.height)).toBeLessThanOrEqual(1)
     expect(box!.width).toBe(viewport.width)
   }
+}
+
+async function assertDayDetailLayout(page: Page, dialog: Locator, width: number) {
+  await page.setViewportSize({ width, height: width < 768 ? 844 : 900 })
+  await expect(dialog).toBeVisible()
+  const box = await dialog.boundingBox()
+  expect(box).not.toBeNull()
+  if (width < 768) {
+    expect(Math.abs(box!.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(box!.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(box!.width - width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(box!.height - 844)).toBeLessThanOrEqual(1)
+    await expect(dialog).toHaveCSS('border-radius', '0px')
+  } else {
+    expect(box!.x).toBeGreaterThan(0)
+    expect(box!.y).toBeGreaterThan(0)
+    expect(box!.width).toBeLessThan(width)
+    expect(box!.height).toBeLessThan(900)
+    expect(parseFloat(await dialog.evaluate((element) => getComputedStyle(element).borderRadius))).toBeLessThanOrEqual(8)
+  }
+  expect(await hasPageOverflow(page)).toBe(false)
+}
+
+function shiftDate(date: string, offset: number) {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10)
 }
 
 async function assertDraftAndFocusAcrossWidths(page: Page, description: string) {
@@ -319,6 +415,36 @@ async function cssVariableColor(page: Page, name: '--income' | '--expense') {
 
 async function hasPageOverflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+}
+
+async function expectCalendarAmountsFit(page: Page, amounts: Locator) {
+  for (const amount of await amounts.all()) {
+    const presentation = await amount.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      textOverflow: getComputedStyle(element).textOverflow,
+    }))
+    expect(presentation.textOverflow, '달력 금액은 말줄임표로 숨기면 안 됩니다').not.toBe('ellipsis')
+    expect(presentation.scrollWidth, '달력 금액은 날짜 셀 폭 안에서 전부 보여야 합니다').toBeLessThanOrEqual(presentation.clientWidth)
+  }
+  expect(await hasPageOverflow(page)).toBe(false)
+}
+
+async function currentAssetBalances(page: Page, names: string[]) {
+  return page.evaluate(async (assetNames) => {
+    const response = await fetch('/api/assets?status=ALL', { credentials: 'include' })
+    if (!response.ok) throw new Error(`asset balance request returned ${response.status}`)
+    const assets = await response.json() as Array<{ name: string; currentBalanceWon: number }>
+    return Object.fromEntries(assetNames.map((name) => {
+      const asset = assets.find((candidate) => candidate.name === name)
+      if (!asset) throw new Error(`asset was not found: ${name}`)
+      return [name, asset.currentBalanceWon]
+    }))
+  }, names)
+}
+
+function formatWon(value: number) {
+  return `${value.toLocaleString('ko-KR')}원`
 }
 
 function todayInSeoul() {

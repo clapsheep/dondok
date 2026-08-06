@@ -37,7 +37,7 @@ export async function submitQuickAsset(page: Page, asset: BalanceQuickAsset): Pr
   if (asset.name !== undefined) {
     await page.getByLabel('자산 이름 (선택)', { exact: true }).fill(asset.name)
   }
-  await page.getByLabel(asset.typeName === '대출' ? '대출금' : '최초 금액', { exact: true }).fill(asset.amount)
+  await page.getByLabel(asset.typeName === '대출' ? '기준일 대출 잔액' : '기준일 잔액', { exact: true }).fill(asset.amount)
   await page.getByRole('button', { name: '자산 등록', exact: true }).click()
 
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
@@ -57,6 +57,5 @@ export async function openQuickAssetDetail(page: Page, asset: BalanceQuickAsset)
 }
 
 async function expectCardPaymentAmount(row: Locator, label: string, amount: string) {
-  const line = row.getByText(label, { exact: true }).locator('..')
-  await expect(line.getByText(amount, { exact: true })).toBeVisible()
+  await expect(row.getByTitle(`${label} ${amount}`, { exact: true })).toBeVisible()
 }

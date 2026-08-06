@@ -208,7 +208,8 @@ public class TransactionService {
         transactions.insertTransaction(write);
         if (cardPurchase != null) {
             transactions.insertCardInstallments(author.getBookId(), transactionId,
-                    cardPurchase.asset().getId(), cardPurchase.installments(), cardPurchase.setting(), now);
+                    cardPurchase.asset().getId(), cardPurchase.installments(), cardPurchase.setting(),
+                    command.occurredOn().isBefore(cardPurchase.asset().getOpenedOn()), now);
         }
         idempotency.complete(userId, CREATE_SCOPE, idempotencyKey, transactionId, 201, now);
         return requiredView(author.getBookId(), transactionId);
@@ -248,7 +249,8 @@ public class TransactionService {
         transactions.updateTransaction(new TransactionJdbcRepository.TransactionUpdateWrite(
                 transactionId, editor.getBookId(), command.occurredOn(), command.amountWon(),
                 mutation.categoryId(), performerId, mutation.primaryAssetId(),
-                stripToNull(command.description()), editor.getId(), command.expectedVersion(), now,
+                stripToNull(command.description()), command.excludedFromStatistics(),
+                editor.getId(), command.expectedVersion(), now,
                 mutation.postings()));
         return requiredView(editor.getBookId(), transactionId);
     }
@@ -311,7 +313,8 @@ public class TransactionService {
         }
         if (type == TransactionType.TRANSFER) {
             requireShape(command.categoryId() == null && command.assetId() == null
-                    && command.sourceAssetId() != null && command.destinationAssetId() != null);
+                    && command.sourceAssetId() != null && command.destinationAssetId() != null
+                    && !command.excludedFromStatistics());
             if (command.sourceAssetId().equals(command.destinationAssetId())) {
                 throw error(HttpStatus.BAD_REQUEST, "TRANSFER_SAME_ASSET",
                         "이체 출발과 도착 자산은 달라야 합니다.");
@@ -360,7 +363,8 @@ public class TransactionService {
     ) {
         return new TransactionJdbcRepository.TransactionWrite(id, author.getBookId(), type, subtype,
                 command.occurredOn(), command.amountWon(), categoryId, performerId,
-                primaryAssetId, stripToNull(command.description()), author.getId(), now, postings);
+                primaryAssetId, stripToNull(command.description()), command.excludedFromStatistics(),
+                author.getId(), now, postings);
     }
 
     private List<TransactionJdbcRepository.InstallmentWrite> installments(
@@ -405,6 +409,7 @@ public class TransactionService {
         return new TransactionView(row.transactionId(), row.type(), row.transferSubtype(), managementType,
                 row.occurredOn(),
                 row.amountWon(), category, performer, creator, asset, row.description(),
+                row.excludedFromStatistics(),
                 rows.postings().stream().map(posting -> new PostingView(
                         posting.assetId(), posting.assetName(), posting.deltaWon())).toList(),
                 row.installmentCount(), row.relatedPurchaseTransactionId(),
@@ -518,13 +523,26 @@ public class TransactionService {
         long amountWon();
         UUID performedByMemberId();
         String description();
+        default boolean excludedFromStatistics() {
+            return false;
+        }
     }
     public record CreateIncome(LocalDate occurredOn, long amountWon, UUID categoryId, UUID assetId,
-                               UUID performedByMemberId, String description) implements CreateCommand {
+                               UUID performedByMemberId, String description,
+                               boolean excludedFromStatistics) implements CreateCommand {
+        public CreateIncome(LocalDate occurredOn, long amountWon, UUID categoryId, UUID assetId,
+                            UUID performedByMemberId, String description) {
+            this(occurredOn, amountWon, categoryId, assetId, performedByMemberId, description, false);
+        }
     }
     public record CreateExpense(LocalDate occurredOn, long amountWon, UUID categoryId, UUID assetId,
                                 UUID performedByMemberId, String description,
-                                int installmentCount) implements CreateCommand {
+                                int installmentCount, boolean excludedFromStatistics) implements CreateCommand {
+        public CreateExpense(LocalDate occurredOn, long amountWon, UUID categoryId, UUID assetId,
+                             UUID performedByMemberId, String description, int installmentCount) {
+            this(occurredOn, amountWon, categoryId, assetId, performedByMemberId,
+                    description, installmentCount, false);
+        }
     }
     public record CreateTransfer(LocalDate occurredOn, long amountWon, UUID sourceAssetId,
                                  UUID destinationAssetId, UUID performedByMemberId,
@@ -549,8 +567,17 @@ public class TransactionService {
             UUID destinationAssetId,
             UUID performedByMemberId,
             String description,
-            long expectedVersion
+            long expectedVersion,
+            boolean excludedFromStatistics
     ) {
+        public UpdateCommand(
+                TransactionType type, LocalDate occurredOn, long amountWon, UUID categoryId,
+                UUID assetId, UUID sourceAssetId, UUID destinationAssetId,
+                UUID performedByMemberId, String description, long expectedVersion
+        ) {
+            this(type, occurredOn, amountWon, categoryId, assetId, sourceAssetId,
+                    destinationAssetId, performedByMemberId, description, expectedVersion, false);
+        }
     }
     public enum TransactionManagementType {
         GENERAL,
@@ -576,6 +603,7 @@ public class TransactionService {
                                   LocalDate occurredOn, long amountWon, CategoryView category,
                                   MemberView performedBy, MemberView createdBy, AssetReferenceView asset,
                                   String description,
+                                  boolean excludedFromStatistics,
                                   List<PostingView> postings, Integer installmentCount,
                                   UUID relatedPurchaseTransactionId, long version,
                                   Instant createdAt, Instant updatedAt) {

@@ -64,8 +64,8 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   await typeGroup.getByRole('button', { name: '신용카드', exact: true }).click()
 
   const parentName = parentForm.getByLabel('자산 이름 (선택)', { exact: true })
-  const parentAmount = parentForm.getByLabel('최초 금액', { exact: true })
-  const parentOpenedOn = parentForm.getByLabel('등록일', { exact: true })
+  const parentAmount = parentForm.getByLabel('기준일 잔액', { exact: true })
+  const parentOpenedOn = parentForm.getByLabel('잔액 기준일', { exact: true })
   await parentName.fill('QC 생활비 신용카드')
   await parentAmount.fill('-180000')
   await parentOpenedOn.fill(CARD_OPENED_ON)
@@ -91,8 +91,8 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   await creditTrigger.click()
   const dialog = page.getByRole('dialog', { name: '계좌 바로 만들기' })
   const accountName = dialog.getByLabel('자산 이름 (선택)', { exact: true })
-  const accountAmount = dialog.getByLabel('최초 금액', { exact: true })
-  const accountOpenedOn = dialog.getByLabel('등록일', { exact: true })
+  const accountAmount = dialog.getByLabel('기준일 잔액', { exact: true })
+  const accountOpenedOn = dialog.getByLabel('잔액 기준일', { exact: true })
   await accountName.fill('QC 카드 결제 계좌')
   await accountAmount.fill('350000')
   await accountOpenedOn.fill(CARD_OPENED_ON)
@@ -109,7 +109,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
     await expectPaymentSourceDialogLayout(page, dialog, viewport)
     await expect(accountName, `${viewport.width}px에서 모달 이름 draft를 보존해야 합니다`).toHaveValue('QC 카드 결제 계좌')
     await expect(accountAmount, `${viewport.width}px에서 모달 금액 draft를 보존해야 합니다`).toHaveValue('350,000')
-    await expect(accountOpenedOn, `${viewport.width}px에서 모달 등록일 draft를 보존해야 합니다`).toHaveValue(CARD_OPENED_ON)
+    await expect(accountOpenedOn, `${viewport.width}px에서 모달 잔액 기준일 draft를 보존해야 합니다`).toHaveValue(CARD_OPENED_ON)
     await expect(accountName, `${viewport.width}px resize 뒤 모달 focus를 보존해야 합니다`).toBeFocused()
     await expectParentCardDraft(parentForm)
   }
@@ -158,8 +158,8 @@ for (const scenario of LINKED_ASSET_SCENARIOS) {
       .click()
 
     const parentName = parentForm.getByLabel('자산 이름 (선택)', { exact: true })
-    const parentAmount = parentForm.getByLabel('최초 금액', { exact: true })
-    const parentOpenedOn = parentForm.getByLabel('등록일', { exact: true })
+    const parentAmount = parentForm.getByLabel('기준일 잔액', { exact: true })
+    const parentOpenedOn = parentForm.getByLabel('잔액 기준일', { exact: true })
     await parentName.fill(scenario.parentName)
     await parentAmount.fill('270000')
     await parentOpenedOn.fill('2026-07-08')
@@ -174,7 +174,7 @@ for (const scenario of LINKED_ASSET_SCENARIOS) {
     const dialog = page.getByRole('dialog', { name: '계좌 바로 만들기' })
     await expect(dialog).toBeVisible()
     await dialog.getByLabel('자산 이름 (선택)', { exact: true }).fill(scenario.accountName)
-    await dialog.getByLabel('최초 금액', { exact: true }).fill('410000')
+    await dialog.getByLabel('기준일 잔액', { exact: true }).fill('410000')
 
     paymentSources.enabled = false
     const created = await submitInlineAccount(page, dialog, scenario.accountName, 410000)
@@ -220,7 +220,7 @@ test('기본 계좌 후보가 있어도 카드와 적금에서 계좌를 추가�
     const dialog = page.getByRole('dialog', { name: '계좌 바로 만들기' })
     await expect(dialog).toBeVisible()
     await dialog.getByLabel('자산 이름 (선택)', { exact: true }).fill(scenario.accountName)
-    const openingBalance = dialog.getByLabel('최초 금액', { exact: true })
+    const openingBalance = dialog.getByLabel('기준일 잔액', { exact: true })
     await expect(openingBalance).toHaveValue('')
     if (scenario.typeName !== '신용카드') await openingBalance.fill('0')
     const created = await submitInlineAccount(page, dialog, scenario.accountName, 0)
@@ -299,12 +299,12 @@ async function expectModalDismissal(
 ) {
   await trigger.click()
   const dialog = page.getByRole('dialog', { name: '계좌 바로 만들기' })
-  const openingBalance = dialog.getByLabel('최초 금액', { exact: true })
+  const openingBalance = dialog.getByLabel('기준일 잔액', { exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('button', { name: '계좌 만들기 닫기' })).toBeVisible()
   await expect(dialog.getByRole('button', { name: '취소', exact: true })).toBeVisible()
   await expect(dialog.getByRole('button', { name: '계좌 등록', exact: true })).toBeVisible()
-  await expect(openingBalance, '최초 오픈 시 최초 금액은 사용자가 직접 입력하도록 비어 있어야 합니다').toHaveValue('')
+  await expect(openingBalance, '최초 오픈 시 기준일 잔액은 사용자가 직접 입력하도록 비어 있어야 합니다').toHaveValue('')
   await expect(openingBalance).toHaveAttribute('placeholder', '0')
   expect(context.pages(), '모달을 열 때 새 탭이 생기면 안 됩니다').toHaveLength(1)
   await expectParentCardDraft(parentForm)
@@ -373,25 +373,25 @@ async function expectPaymentSourceDialogLayout(
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), `${width}px에서 페이지 가로 overflow가 없어야 합니다`).toBe(false)
 
   const [amountField, dateField] = await Promise.all([
-    dialog.getByLabel('최초 금액', { exact: true }),
-    dialog.getByLabel('등록일', { exact: true }),
+    dialog.getByLabel('기준일 잔액', { exact: true }),
+    dialog.getByLabel('잔액 기준일', { exact: true }),
   ].map((field) => field.evaluate((element) => {
     const wrapper = element.closest('[data-slot="field"], [data-slot="money-field"]')?.getBoundingClientRect()
     if (!wrapper) throw new Error('계좌 등록 Field wrapper를 찾지 못했습니다.')
     return { top: wrapper.top, bottom: wrapper.bottom, width: wrapper.width }
   })))
   if (width < 768) {
-    expect(dateField.top, `${width}px 모달 등록일은 최초 금액 아래에 있어야 합니다`).toBeGreaterThanOrEqual(amountField.bottom - 1)
+    expect(dateField.top, `${width}px 모달 잔액 기준일은 기준일 잔액 아래에 있어야 합니다`).toBeGreaterThanOrEqual(amountField.bottom - 1)
   } else {
-    expect(Math.abs(amountField.top - dateField.top), `${width}px 모달 최초 금액과 등록일은 같은 행이어야 합니다`).toBeLessThanOrEqual(1)
-    expect(amountField.width, `${width}px 모달 최초 금액은 등록일보다 넓어야 합니다`).toBeGreaterThan(dateField.width)
+    expect(Math.abs(amountField.top - dateField.top), `${width}px 모달 기준일 잔액과 잔액 기준일은 같은 행이어야 합니다`).toBeLessThanOrEqual(1)
+    expect(amountField.width, `${width}px 모달 기준일 잔액은 잔액 기준일보다 넓어야 합니다`).toBeGreaterThan(dateField.width)
   }
 
   for (const [target, label] of [
     [dialog.getByRole('button', { name: '계좌 만들기 닫기' }), '닫기'],
     [dialog.getByLabel('자산 이름 (선택)', { exact: true }), '자산 이름'],
-    [dialog.getByLabel('최초 금액', { exact: true }), '최초 금액'],
-    [dialog.getByLabel('등록일', { exact: true }), '등록일'],
+    [dialog.getByLabel('기준일 잔액', { exact: true }), '기준일 잔액'],
+    [dialog.getByLabel('잔액 기준일', { exact: true }), '잔액 기준일'],
     [dialog.getByRole('button', { name: '취소', exact: true }), '취소'],
     [dialog.getByRole('button', { name: '계좌 등록', exact: true }), '계좌 등록'],
   ] as const) await expectHitTargetAtLeast44(target, `${width}px 모달 ${label}`)
@@ -409,8 +409,8 @@ async function expectHitTargetAtLeast44(locator: Locator, label: string) {
 
 async function expectParentCardDraft(parentForm: Locator) {
   await expect(parentForm.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('QC 생활비 신용카드')
-  await expect(parentForm.getByLabel('최초 금액', { exact: true })).toHaveValue('-180,000')
-  await expect(parentForm.getByLabel('등록일', { exact: true })).toHaveValue(CARD_OPENED_ON)
+  await expect(parentForm.getByLabel('기준일 잔액', { exact: true })).toHaveValue('-180,000')
+  await expect(parentForm.getByLabel('잔액 기준일', { exact: true })).toHaveValue(CARD_OPENED_ON)
   await expect(parentForm.getByLabel('정산일')).toHaveValue('15')
   // Base UI modal은 열린 동안 배경 form을 접근성 트리에서 숨기므로 DOM label 연결로 draft만 확인한다.
   await expect(parentForm.getByLabel('결제일', { exact: true })).toHaveValue('25')

@@ -24,9 +24,10 @@ import {
   type UpdateTransactionInput,
 } from './api'
 import { performerPersonLabel, performerQuestionLabel, performerSelectionError } from './performerLabels'
-import { transferAccountAssets } from './transferAssets'
+import { transferAccountAssets, transferAccountLabel } from './transferAssets'
 import { CategoryPicker } from './CategoryPicker'
 import { PerformerPicker } from './PerformerPicker'
+import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
 
 type Draft = {
   type: TransactionType
@@ -39,6 +40,7 @@ type Draft = {
   performedByMemberId: string
   description: string
   installmentCount: string
+  excludedFromStatistics: boolean
 }
 
 type FieldErrors = Partial<Record<keyof Draft, string>>
@@ -283,16 +285,17 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
 
           <div className="grid grid-cols-2 gap-3 border-b border-[var(--line)] py-5 max-[18rem]:grid-cols-1 sm:gap-5">
             <MoneyField id="transactionAmount" label="금액" value={draft.amountWon} onValueChange={(value) => updateDraft('amountWon', value)} placeholder="0" error={errors.amountWon} inputClassName="min-h-12 pr-9 text-lg sm:text-xl" autoFocus={!editing} required />
-            <Field id="transactionDate" label="날짜" type="date" className="min-h-12 px-2 text-sm sm:px-3 sm:text-base" value={draft.occurredOn} onChange={(event) => updateDraft('occurredOn', event.target.value)} error={errors.occurredOn} required />
+            <Field id="transactionDate" label="날짜" type="date" className="min-h-12 px-0 text-sm [text-indent:.5rem] sm:text-base sm:[text-indent:.75rem]" value={draft.occurredOn} onChange={(event) => updateDraft('occurredOn', event.target.value)} error={errors.occurredOn} required />
           </div>
 
           {draft.type === 'TRANSFER' ? (
             <div className="grid gap-3 border-b border-[var(--line)] py-5 lg:grid-cols-[1fr_auto_1fr] lg:items-end">
               {transferAccounts.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] lg:col-span-3" role="status">이체하려면 서로 다른 계좌가 두 개 이상 필요해요. 계좌를 하나 더 등록해 주세요.</p> : null}
               {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] lg:col-span-3" role="status">이 이체에 연결된 자산은 현재 계좌 이체에 사용할 수 없어요. 보내는 계좌와 받는 계좌를 다시 선택해 주세요.</p> : null}
-              <SelectField id="sourceAsset" label="보내는 계좌" value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId}>{!sourceAssetId ? <option value="">계좌를 선택해 주세요</option> : null}{transferAccounts.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}</SelectField>
+              <p className="text-xs leading-5 text-[var(--muted)] lg:col-span-3">함께 쓰는 구성원의 계좌와 공동 계좌를 모두 선택할 수 있어요.</p>
+              <SelectField id="sourceAsset" label="보내는 계좌" value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId}>{!sourceAssetId ? <option value="">계좌를 선택해 주세요</option> : null}{transferAccounts.map((asset) => <option key={asset.assetId} value={asset.assetId}>{transferAccountLabel(asset, ledger.members)}</option>)}</SelectField>
               <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] lg:block" size={20} />
-              <SelectField id="destinationAsset" label="받는 계좌" value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId}>{!destinationAssetId ? <option value="">계좌를 선택해 주세요</option> : null}{transferAccounts.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}</SelectField>
+              <SelectField id="destinationAsset" label="받는 계좌" value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId}>{!destinationAssetId ? <option value="">계좌를 선택해 주세요</option> : null}{transferAccounts.map((asset) => <option key={asset.assetId} value={asset.assetId}>{transferAccountLabel(asset, ledger.members)}</option>)}</SelectField>
             </div>
           ) : (
             <div className={`grid items-start gap-5 border-b border-[var(--line)] py-5 md:grid-cols-2 ${isCardExpense ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(8rem,.55fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]'}`}>
@@ -302,6 +305,15 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
               {isCardExpense ? <div className="md:col-span-2 md:max-w-40 lg:col-span-1 lg:max-w-none"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
             </div>
           )}
+
+          {draft.type !== 'TRANSFER' ? (
+            <StatisticsExclusionSwitch
+              type={draft.type}
+              checked={draft.excludedFromStatistics}
+              onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)}
+              disabled={pending || remoteDeleted}
+            />
+          ) : null}
 
           <div className="grid gap-5 border-b border-[var(--line)] py-5">
             <PerformerPicker id="performedBy" label={performerQuestionLabel(draft.type)} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending || remoteDeleted} />
@@ -342,14 +354,18 @@ function ManagedTransaction({ transaction, returnTo }: { transaction: Transactio
 function MissingTransaction({ returnTo }: { returnTo: string }) { return <AppShell ledgerNavigation><section className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold">거래를 찾을 수 없어요</h1><p className="mt-2 text-sm text-[var(--muted)]">다른 구성원이 이미 삭제했거나 주소가 올바르지 않을 수 있어요.</p><Button asChild className="mt-5"><Link to={returnTo}>가계부로 돌아가기</Link></Button></section></AppShell> }
 
 function TransactionSummary({ title, draft, assets, categories, ledger }: { title: string; draft: Draft; assets: Asset[]; categories: Category[]; ledger: LedgerBook }) {
-  const assetName = (id: string) => assets.find((asset) => asset.assetId === id)?.name ?? '현재 목록에 없음'
+  const assetName = (id: string) => draft.type === 'TRANSFER'
+    ? transferAssetName(id, assets, ledger, '현재 목록에 없음')
+    : assets.find((asset) => asset.assetId === id)?.name ?? '현재 목록에 없음'
   const categoryName = categories.find((category) => category.categoryId === draft.categoryId)?.name ?? '현재 목록에 없음'
   const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)
-  return <dl className="border-y border-[var(--line)] py-2"><dt className="font-semibold">{title}</dt><dd className="mt-1 text-[var(--muted)]">{draft.occurredOn} · {formatWon(Number(draft.amountWon) || 0)}</dd><dd className="mt-1 text-[var(--muted)]">{draft.type === 'TRANSFER' ? `${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `${categoryName} · ${assetName(draft.assetId)}`}</dd><dd className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[var(--muted)]"><MemberValue member={member} fallback="현재 구성원에 없음" /><span aria-hidden="true">·</span><span>{draft.description || '내용 없음'}</span></dd></dl>
+  return <dl className="border-y border-[var(--line)] py-2"><dt className="font-semibold">{title}</dt><dd className="mt-1 text-[var(--muted)]">{draft.occurredOn} · {formatWon(Number(draft.amountWon) || 0)}</dd><dd className="mt-1 text-[var(--muted)]">{draft.type === 'TRANSFER' ? `${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `${categoryName} · ${assetName(draft.assetId)}`}</dd>{draft.type !== 'TRANSFER' && draft.excludedFromStatistics ? <dd className="mt-1 font-semibold text-[var(--muted)]">집계 제외</dd> : null}<dd className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[var(--muted)]"><MemberValue member={member} fallback="현재 구성원에 없음" /><span aria-hidden="true">·</span><span>{draft.description || '내용 없음'}</span></dd></dl>
 }
 
 function TransactionDraftSummary({ draft, assets, categories, ledger }: { draft: Draft; assets: Asset[]; categories: Category[]; ledger: LedgerBook }) {
-  const assetName = (id: string) => assets.find((asset) => asset.assetId === id)?.name ?? '선택 안 함'
+  const assetName = (id: string) => draft.type === 'TRANSFER'
+    ? transferAssetName(id, assets, ledger, '선택 안 함')
+    : assets.find((asset) => asset.assetId === id)?.name ?? '선택 안 함'
   const categoryName = categories.find((category) => category.categoryId === draft.categoryId)?.name ?? '선택 안 함'
   const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)
   const amountWon = Number(draft.amountWon.replaceAll(',', ''))
@@ -363,6 +379,7 @@ function TransactionDraftSummary({ draft, assets, categories, ledger }: { draft:
       <div className="mt-4"><dt className="text-[var(--muted)]">금액</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.03em] tabular-nums ${draft.type === 'EXPENSE' ? 'text-[var(--expense)]' : draft.type === 'INCOME' ? 'text-[var(--income)]' : 'text-[var(--transfer)]'}`}>{Number.isSafeInteger(amountWon) && amountWon > 0 ? formatWon(amountWon) : '금액 미입력'}</dd></div>
       <div className="mt-4"><dt className="text-[var(--muted)]">날짜</dt><dd className="mt-1 font-semibold tabular-nums">{draft.occurredOn || '선택 안 함'}</dd></div>
       <div className="mt-4"><dt className="text-[var(--muted)]">흐름</dt><dd className="mt-1 break-words font-semibold leading-6">{flow}</dd></div>
+      {draft.type !== 'TRANSFER' ? <div className="mt-4"><dt className="text-[var(--muted)]">달력·통계</dt><dd className="mt-1 font-semibold">{draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}</dd></div> : null}
       <div className="mt-4"><dt className="text-[var(--muted)]">{performerPersonLabel(draft.type)}</dt><dd className="mt-1 font-semibold"><MemberValue member={member} fallback="선택 안 함" /></dd></div>
       {draft.description ? <div className="mt-4"><dt className="text-[var(--muted)]">내용</dt><dd className="mt-1 break-words leading-6">{draft.description}</dd></div> : null}
     </dl>
@@ -397,35 +414,36 @@ function parseDraft(draft: Draft, isCardExpense: boolean): { input?: CreateTrans
   if (isCardExpense && (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 60)) errors.installmentCount = '1개월부터 60개월 사이로 입력해 주세요.'
   if (hasFieldErrors(errors)) return { errors }
   const common = { occurredOn: draft.occurredOn, amountWon, performedByMemberId: draft.performedByMemberId, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) }
-  if (draft.type === 'INCOME') return { errors, input: { ...common, type: 'INCOME', categoryId: draft.categoryId, assetId: draft.assetId } }
-  if (draft.type === 'EXPENSE') return { errors, input: { ...common, type: 'EXPENSE', categoryId: draft.categoryId, assetId: draft.assetId, ...(isCardExpense ? { installmentCount } : {}) } }
+  if (draft.type === 'INCOME') return { errors, input: { ...common, type: 'INCOME', categoryId: draft.categoryId, assetId: draft.assetId, excludedFromStatistics: draft.excludedFromStatistics } }
+  if (draft.type === 'EXPENSE') return { errors, input: { ...common, type: 'EXPENSE', categoryId: draft.categoryId, assetId: draft.assetId, excludedFromStatistics: draft.excludedFromStatistics, ...(isCardExpense ? { installmentCount } : {}) } }
   return { errors, input: { ...common, type: 'TRANSFER', sourceAssetId: draft.sourceAssetId, destinationAssetId: draft.destinationAssetId } }
 }
 
 function toUpdateInput(input: CreateTransactionInput, expectedVersion: number): UpdateTransactionInput {
   const common = { occurredOn: input.occurredOn, amountWon: input.amountWon, performedByMemberId: input.performedByMemberId, ...(input.description ? { description: input.description } : {}), expectedVersion }
-  if (input.type === 'INCOME') return { ...common, type: 'INCOME', categoryId: input.categoryId, assetId: input.assetId }
-  if (input.type === 'EXPENSE') return { ...common, type: 'EXPENSE', categoryId: input.categoryId, assetId: input.assetId }
+  if (input.type === 'INCOME') return { ...common, type: 'INCOME', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics }
+  if (input.type === 'EXPENSE') return { ...common, type: 'EXPENSE', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics }
   return { ...common, type: 'TRANSFER', sourceAssetId: input.sourceAssetId, destinationAssetId: input.destinationAssetId }
 }
 
 function draftFromTransaction(transaction: Transaction): Draft {
   const source = transaction.postings.find((posting) => posting.deltaWon < 0)?.assetId ?? ''
   const destination = transaction.postings.find((posting) => posting.deltaWon > 0)?.assetId ?? ''
-  return { type: transaction.type, amountWon: String(transaction.amountWon), occurredOn: transaction.occurredOn, categoryId: transaction.category?.categoryId ?? '', assetId: transaction.asset?.assetId ?? transaction.postings[0]?.assetId ?? '', sourceAssetId: source, destinationAssetId: destination, performedByMemberId: transaction.performedBy?.memberId ?? '', description: transaction.description ?? '', installmentCount: String(transaction.installmentCount ?? 1) }
+  return { type: transaction.type, amountWon: String(transaction.amountWon), occurredOn: transaction.occurredOn, categoryId: transaction.category?.categoryId ?? '', assetId: transaction.asset?.assetId ?? transaction.postings[0]?.assetId ?? '', sourceAssetId: source, destinationAssetId: destination, performedByMemberId: transaction.performedBy?.memberId ?? '', description: transaction.description ?? '', installmentCount: String(transaction.installmentCount ?? 1), excludedFromStatistics: transaction.excludedFromStatistics }
 }
 
 function validNavigationDraft(draft: Draft | undefined, memberId: string): Draft {
-  if (draft && ['INCOME', 'EXPENSE', 'TRANSFER'].includes(draft.type)) return { ...draft, performedByMemberId: draft.performedByMemberId || memberId }
-  return { type: 'EXPENSE', amountWon: '', occurredOn: todayInSeoul(), categoryId: '', assetId: '', sourceAssetId: '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1' }
+  if (draft && ['INCOME', 'EXPENSE', 'TRANSFER'].includes(draft.type)) return { ...draft, performedByMemberId: draft.performedByMemberId || memberId, excludedFromStatistics: draft.excludedFromStatistics === true }
+  return { type: 'EXPENSE', amountWon: '', occurredOn: todayInSeoul(), categoryId: '', assetId: '', sourceAssetId: '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1', excludedFromStatistics: false }
 }
 
 function apiFieldErrors(error: ApiError): FieldErrors { const mapped: FieldErrors = {}; for (const item of error.fieldErrors) if (item.field in defaultDraftKeys) mapped[item.field as keyof Draft] = item.code; for (const [field, message] of Object.entries(error.errors ?? {})) if (field in defaultDraftKeys) mapped[field as keyof Draft] = message; return mapped }
-const defaultDraftKeys: Record<keyof Draft, true> = { type: true, amountWon: true, occurredOn: true, categoryId: true, assetId: true, sourceAssetId: true, destinationAssetId: true, performedByMemberId: true, description: true, installmentCount: true }
+const defaultDraftKeys: Record<keyof Draft, true> = { type: true, amountWon: true, occurredOn: true, categoryId: true, assetId: true, sourceAssetId: true, destinationAssetId: true, performedByMemberId: true, description: true, installmentCount: true, excludedFromStatistics: true }
 function transferSelection(id: string, accounts: Asset[]) { return accounts.some((asset) => asset.assetId === id) ? id : '' }
 function missingAssetOption(id: string, assets: Asset[]) { return id && !assets.some((asset) => asset.assetId === id) ? <option value={id}>연결했던 자산 (현재 목록에 없음)</option> : null }
 function safeReturnTo(state: unknown, occurredOn?: string) { const value = (state as NavigationState | null)?.returnTo; return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : `/?view=daily&month=${(occurredOn ?? todayInSeoul()).slice(0, 7)}` }
-function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], ledger: LedgerBook) { const assetName = (id: string) => assets.find((asset) => asset.assetId === id)?.name ?? id; const category = categories.find((item) => item.categoryId === draft.categoryId)?.name ?? draft.categoryId; const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)?.displayName ?? draft.performedByMemberId; return [`종류: ${typeLabel(draft.type)}`, `날짜: ${draft.occurredOn}`, `금액: ${draft.amountWon}원`, draft.type === 'TRANSFER' ? `자산: ${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `분류/자산: ${category} / ${assetName(draft.assetId)}`, `${performerPersonLabel(draft.type)}: ${member}`, `내용: ${draft.description}`].join('\n') }
+function transferAssetName(id: string, assets: Asset[], ledger: LedgerBook, fallback: string) { const asset = assets.find((item) => item.assetId === id); return asset ? transferAccountLabel(asset, ledger.members) : fallback }
+function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], ledger: LedgerBook) { const assetName = (id: string) => draft.type === 'TRANSFER' ? transferAssetName(id, assets, ledger, id) : assets.find((asset) => asset.assetId === id)?.name ?? id; const category = categories.find((item) => item.categoryId === draft.categoryId)?.name ?? draft.categoryId; const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)?.displayName ?? draft.performedByMemberId; return [`종류: ${typeLabel(draft.type)}`, `날짜: ${draft.occurredOn}`, `금액: ${draft.amountWon}원`, draft.type === 'TRANSFER' ? `자산: ${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `분류/자산: ${category} / ${assetName(draft.assetId)}`, ...(draft.type !== 'TRANSFER' ? [`달력·통계: ${draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}`] : []), `${performerPersonLabel(draft.type)}: ${member}`, `내용: ${draft.description}`].join('\n') }
 function typeLabel(type: TransactionType) { return type === 'INCOME' ? '수입' : type === 'EXPENSE' ? '지출' : '이체' }
 function formatWon(value: number) { return `${new Intl.NumberFormat('ko-KR').format(Math.abs(value))}원` }
 function todayInSeoul() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()) }

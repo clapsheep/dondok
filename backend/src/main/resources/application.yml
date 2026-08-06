@@ -38,6 +38,7 @@ server:
         http-only: true
         secure: ${DONDOK_COOKIE_SECURE:false}
         same-site: lax
+        max-age: 90d
 
 management:
   endpoints:
