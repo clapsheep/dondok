@@ -27,6 +27,7 @@ import {
 } from './api'
 import { performerPersonLabel, performerQuestionLabel, performerSelectionError } from './performerLabels'
 import { PerformerPicker } from './PerformerPicker'
+import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
 
 export type CardPurchaseAction = 'detail' | 'correction' | 'refund'
 
@@ -38,12 +39,14 @@ type CorrectionDraft = {
   performedByMemberId: string
   description: string
   installmentCount: string
+  excludedFromStatistics: boolean
 }
 
 type RefundDraft = {
   refundedOn: string
   amountWon: string
   description: string
+  excludedFromStatistics: boolean
 }
 
 type FieldErrors<T> = Partial<Record<keyof T, string>>
@@ -295,6 +298,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
             <div className="md:col-span-2 lg:col-span-3"><PerformerPicker id="correctionPerformer" label={performerQuestionLabel('EXPENSE')} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending} /></div>
           </div>
           <TextAreaField id="correctionDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} error={errors.description} disabled={pending} />
+          <StatisticsExclusionSwitch type="EXPENSE" checked={draft.excludedFromStatistics} onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)} disabled={pending} />
           <OfflineNotice online={online} />
           <MutationError error={previewMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="변경 영향을 계산하지 못했어요." />
           <MutationError error={applyMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="정정을 적용하지 못했어요." />
@@ -321,7 +325,7 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
   const purchase = management.purchase
-  const [draft, setDraft] = useState<RefundDraft>(() => ({ refundedOn: todayInSeoul(), amountWon: String(management.refundableAmountWon), description: '' }))
+  const [draft, setDraft] = useState<RefundDraft>(() => ({ refundedOn: todayInSeoul(), amountWon: String(management.refundableAmountWon), description: '', excludedFromStatistics: purchase.excludedFromStatistics }))
   const [baseVersion, setBaseVersion] = useState(purchase.version)
   const [errors, setErrors] = useState<FieldErrors<RefundDraft>>({})
   const [preview, setPreview] = useState<CardPurchaseRefundPreview>()
@@ -444,6 +448,7 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
             <Field id="refundDate" label="환불일" type="date" value={draft.refundedOn} onChange={(event) => updateDraft('refundedOn', event.target.value)} error={errors.refundedOn} disabled={pending} required />
           </div>
           <TextAreaField id="refundDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} error={errors.description} disabled={pending} />
+          <StatisticsExclusionSwitch type="EXPENSE" checked={draft.excludedFromStatistics} onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)} disabled={pending} />
           <OfflineNotice online={online} />
           <MutationError error={previewMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="환불 반영 내용을 계산하지 못했어요." />
           <MutationError error={applyMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="환불을 기록하지 못했어요." />
@@ -455,7 +460,7 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
             <ImpactPreview ref={previewHeading} title="환불 반영 내용" preview={preview}>
               <dl className="mt-4 grid gap-2 text-sm min-[30rem]:grid-cols-2">
                 <Value label="환불일" value={draft.refundedOn} />
-                <Value label="지출에서 차감" value={`+${formatWon(parseWon(draft.amountWon) ?? 0)}`} />
+                <Value label="달력·통계" value={draft.excludedFromStatistics ? '집계 제외' : `지출에서 +${formatWon(parseWon(draft.amountWon) ?? 0)} 차감`} />
               </dl>
               <Button type="submit" className="mt-5 w-full min-[22.5rem]:w-auto" size="large" disabled={!online || applyMutation.isPending}>
                 {applyMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}환불 기록
@@ -480,6 +485,7 @@ function PurchaseSummary({ management }: { management: CardPurchaseManagementVie
         <Value label="분류" value={purchase.category?.name ?? '분류 없음'} />
         <Value label={performerPersonLabel('EXPENSE')} value={purchase.performedBy ? <span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={purchase.performedBy.displayName} memberId={purchase.performedBy.memberId} size="xs" /><span>{purchase.performedBy.displayName}</span></span> : '구성원 없음'} />
         <Value label="결제 방식" value={management.billingSnapshot.installmentCount > 1 ? `${management.billingSnapshot.installmentCount}개월 할부` : '일시불'} />
+        <Value label="달력·통계" value={purchase.excludedFromStatistics ? '집계 제외' : '지출에 포함'} />
         <Value className="sm:col-span-2" label="내용" value={purchase.description || '내용 없음'} />
       </dl>
     </section>
@@ -522,7 +528,7 @@ function BillingDetails({ management }: { management: CardPurchaseManagementView
       {management.refunds.length ? (
         <section className="mt-6" aria-labelledby="refund-history-title">
           <h3 id="refund-history-title" className="font-semibold">환불 처리 내역</h3>
-          <ul className="mt-2 divide-y divide-[var(--line)] border-y border-[var(--line)]">{management.refunds.map((refund) => <li className="py-3 text-sm" key={refund.refundId}><div className="flex flex-wrap justify-between gap-2"><span>{refund.refundedOn}</span><strong>+{formatWon(refund.amountWon)}</strong></div><AccountReturns returns={refund.accountReturns} unpaidCardReductionWon={refund.unpaidCardReductionWon} /></li>)}</ul>
+          <ul className="mt-2 divide-y divide-[var(--line)] border-y border-[var(--line)]">{management.refunds.map((refund) => <li className="py-3 text-sm" key={refund.refundId}><div className="flex flex-wrap justify-between gap-2"><span>{refund.refundedOn}{refund.excludedFromStatistics ? ' · 집계 제외' : ''}</span><strong>+{formatWon(refund.amountWon)}</strong></div><AccountReturns returns={refund.accountReturns} unpaidCardReductionWon={refund.unpaidCardReductionWon} /></li>)}</ul>
         </section>
       ) : null}
     </section>
@@ -578,6 +584,7 @@ function CorrectionChanges({ purchase, draft, assets, categories, ledger }: { pu
     ['결제 카드', purchase.asset?.name ?? '카드', cardName],
     [performerPersonLabel('EXPENSE'), purchase.performedBy?.displayName ?? '구성원 없음', performerName],
     ['할부', `${purchase.installmentCount ?? 1}개월`, `${draft.installmentCount}개월`],
+    ['달력·통계', purchase.excludedFromStatistics ? '집계 제외' : '지출에 포함', draft.excludedFromStatistics ? '집계 제외' : '지출에 포함'],
     ['내용', purchase.description || '내용 없음', draft.description || '내용 없음'],
   ].filter(([, before, after]) => before !== after)
   return changes.length ? <dl className="mt-4 divide-y divide-[var(--line)] border-y border-[var(--line)] text-sm">{changes.map(([label, before, after]) => <div className="grid gap-1 py-3 min-[30rem]:grid-cols-[7rem_minmax(0,1fr)_auto]" key={label}><dt className="font-semibold">{label}</dt><dd className="min-w-0 break-words text-[var(--muted)]">{before}</dd><dd className="min-w-0 break-words font-semibold min-[30rem]:text-right">→ {after}</dd></div>)}</dl> : <p className="mt-4 text-sm text-[var(--muted)]">입력한 값은 기존 구매 기록과 같아요.</p>
@@ -642,6 +649,7 @@ function correctionDraft(management: CardPurchaseManagementView): CorrectionDraf
     performedByMemberId: purchase.performedBy?.memberId ?? '',
     description: purchase.description ?? '',
     installmentCount: String(purchase.installmentCount ?? management.billingSnapshot.installmentCount),
+    excludedFromStatistics: purchase.excludedFromStatistics,
   }
 }
 
@@ -656,7 +664,7 @@ function parseCorrection(draft: CorrectionDraft, expectedVersion: number): { inp
   if (!draft.performedByMemberId) errors.performedByMemberId = performerSelectionError('EXPENSE')
   if (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 60) errors.installmentCount = '1개월부터 60개월 사이로 입력해 주세요.'
   if (Object.values(errors).some(Boolean) || !amountWon) return { errors }
-  return { errors, input: { occurredOn: draft.occurredOn, amountWon, categoryId: draft.categoryId, cardAssetId: draft.cardAssetId, performedByMemberId: draft.performedByMemberId, installmentCount, expectedVersion, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
+  return { errors, input: { occurredOn: draft.occurredOn, amountWon, categoryId: draft.categoryId, cardAssetId: draft.cardAssetId, performedByMemberId: draft.performedByMemberId, installmentCount, expectedVersion, excludedFromStatistics: draft.excludedFromStatistics, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
 }
 
 function parseRefund(draft: RefundDraft, expectedVersion: number, refundableAmountWon: number): { input?: CardPurchaseRefundInput; errors: FieldErrors<RefundDraft> } {
@@ -666,7 +674,7 @@ function parseRefund(draft: RefundDraft, expectedVersion: number, refundableAmou
   else if (amountWon > refundableAmountWon) errors.amountWon = `현재 환불 가능 금액 ${formatWon(refundableAmountWon)} 이하로 입력해 주세요.`
   if (!draft.refundedOn) errors.refundedOn = '환불일을 선택해 주세요.'
   if (Object.values(errors).some(Boolean) || !amountWon) return { errors }
-  return { errors, input: { refundedOn: draft.refundedOn, amountWon, expectedVersion, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
+  return { errors, input: { refundedOn: draft.refundedOn, amountWon, expectedVersion, excludedFromStatistics: draft.excludedFromStatistics, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
 }
 
 function writeAuthoritativeCardPurchase(queryClient: ReturnType<typeof useQueryClient>, management: CardPurchaseManagementView) {

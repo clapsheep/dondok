@@ -120,11 +120,11 @@ public record CreateExpense(
 - 체크카드 구매: 선택 자산은 체크카드로 보존하고 연결 결제 계좌에 `-amount`
 - 카드 정산: 이체 policy + `CARD_SETTLEMENT`
 
-공개 일반 이체 command는 출발·도착 자산을 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 모두 `BANK`인지 검증한다. 아니면 `400 TRANSFER_BANK_ACCOUNT_REQUIRED`로 전체 요청을 거부한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
+공개 일반 이체 command는 출발·도착 자산을 같은 가계부 범위에서 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 모두 `BANK`인지 검증한다. 소유 marker는 권한 검사에 사용하지 않으므로 현재 사용자, 다른 구성원, 공동 소유 계좌 사이의 모든 조합을 허용한다. 아니면 `400 TRANSFER_BANK_ACCOUNT_REQUIRED`로 전체 요청을 거부한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
 
-자산 생성의 0이 아닌 최초 금액은 공개 수입·지출 API로 우회하지 않고 application service가 내부 `OPENING_BALANCE` adjustment command로 생성한다. 등록일 변경 시 이 내부 거래 날짜를 함께 수정하며 통계에서는 제외한다.
+자산 생성·수정의 `openingBalanceWon`과 `openedOn`은 호환 필드명이며 각각 기준일 잔액과 잔액 기준일을 뜻한다. application service는 선언값을 `asset.balance_anchor_won`에 함께 저장하고 기존 내부 `OPENING_BALANCE` 업무 이력도 동기화한다. 현재 잔액 read model은 기준일 잔액에 기준일 당일 이후 유효 posting만 합산하며 기준일 이전 거래는 통계·원장 이력에만 반영한다. 신용카드 구매 생성·정정은 구매일과 카드 잔액 기준일을 비교해 charge의 `absorbed_by_balance_anchor`를 결정하고, 자산 기준일 수정은 기존 구매 charge를 같은 DB 트랜잭션에서 다시 분류한 뒤 명세와 schedule을 재계산한다.
 
-모든 자산 생성은 사용자가 선택한 등록일을 받는다. 신용카드는 카드 설정, 체크카드는 결제 계좌를 유형별 command와 composition entity로 저장한다. 적금 자동이체는 선택 command이며, command가 없으면 설정 entity를 만들지 않고 command가 있으면 계좌·일을 함께 저장한다. 기존 설정이 있는 적금 수정에서 command를 제거하면 설정 entity도 제거한다. 적금 설정만으로 자동 거래를 만들지 않는다.
+모든 자산 생성은 사용자가 선택한 잔액 기준일과 기준일 잔액을 받는다. 신용카드는 카드 설정, 체크카드는 결제 계좌를 유형별 command와 composition entity로 저장한다. 적금 자동이체는 선택 command이며, command가 없으면 설정 entity를 만들지 않고 command가 있으면 계좌·일을 함께 저장한다. 기존 설정이 있는 적금 수정에서 command를 제거하면 설정 entity도 제거한다. 적금 설정만으로 자동 거래를 만들지 않는다.
 
 부호 계산과 posting 생성 규칙을 Controller나 여러 Service에 흩어 놓지 않는다.
 
@@ -226,6 +226,8 @@ audit에는 영향 건수와 날짜 범위를 한 건으로 남긴다. command�
 
 일반 거래 수정·삭제는 `UpdateGeneralTransactionUseCase`와 `DeleteGeneralTransactionUseCase` 경계에서 처리한다. 원 거래 행을 잠그고 `expectedVersion`이 다르면 `412`로 전체 저장을 거부한다. 수정은 유형을 불변으로 유지하면서 posting을 한 트랜잭션에서 재구성하고, 삭제는 거래만 soft delete해 감사 가능한 posting 원본을 보존한다. 신용카드 구매와 시스템 거래는 `managementType`으로 구분해 일반 command에서 차단한다.
 
+사용자 수입·지출 command는 `excludedFromStatistics`를 함께 받고 응답에도 반환한다. 이 값은 posting 생성과 자산 잔액 계산에 관여하지 않고 `ledger_financial_activity` 포함 여부만 제어한다. 신용카드 구매 정정과 환불 preview/apply command도 같은 값을 preview token·idempotency hash에 포함해 확인 뒤 다른 집계 상태가 저장되는 것을 막는다. 이전 클라이언트가 필드를 생략하면 `false`로 처리하고 일반 이체에는 `true`를 허용하지 않는다.
+
 ## 8. 자산 삭제·보관 유스케이스
 
 `PreviewAssetRemovalUseCase`는 OpenAPI 0.8의 `GET /api/assets/{assetId}/removal-preview`에서 다음 authoritative 결과를 한 번에 반환한다.
@@ -273,7 +275,7 @@ unique 충돌은 DB를 최종 진실로 두고 안정된 409 오류 코드로 �
 
 MVP에는 SSE와 sync outbox를 두지 않는다. REST command 결과가 authoritative하며 작성 세션은 해당 응답으로 TanStack Query cache를 갱신하거나 관련 query를 invalidate한다. 다른 세션은 route 진입, window focus, 사용자 새로고침에서 재조회한다. 목록은 cursor pagination, 달력·통계는 기간이 제한된 projection query를 사용한다.
 
-월간 통계는 별도 `statistics` feature의 read-only controller/application/repository로 둔다. transaction feature의 persistence 구현에 의존하지 않고 DB의 canonical `ledger_financial_activity` view와 공개된 월간 HTTP 계약만 공유한다. `YearMonth`에서 한 달 반개구간을 서버가 만들고 동적 WHERE로 선택 필터만 SQL에 포함해 nullable `OR` 조건의 generic plan을 피한다. 모든 필터 ID와 자산 소유 조합은 같은 가계부 경계에서 검증하며, 조회에는 version·행 잠금·idempotency를 적용하지 않는다. 응답은 DB 집계 금액을 바꾸지 않고 환불로 음수가 된 지출·분류 순금액도 그대로 전달한다.
+월간 통계는 별도 `statistics` feature의 read-only controller/application/repository로 둔다. transaction feature의 persistence 구현에 의존하지 않고 DB의 canonical `ledger_financial_activity` view와 공개된 월간 HTTP 계약만 공유한다. view가 사용자 선택 집계 제외를 먼저 제거하므로 달력·월 합계·분류·연간 흐름이 같은 의미를 유지하며, 원장 목록은 base transaction을 조회해 제외 기록도 반환한다. `YearMonth`에서 한 달 반개구간을 서버가 만들고 동적 WHERE로 선택 필터만 SQL에 포함해 nullable `OR` 조건의 generic plan을 피한다. 모든 필터 ID와 자산 소유 조합은 같은 가계부 경계에서 검증하며, 조회에는 version·행 잠금·idempotency를 적용하지 않는다. 응답은 DB 집계 금액을 바꾸지 않고 환불로 음수가 된 지출·분류 순금액도 그대로 전달한다.
 
 ## 11. JPA 규칙
 
@@ -299,7 +301,13 @@ public record MoneyWon(long value) {
 
 모든 JPA 컬럼에 converter를 강제하지 않고 persistence에서는 primitive `long`을 사용해도 된다.
 
-## 12. 로컬 서버와 저장소
+## 12. 인증 세션 유지
+
+로그인은 별도 remember-me token이나 브라우저 저장소의 credential을 만들지 않고 PostgreSQL JDBC Spring Session을 사용한다. `DONDOK_SESSION`에는 추측 불가능한 세션 ID만 담고 운영에서는 `Secure`, 모든 환경에서 `HttpOnly`·`SameSite=Lax`를 적용한다. 쿠키 `Max-Age`와 절대 세션 수명은 90일로 맞춰 브라우저·설치형 PWA 재실행 뒤에도 같은 서버 세션을 복원한다. 서버 세션은 마지막 접근 후 30일이면 먼저 만료하며 `AbsoluteSessionLifetimeFilter`가 생성 후 90일을 넘긴 세션을 무효화한다.
+
+현재 기기 로그아웃은 해당 세션 invalidation과 쿠키 삭제를 함께 수행하고, 전체 기기 로그아웃과 비밀번호 재설정은 principal의 모든 JDBC 세션을 제거한다. 클라이언트는 비밀번호·세션 ID·별도 자동 로그인 token을 `localStorage`, `sessionStorage`, IndexedDB 또는 service worker cache에 저장하지 않는다.
+
+## 13. 로컬 서버와 저장소
 
 - Docker Compose로 Spring/PostgreSQL 실행 환경 고정
 - `.env`, 비밀번호, 세션 키, 인증서, 백업 파일은 Git에 포함하지 않음

@@ -1,35 +1,37 @@
-import { ArrowLeft, ChartNoAxesCombined, House, LogOut, Settings, SquarePen, WalletCards, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, ChartNoAxesCombined, House, Settings, SquarePen, WalletCards, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { api, clearCsrfToken } from '../lib/api'
+import { Link, NavLink } from 'react-router-dom'
 import { cn } from '../lib/cn'
 import { DondokLogo } from './DondokLogo'
-import { ThemeToggle } from './ThemeToggle'
+import { LogoutButton } from './LogoutButton'
 import { Button } from './ui/Button'
 
-const ledgerNavigationItems: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
+type NavigationItem = { to: string; label: string; icon: LucideIcon; end?: boolean }
+
+const ledgerNavigationItems: NavigationItem[] = [
   { to: '/', label: '홈', icon: House, end: true },
   { to: '/transactions/new', label: '기록', icon: SquarePen },
   { to: '/assets', label: '자산', icon: WalletCards },
   { to: '/statistics', label: '통계', icon: ChartNoAxesCombined },
 ]
+const settingsNavigationItem: NavigationItem = { to: '/settings', label: '설정', icon: Settings }
+const mobileNavigationItems = [...ledgerNavigationItems, settingsNavigationItem]
 
-function LedgerNavigationLink({ to, label, icon: Icon, end, compact = false }: (typeof ledgerNavigationItems)[number] & { compact?: boolean }) {
+function LedgerNavigationLink({ to, label, icon: Icon, end, compact = false }: NavigationItem & { compact?: boolean }) {
   return (
     <NavLink
       to={to}
       end={end}
       className={({ isActive }) => cn(
         'relative flex items-center text-sm font-semibold transition-colors',
-        compact ? 'min-h-[3.75rem] min-w-16 flex-col justify-center gap-0.5 rounded-[1rem] px-2 py-1 text-[.6875rem]' : 'min-h-12 w-full justify-center gap-3 rounded-md px-3 xl:justify-start',
+        compact ? 'min-h-[3.75rem] min-w-0 w-full flex-col justify-center gap-0.5 rounded-[1rem] px-1 py-1 text-[.6875rem]' : 'min-h-12 w-full justify-center gap-3 rounded-md px-3 xl:justify-start',
         isActive
           ? compact
             ? 'text-forest-800 before:absolute before:bg-forest-600 dark:text-forest-100 dark:before:bg-forest-300'
             : 'bg-forest-100 text-forest-800 before:absolute before:bg-forest-600 dark:bg-forest-800 dark:text-white'
           : 'text-[var(--muted)] hover:bg-forest-50 hover:text-forest-800 dark:hover:bg-forest-800 dark:hover:text-white',
         !compact && 'before:left-0 before:h-6 before:w-1 before:rounded-full',
-        compact && 'before:inset-x-5 before:bottom-0.5 before:h-0.5 before:rounded-full',
+        compact && 'before:inset-x-3 before:bottom-0.5 before:h-0.5 before:rounded-full',
       )}
     >
       <Icon size={compact ? 20 : 21} aria-hidden="true" />
@@ -44,18 +46,19 @@ type MobileHeader = {
   backLabel?: string
 }
 
-export function AppShell({ children, ledgerNavigation = false, mobileHeader }: { children: ReactNode; ledgerNavigation?: boolean; mobileHeader?: MobileHeader }) {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const logout = useMutation({
-    mutationFn: () => api<void>('/api/auth/session', { method: 'DELETE' }),
-    onSuccess: () => {
-      clearCsrfToken()
-      queryClient.clear()
-      navigate('/login', { replace: true })
-    },
-  })
+export function MobileLedgerNavigation() {
+  return (
+    <nav
+      className="fixed right-[max(.75rem,env(safe-area-inset-right))] bottom-[var(--mobile-dock-bottom)] left-[max(.75rem,env(safe-area-inset-left))] z-40 mx-auto grid max-w-[31rem] grid-cols-5 rounded-[1.4rem] border border-[var(--line-subtle)] bg-[var(--surface)] px-1 shadow-[0_12px_36px_rgba(12,30,23,0.18)] md:hidden dark:shadow-[0_12px_36px_rgba(0,0,0,0.45)]"
+      aria-label="주요 메뉴"
+      data-mobile-navigation
+    >
+      {mobileNavigationItems.map((item) => <LedgerNavigationLink key={item.to} {...item} compact />)}
+    </nav>
+  )
+}
 
+export function AppShell({ children, ledgerNavigation = false, mobileHeader }: { children: ReactNode; ledgerNavigation?: boolean; mobileHeader?: MobileHeader }) {
   if (!ledgerNavigation) {
     return (
       <main className="min-h-dvh bg-cream-100 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-4 pl-[max(1rem,env(safe-area-inset-left))] text-ink-900 dark:bg-[#101714] dark:text-white xs:pr-[max(1.5rem,env(safe-area-inset-right))] xs:pl-[max(1.5rem,env(safe-area-inset-left))] md:pt-6 md:pr-[max(2rem,env(safe-area-inset-right))] md:pb-6 md:pl-[max(2rem,env(safe-area-inset-left))]">
@@ -63,11 +66,7 @@ export function AppShell({ children, ledgerNavigation = false, mobileHeader }: {
           <header className="flex items-center justify-between gap-3">
             <Link to="/" aria-label="돈독 홈"><DondokLogo className="h-10" /></Link>
             <div className="flex items-center gap-1">
-              <ThemeToggle />
-              <Button variant="ghost" aria-label="로그아웃" onClick={() => logout.mutate()} disabled={logout.isPending}>
-                <LogOut size={18} />
-                <span className="hidden xs:inline">로그아웃</span>
-              </Button>
+              <LogoutButton labelClassName="hidden xs:inline" />
             </div>
           </header>
           {children}
@@ -87,21 +86,14 @@ export function AppShell({ children, ledgerNavigation = false, mobileHeader }: {
         <nav className="mt-8 grid gap-2">
           {ledgerNavigationItems.map((item) => <LedgerNavigationLink key={item.to} {...item} />)}
         </nav>
-        <div className="mt-auto grid justify-items-center gap-1 xl:justify-items-stretch">
-          <Button className="w-11 px-0 xl:w-full xl:justify-start xl:px-3" variant="ghost" asChild>
-            <Link to="/settings" aria-label="설정"><Settings size={18} /><span className="hidden xl:inline">설정</span></Link>
-          </Button>
-          <div className="xl:pl-1"><ThemeToggle /></div>
-          <Button className="w-11 px-0 xl:w-full xl:justify-start xl:px-3" variant="ghost" aria-label="로그아웃" onClick={() => logout.mutate()} disabled={logout.isPending}>
-            <LogOut size={18} />
-            <span className="hidden xl:inline">로그아웃</span>
-          </Button>
+        <div className="mt-auto">
+          <LedgerNavigationLink {...settingsNavigationItem} />
         </div>
       </aside>
 
       <main className="min-h-dvh pb-[var(--mobile-dock-clearance)] md:ml-[calc(5rem+env(safe-area-inset-left))] md:pb-0 xl:ml-[calc(15rem+env(safe-area-inset-left))]">
-        <header className="sticky top-0 z-30 flex min-h-14 items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface)] pt-[env(safe-area-inset-top)] pr-[max(.75rem,env(safe-area-inset-right))] pl-[max(.75rem,env(safe-area-inset-left))] md:hidden">
-          {mobileHeader ? (
+        {mobileHeader ? (
+          <header className="sticky top-0 z-30 flex min-h-14 items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface)] pt-[env(safe-area-inset-top)] pr-[max(.75rem,env(safe-area-inset-right))] pl-[max(.75rem,env(safe-area-inset-left))] md:hidden">
             <div className="grid w-full grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center" data-mobile-context-header>
               <Button variant="ghost" size="icon" asChild>
                 <Link to={mobileHeader.backTo} aria-label={mobileHeader.backLabel ?? '이전 화면으로'}><ArrowLeft size={20} /></Link>
@@ -109,29 +101,13 @@ export function AppShell({ children, ledgerNavigation = false, mobileHeader }: {
               <h1 className="truncate px-2 text-center text-[1.0625rem] font-semibold tracking-[-.02em]">{mobileHeader.title}</h1>
               <span aria-hidden="true" />
             </div>
-          ) : (
-            <>
-              <Link to="/" aria-label="돈독 홈"><DondokLogo className="h-9" /></Link>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" asChild><Link to="/settings" aria-label="설정"><Settings size={18} /></Link></Button>
-                <ThemeToggle />
-                <Button variant="ghost" size="icon" aria-label="로그아웃" onClick={() => logout.mutate()} disabled={logout.isPending}><LogOut size={18} /></Button>
-              </div>
-            </>
-          )}
-        </header>
-        <div className="mx-auto max-w-[82rem] px-4 xs:px-5 md:px-6 lg:px-7 xl:px-8">
+          </header>
+        ) : null}
+        <div className={cn('mx-auto max-w-[82rem] px-4 xs:px-5 md:px-6 lg:px-7 xl:px-8', !mobileHeader && 'pt-[env(safe-area-inset-top)] md:pt-0')}>
           {children}
         </div>
       </main>
 
-      <nav
-        className="fixed right-[max(.75rem,env(safe-area-inset-right))] bottom-[var(--mobile-dock-bottom)] left-[max(.75rem,env(safe-area-inset-left))] z-40 mx-auto grid max-w-[31rem] grid-cols-4 rounded-[1.4rem] border border-[var(--line-subtle)] bg-[var(--surface)] px-1 shadow-[0_12px_36px_rgba(12,30,23,0.18)] md:hidden dark:shadow-[0_12px_36px_rgba(0,0,0,0.45)]"
-        aria-label="주요 메뉴"
-        data-mobile-navigation
-      >
-        {ledgerNavigationItems.map((item) => <LedgerNavigationLink key={item.to} {...item} compact />)}
-      </nav>
     </div>
   )
 }

@@ -81,11 +81,13 @@ public class CardPurchaseManagementController {
             @NotNull LocalDate refundedOn,
             @Positive long amountWon,
             @Min(0) long expectedVersion,
-            @Size(max = 500) String description
+            @Size(max = 500) String description,
+            Boolean excludedFromStatistics
     ) {
         CardPurchaseManagementService.RefundCommand toCommand() {
             return new CardPurchaseManagementService.RefundCommand(
-                    refundedOn, amountWon, expectedVersion, description);
+                    refundedOn, amountWon, expectedVersion, description,
+                    Boolean.TRUE.equals(excludedFromStatistics));
         }
     }
 
@@ -94,11 +96,13 @@ public class CardPurchaseManagementController {
             @Positive long amountWon,
             @Min(0) long expectedVersion,
             @Size(max = 500) String description,
-            @NotBlank @Size(max = 64) String previewToken
+            @NotBlank @Size(max = 64) String previewToken,
+            Boolean excludedFromStatistics
     ) {
         CardPurchaseManagementService.RefundApplyCommand toCommand() {
             return new CardPurchaseManagementService.RefundApplyCommand(
-                    refundedOn, amountWon, expectedVersion, description, previewToken);
+                    refundedOn, amountWon, expectedVersion, description, previewToken,
+                    Boolean.TRUE.equals(excludedFromStatistics));
         }
     }
 
@@ -110,12 +114,14 @@ public class CardPurchaseManagementController {
             @NotNull UUID performedByMemberId,
             @Size(max = 500) String description,
             @Min(1) int installmentCount,
-            @Min(0) long expectedVersion
+            @Min(0) long expectedVersion,
+            Boolean excludedFromStatistics
     ) {
         CardPurchaseManagementService.CorrectionCommand toCommand() {
             return new CardPurchaseManagementService.CorrectionCommand(
                     occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
-                    description, installmentCount, expectedVersion);
+                    description, installmentCount, expectedVersion,
+                    Boolean.TRUE.equals(excludedFromStatistics));
         }
     }
 
@@ -128,12 +134,14 @@ public class CardPurchaseManagementController {
             @Size(max = 500) String description,
             @Min(1) int installmentCount,
             @Min(0) long expectedVersion,
-            @NotBlank @Size(max = 64) String previewToken
+            @NotBlank @Size(max = 64) String previewToken,
+            Boolean excludedFromStatistics
     ) {
         CardPurchaseManagementService.CorrectionApplyCommand toCommand() {
             return new CardPurchaseManagementService.CorrectionApplyCommand(
                     occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
-                    description, installmentCount, expectedVersion, previewToken);
+                    description, installmentCount, expectedVersion, previewToken,
+                    Boolean.TRUE.equals(excludedFromStatistics));
         }
     }
 }

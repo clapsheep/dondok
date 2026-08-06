@@ -29,8 +29,9 @@ async function contrastRatio(locator: Locator) {
 
 test('라이트·다크 모드의 보조 버튼은 hover 중에도 읽을 수 있다', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' })
-  await page.addInitScript(() => window.localStorage.setItem('dondok-theme', 'light'))
   await page.goto('/sign-up')
+  await page.evaluate(() => window.localStorage.setItem('dondok-theme', 'light'))
+  await page.reload()
   await page.getByLabel('아이디').fill('contrast_test')
 
   const duplicateButton = page.getByRole('button', { name: '중복 확인' })
@@ -38,7 +39,10 @@ test('라이트·다크 모드의 보조 버튼은 hover 중에도 읽을 수 �
   await page.waitForTimeout(200)
   expect(await contrastRatio(duplicateButton)).toBeGreaterThanOrEqual(4.5)
 
-  await page.getByRole('button', { name: '밝은 테마 사용 중. 어두운 테마로 변경' }).click()
+  await expect(page.locator('header').getByRole('button', { name: /테마/ })).toHaveCount(0)
+  await page.evaluate(() => window.localStorage.setItem('dondok-theme', 'dark'))
+  await page.reload()
+  await page.getByLabel('아이디').fill('contrast_test')
   await duplicateButton.hover()
   await page.waitForTimeout(200)
   expect(await contrastRatio(duplicateButton)).toBeGreaterThanOrEqual(4.5)
@@ -84,20 +88,33 @@ test('다크 모드의 거래 입력과 선택·navigation 상태는 배경 위�
   }
 })
 
-test('테마 선택은 모바일과 데스크톱 앱 셀에서 같은 상태를 본다', async ({ page, request }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-chrome', '하나의 브라우저에서 breakpoint를 넘는 회귀만 검증합니다.')
+test('테마 선택은 설정에만 있고 기기 설정·라이트·다크 상태를 유지한다', async ({ page, request }) => {
   await page.addInitScript(() => window.localStorage.setItem('dondok-theme', 'light'))
   await registerAndLogin(page, request, '테마 동기화 사용자')
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await page.setViewportSize({ width: 390, height: 844 })
 
-  await page.getByRole('button', { name: '밝은 테마 사용 중. 어두운 테마로 변경' }).click()
+  await expect(page.locator('header').getByRole('button', { name: /테마/ })).toHaveCount(0)
+  await page.getByRole('link', { name: '설정', exact: true }).click()
+  const themeGroup = page.getByRole('radiogroup', { name: '화면 모드' })
+  await expect(themeGroup.getByRole('radio', { name: /라이트/ })).toBeChecked()
+  await themeGroup.locator('label').filter({ hasText: '다크' }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await expect(page.getByRole('button', { name: '어두운 테마 사용 중. 시스템 테마로 변경' })).toBeVisible()
+  await expect(themeGroup.getByRole('radio', { name: /다크/ })).toBeChecked()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('dondok-theme'))).toBe('dark')
 
   await page.setViewportSize({ width: 1024, height: 768 })
-  await expect(page.getByRole('complementary', { name: '주요 메뉴' }).getByRole('button', { name: '어두운 테마 사용 중. 시스템 테마로 변경' })).toBeVisible()
+  await expect(themeGroup.getByRole('radio', { name: /다크/ })).toBeChecked()
+  await expect(page.getByRole('complementary', { name: '주요 메뉴' }).getByRole('button', { name: /테마/ })).toHaveCount(0)
   await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
+
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await themeGroup.locator('label').filter({ hasText: '기기 설정' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('dondok-theme'))).toBeNull()
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'light')
 })
 
 async function contrastRatioAgainstSurface(locator: Locator) {

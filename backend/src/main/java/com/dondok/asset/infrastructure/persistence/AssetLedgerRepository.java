@@ -52,17 +52,9 @@ public class AssetLedgerRepository {
             parameters[index + 1] = assetIds.get(index);
         }
         jdbcTemplate.query("""
-                select transaction.source_id as asset_id,
-                       coalesce(sum(posting.delta_won), 0) as opening_balance_won
-                  from ledger_transaction transaction
-                  join transaction_posting posting
-                    on posting.book_id = transaction.book_id
-                   and posting.transaction_id = transaction.id
-                 where transaction.book_id = ?
-                   and transaction.source_type = 'OPENING_BALANCE'
-                   and transaction.deleted_at is null
-                   and transaction.source_id in (%s)
-                 group by transaction.source_id
+                select id as asset_id, balance_anchor_won as opening_balance_won
+                  from asset
+                 where book_id = ? and id in (%s)
                 """.formatted(placeholders),
                 (RowCallbackHandler) rs -> balances.put(
                         rs.getObject("asset_id", UUID.class), rs.getLong("opening_balance_won")),
@@ -72,15 +64,9 @@ public class AssetLedgerRepository {
 
     public long openingBalance(UUID bookId, UUID assetId) {
         Long balance = jdbcTemplate.queryForObject("""
-                select coalesce(sum(posting.delta_won), 0)
-                  from ledger_transaction transaction
-                  join transaction_posting posting
-                    on posting.book_id = transaction.book_id
-                   and posting.transaction_id = transaction.id
-                 where transaction.book_id = ?
-                   and transaction.source_type = 'OPENING_BALANCE'
-                   and transaction.source_id = ?
-                   and transaction.deleted_at is null
+                select balance_anchor_won
+                  from asset
+                 where book_id = ? and id = ?
                 """, Long.class, bookId, assetId);
         return balance == null ? 0 : balance;
     }
@@ -319,6 +305,28 @@ public class AssetLedgerRepository {
                 """, Timestamp.from(now), bookId, cardAssetId);
     }
 
+    public void synchronizeCardChargeAnchors(
+            UUID bookId, UUID cardAssetId, LocalDate openedOn, Instant now
+    ) {
+        List<UUID> statementIds = jdbcTemplate.query("""
+                select distinct charge.statement_id
+                  from card_charge charge
+                 where charge.book_id = ? and charge.card_asset_id = ?
+                   and charge.charge_origin = 'PURCHASE'
+                 order by charge.statement_id
+                """, (rs, rowNum) -> rs.getObject(1, UUID.class), bookId, cardAssetId);
+        jdbcTemplate.update("""
+                update card_charge charge
+                   set absorbed_by_balance_anchor = transaction.occurred_on < ?
+                  from ledger_transaction transaction
+                 where charge.book_id = ? and charge.card_asset_id = ?
+                   and charge.charge_origin = 'PURCHASE'
+                   and transaction.book_id = charge.book_id
+                   and transaction.id = charge.source_transaction_id
+                """, Date.valueOf(openedOn), bookId, cardAssetId);
+        statementIds.forEach(statementId -> recalculateBilledAmount(statementId, now));
+    }
+
     public int reassignTransactionPerformers(
             UUID bookId, UUID assetId, UUID newOwnerMemberId, UUID updaterMemberId, Instant now
     ) {
@@ -381,6 +389,7 @@ public class AssetLedgerRepository {
                            on transaction.book_id = charge.book_id
                           and transaction.id = charge.source_transaction_id
                         where charge.statement_id = statement.id
+                          and not charge.absorbed_by_balance_anchor
                           and transaction.deleted_at is null
                    ), 0), updated_at = ?, version = version + 1
                  where statement.id = ?

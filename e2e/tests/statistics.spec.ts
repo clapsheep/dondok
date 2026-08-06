@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from '@playwright/test'
-import { registerAndLogin } from './support/auth'
+import { logoutFromLedger, registerAndLogin } from './support/auth'
 
 type Evidence = {
   runId: string
@@ -327,8 +327,11 @@ test('분류 원형 차트는 수입·지출 의미색과 분리된 여섯 색�
   expect(new Set(lightColors).size, '밝은 테마의 원형 차트 조각 색은 서로 구별되어야 합니다').toBe(6)
   expect(lightColors.every((color) => !lightDirectionColors.includes(color)), '분류색은 수입·지출 의미색과 분리되어야 합니다').toBe(true)
 
-  await page.getByRole('button', { name: '밝은 테마 사용 중. 어두운 테마로 변경' }).click()
+  await page.getByRole('link', { name: '설정', exact: true }).click()
+  await page.getByRole('radiogroup', { name: '화면 모드' }).locator('label').filter({ hasText: '다크' }).click()
+  await page.goto(`/statistics?month=${month}&direction=income`)
   await expect(page.locator('html')).toHaveClass(/dark/)
+  await expect(slices).toHaveCount(6)
   const darkColors = await resolvedCategoryColors(slices)
   expect(new Set(darkColors).size, '어두운 테마의 원형 차트 조각 색은 서로 구별되어야 합니다').toBe(6)
   expect(darkColors).not.toEqual(lightColors)
@@ -342,12 +345,12 @@ async function createSharedStatisticsFixture(page: Page, request: APIRequestCont
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
   const invitationCode = await issueInvitation(page)
 
-  await page.getByRole('button', { name: '로그아웃' }).click()
+  await logoutFromLedger(page)
   await registerAndLogin(page, request, otherMemberName)
   await redeemInvitation(page, invitationCode)
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '로그아웃' }).click()
+  await logoutFromLedger(page)
   await login(page, owner)
 
   const seeded = await seedStatisticsLedger(page)
@@ -493,10 +496,12 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
 
     await createTransaction({ type: 'INCOME', occurredOn: dates.incomeOwner, amountWon: 500_000, categoryId: incomeOther.categoryId, assetId: account.assetId, performedByMemberId: owner.memberId, description: '통계 수입 A' }, true)
     await createTransaction({ type: 'INCOME', occurredOn: dates.incomeJoint, amountWon: 100_000, categoryId: incomeOther.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 수입 B 공동' }, true)
+    await createTransaction({ type: 'INCOME', occurredOn: dates.incomeJoint, amountWon: 888_888, categoryId: incomeOther.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '사용자 선택 통계 제외 수입', excludedFromStatistics: true }, false)
     await createTransaction({ type: 'EXPENSE', occurredOn: dates.expenseOwner, amountWon: 10_000, categoryId: food.categoryId, assetId: account.assetId, performedByMemberId: owner.memberId, description: '통계 지출 A 식비' }, true)
     await createTransaction({ type: 'EXPENSE', occurredOn: dates.expenseOther, amountWon: 20_000, categoryId: food.categoryId, assetId: account.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 개인 식비' }, true)
     await createTransaction({ type: 'EXPENSE', occurredOn: dates.expenseJoint, amountWon: 30_000, categoryId: food.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 공동 식비' }, true)
     await createTransaction({ type: 'EXPENSE', occurredOn: dates.transportJoint, amountWon: 40_000, categoryId: transport.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 공동 교통' }, true)
+    await createTransaction({ type: 'EXPENSE', occurredOn: dates.transportJoint, amountWon: 999_999, categoryId: transport.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '사용자 선택 통계 제외 지출', excludedFromStatistics: true }, false)
     const currentCardPurchase = await createTransaction({ type: 'EXPENSE', occurredOn: dates.currentCardPurchase, amountWon: 120_000, categoryId: food.categoryId, assetId: card.assetId, performedByMemberId: other.memberId, description: '통계 포함 카드 구매', installmentCount: 1 }, true)
     const previousCardPurchase = await createTransaction({ type: 'EXPENSE', occurredOn: dates.previousCardPurchase, amountWon: 400_000, categoryId: food.categoryId, assetId: card.assetId, performedByMemberId: other.memberId, description: '지난달 카드 구매', installmentCount: 1 }, true)
     await createTransaction({ type: 'TRANSFER', occurredOn: dates.transfer, amountWon: 50_000, sourceAssetId: account.assetId, destinationAssetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 제외 일반 이체' }, false)
@@ -607,7 +612,9 @@ async function expectCoreNavigation(page: Page) {
   for (const name of ['홈', '기록', '자산', '통계']) {
     await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible()
   }
-  await expect(navigation.getByRole('link', { name: '설정', exact: true })).toHaveCount(0)
+  const settings = navigation.getByRole('link', { name: '설정', exact: true })
+  if ((page.viewportSize()?.width ?? 0) < 768) await expect(settings).toBeVisible()
+  else await expect(settings).toHaveCount(0)
 }
 
 function primaryNavigation(page: Page) {

@@ -82,6 +82,17 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok_v17_migration -f database/tests/V17__invitation_code_fixture.sql
           psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok_v17_migration -f backend/src/main/resources/db/migration/V17__split_invitation_link_and_direct_code.sql
           psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok_v17_migration -f database/tests/V17__invitation_code_smoke.sql
+      - name: Balance anchor migration regression
+        run: |
+          createdb -h localhost -U dondok dondok_v18_migration
+          for version in $(seq 1 17); do
+            migration=$(find backend/src/main/resources/db/migration -maxdepth 1 -name "V${version}__*.sql" -print -quit)
+            test -n "$migration"
+            psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok_v18_migration -f "$migration"
+          done
+          psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok_v18_migration -f database/tests/V18__balance_anchor_fixture.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok_v18_migration -f backend/src/main/resources/db/migration/V18__treat_opening_balance_as_dated_anchor.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok_v18_migration -f database/tests/V18__balance_anchor_smoke.sql
       - name: Database constraint smoke tests
         run: |
           psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok -f database/tests/V1__schema_smoke.sql

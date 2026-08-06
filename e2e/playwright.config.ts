@@ -14,9 +14,10 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
-    { name: 'mobile-chrome', use: { ...devices['Pixel 7'] } },
-    { name: 'ipad-portrait', use: { ...devices['iPad Pro 11'] } },
-    { name: 'desktop-chrome', use: { ...devices['Desktop Chrome'] } },
+    { name: 'mobile-chrome', testIgnore: /.*\.webkit\.spec\.ts/, use: { ...devices['Pixel 7'] } },
+    { name: 'ipad-portrait', testIgnore: /.*\.webkit\.spec\.ts/, use: { ...devices['iPad Pro 11'] } },
+    { name: 'desktop-chrome', testIgnore: /.*\.webkit\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    { name: 'mobile-safari', testMatch: /.*\.webkit\.spec\.ts/, use: { ...devices['iPhone 13'], locale: 'ko-KR', timezoneId: 'Asia/Seoul' } },
   ],
   outputDir: 'test-results',
 })

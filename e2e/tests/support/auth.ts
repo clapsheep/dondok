@@ -48,3 +48,10 @@ export async function registerAndLogin(page: Page, request: APIRequestContext, d
 
   return { loginId, email, password }
 }
+
+export async function logoutFromLedger(page: Page) {
+  await page.getByRole('link', { name: '설정', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '가계부 설정' })).toBeVisible()
+  await page.getByRole('button', { name: '로그아웃' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+}

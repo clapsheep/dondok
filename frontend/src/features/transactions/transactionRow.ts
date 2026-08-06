@@ -24,8 +24,9 @@ export function transactionRowTone(transaction: Transaction) {
 
 export function transactionRowAccessibleName(transaction: Transaction, label: string, amount: string) {
   const type = transactionTypeLabel(transaction)
-  if (transaction.managementType === 'GENERAL') return `${label} 거래 수정, ${type} ${amount}`
-  return `${label}, ${type} ${amount}, 원 카드 구매 상세`
+  const statistics = transaction.excludedFromStatistics ? ', 집계 제외' : ''
+  if (transaction.managementType === 'GENERAL') return `${label} 거래 수정, ${type} ${amount}${statistics}`
+  return `${label}, ${type} ${amount}${statistics}, 원 카드 구매 상세`
 }
 
 export function transactionTypeLabel(transaction: Transaction) {

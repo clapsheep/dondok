@@ -61,7 +61,7 @@ test('자산 현황 deep-link 직접 진입과 새로고침이 SPA 화면을 유
   await expect(page.getByRole('region', { name: '자산 요약' })).toBeVisible()
 })
 
-test('자산 현황은 자금 signed 금액과 카드의 이번 달·다음 달 두 열 및 분명한 그룹 시작을 반응형으로 유지한다', async ({ page, request }) => {
+test('자산 현황은 자금 signed 금액과 카드의 이번 달·다음 달 두 열 및 분명한 그룹 시작을 반응형으로 유지한다', async ({ page, request }, testInfo) => {
   const displayName = `자산 현황 사용자 ${test.info().workerIndex}`
   await registerAndLogin(page, request, displayName)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
@@ -117,6 +117,12 @@ test('자산 현황은 자금 signed 금액과 카드의 이번 달·다음 달 
     await expect.poll(() => new URL(page.url()).searchParams.get('owner')).toBe('all')
     await expectOverviewMeaning(page, currentMember.displayName, otherMember.displayName, viewport)
     await expectOwnerSubmenu(page, currentMember.displayName, otherMember.displayName, viewport)
+    if (viewport.width === 390 || viewport.width === 1280) {
+      await testInfo.attach(`asset-overview-${viewport.width}px`, {
+        body: await page.screenshot({ fullPage: true }),
+        contentType: 'image/png',
+      })
+    }
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth),
       `${viewport.label} ${viewport.width}px에서 페이지 가로 overflow가 없어야 합니다`,
@@ -305,7 +311,8 @@ async function expectOwnerProjection(page: Page, projection: {
     const identity = link.locator('[data-asset-identity]')
     if (visibleType) {
       await expect(link.locator('[data-asset-type]')).toHaveText(visibleType)
-      await expect(identity).toHaveText(`${name} · ${visibleType}`)
+      await expect(identity.locator('[data-asset-name]')).toHaveText(name)
+      await expect(identity.locator('[data-asset-metadata]')).toContainText(visibleType)
     } else {
       await expect(link.locator('[data-asset-metadata]'), `${name} 기본 이름은 filtered 보기에서 metadata가 없어야 합니다`).toHaveCount(0)
       await expect(identity).toHaveText(name)
@@ -348,10 +355,11 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
   await expectSummaryItem(summary, '다음 달 카드 결제 예정 금액', '270,000원')
   await expectSummaryHierarchy(summary, viewportLabel)
 
-  const funds = page.getByRole('region', { name: /^자금·/ })
+  const funds = page.getByRole('region', { name: /^자금/ })
   const cards = page.getByRole('region', { name: '카드' })
   const investments = page.getByRole('region', { name: '투자' })
   const loans = page.getByRole('region', { name: '대출' })
+  await expectSummaryAndListPlacement(summary, funds, viewport)
   if (viewport.width < 768) {
     await page.evaluate(() => window.scrollTo(0, 0))
     const firstGroupTop = await funds.getByRole('heading').evaluate((element) => element.getBoundingClientRect().top)
@@ -420,21 +428,45 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
   }, viewport)
 }
 
+async function expectSummaryAndListPlacement(summary: Locator, firstGroup: Locator, viewport: typeof RESPONSIVE_VIEWPORTS[number]) {
+  const [summaryBox, groupBox] = await Promise.all([summary.boundingBox(), firstGroup.boundingBox()])
+  if (!summaryBox || !groupBox) throw new Error('자산 요약과 첫 그룹의 geometry를 읽지 못했습니다.')
+
+  if (viewport.width >= 1280) {
+    expect(summaryBox.x, `${viewport.label} 요약은 목록 오른쪽 rail에 있어야 합니다`).toBeGreaterThanOrEqual(groupBox.x + groupBox.width)
+    const position = await summary.locator('..').evaluate((element) => getComputedStyle(element).position)
+    expect(position, `${viewport.label} 요약 rail은 긴 목록에서도 맥락을 유지해야 합니다`).toBe('sticky')
+    await summary.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    const stickyBox = await summary.boundingBox()
+    expect(stickyBox?.y ?? 0, `${viewport.label} 요약 rail은 스크롤 뒤에도 viewport 안에 남아야 합니다`).toBeGreaterThanOrEqual(31)
+    expect(stickyBox?.y ?? Number.POSITIVE_INFINITY, `${viewport.label} 요약 rail은 지정된 top 위치에 고정되어야 합니다`).toBeLessThanOrEqual(34)
+    await summary.evaluate(() => window.scrollTo(0, 0))
+    return
+  }
+
+  expect(summaryBox.y + summaryBox.height, `${viewport.label} 요약은 자산 목록보다 먼저 읽혀야 합니다`).toBeLessThanOrEqual(groupBox.y + 1)
+  if (viewport.width < 480) {
+    expect(summaryBox.height, `${viewport.label} 요약이 목록을 지나치게 밀어내면 안 됩니다`).toBeLessThanOrEqual(260)
+  }
+}
+
 async function expectSummaryItem(summary: Locator, label: string, value: string) {
-  const item = summary.locator('dl').filter({ hasText: label })
-  await expect(item.getByRole('term').filter({ hasText: label })).toBeVisible()
+  const term = summary.getByRole('term').filter({ hasText: label })
+  await expect(term).toBeVisible()
+  const item = term.locator('..')
   await expect(item.getByText(value, { exact: true })).toBeVisible()
 }
 
 async function expectSummaryHierarchy(summary: Locator, viewportLabel: string) {
   await expect(summary.locator('dl')).toHaveCount(5)
-  await expect(summary.locator('dt')).toHaveText([
+  await expect(summary.locator('dt:not(:has(.sr-only))')).toHaveText([
     '순자산 · 보관 자산 포함',
-    '총부채',
     '총자산',
-    '이번 달 카드 결제 금액',
-    '다음 달 카드 결제 예정 금액',
+    '총부채',
   ])
+  await expect(summary.getByRole('term').filter({ hasText: '이번 달 카드 결제 금액' })).toBeVisible()
+  await expect(summary.getByRole('term').filter({ hasText: '다음 달 카드 결제 예정 금액' })).toBeVisible()
+  await expect(summary.locator('dt > [aria-hidden="true"]')).toHaveText(['이번 달', '다음 달'])
 
   const values = Object.fromEntries(await Promise.all(['순자산', '총자산', '총부채'].map(async (label) => {
     const fontSize = await summary.locator('dl').filter({ hasText: label }).locator('dd').evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
@@ -504,16 +536,13 @@ async function expectSingleColumnGroups(groups: Locator[], viewport: typeof RESP
       listBorderBottomColor: listStyle.borderBottomColor,
     }
   })))
-  const expectedGap = viewport.width >= 1280 ? 36 : viewport.width >= 768 ? 32 : 20
-  const expectedHeaderOffset = viewport.width >= 768 ? 13 : 9
+  const expectedGap = viewport.width >= 768 ? 32 : 24
   for (const rectangle of rectangles) {
     expect(rectangle.borderTopWidth, `${viewport.label} 그룹 시작선은 1px이어야 합니다`).toBe(1)
     expect(rectangle.borderTopStyle, `${viewport.label} 그룹 시작선은 solid여야 합니다`).toBe('solid')
     expect(rectangle.borderTopColor, `${viewport.label} 그룹 시작선은 투명하면 안 됩니다`).not.toBe('rgba(0, 0, 0, 0)')
     expect(rectangle.borderTopColor, `${viewport.label} 그룹 시작선은 투명하면 안 됩니다`).not.toBe('transparent')
-    expect(rectangle.headerOffset, `${viewport.label} 그룹 시작선과 header 사이 offset`).toBeGreaterThanOrEqual(8)
-    expect(rectangle.headerOffset, `${viewport.label} 그룹 시작선과 header 사이 offset`).toBeLessThanOrEqual(13)
-    expect(Math.abs(rectangle.headerOffset - expectedHeaderOffset), `${viewport.label} 그룹 top padding`).toBeLessThanOrEqual(1)
+    expect(Math.abs(rectangle.headerOffset), `${viewport.label} 그룹 시작선은 header 위에서 바로 시작해야 합니다`).toBeLessThanOrEqual(1)
     expect(rectangle.backgroundColor, `${viewport.label} 그룹에 카드형 배경을 만들면 안 됩니다`).toBe('rgba(0, 0, 0, 0)')
     expect(rectangle.borderLeftWidth, `${viewport.label} 그룹에 왼쪽 테두리를 만들면 안 됩니다`).toBe(0)
     expect(rectangle.borderRightWidth, `${viewport.label} 그룹에 오른쪽 테두리를 만들면 안 됩니다`).toBe(0)
@@ -530,7 +559,7 @@ async function expectSingleColumnGroups(groups: Locator[], viewport: typeof RESP
     ).toBeGreaterThanOrEqual(rectangles[index - 1].bottom - 1)
     expect(
       Math.abs(rectangles[index].top - rectangles[index - 1].bottom - expectedGap),
-      `${viewport.label}에서 서로 다른 자산 분류 사이에는 정확히 ${expectedGap}px 여백이 있어야 합니다`,
+      `${viewport.label}에서 서로 다른 자산 분류 사이에는 ${expectedGap}px 여백이 있어야 합니다`,
     ).toBeLessThanOrEqual(1)
     expect(
       Math.abs(rectangles[index].width - rectangles[0].width),
@@ -571,7 +600,7 @@ async function expectCardPaymentColumns(scope: Locator, viewport: typeof RESPONS
     const railBox = element.getBoundingClientRect()
     return { infoTop: infoBox.top, infoBottom: infoBox.bottom, railTop: railBox.top, railBottom: railBox.bottom }
   })
-  if (viewport.width < 768) {
+  if (viewport.width < 480) {
     expect(placement.railTop, `${viewport.label} 카드 결제 두 열은 자산 정보 아래에 있어야 합니다`).toBeGreaterThanOrEqual(placement.infoBottom - 1)
   } else {
     expect(
@@ -744,15 +773,12 @@ async function expectAssetRow(
       expect(identityGeometry.metadataTextOverflow).not.toBe('ellipsis')
     }
   } else {
-    expect(identityGeometry.identityWhiteSpace, `${viewport.label} ${name} identity는 한 줄이어야 합니다`).toBe('nowrap')
-    expect(identityGeometry.identityHeight, `${viewport.label} ${name} identity가 두 줄 높이를 차지하면 안 됩니다`).toBeLessThanOrEqual(24)
-    expect(identityGeometry.linesOverlap, `${viewport.label} ${name} metadata는 자산명과 같은 줄이어야 합니다`).toBe(true)
-    expect(identityGeometry.metadataGap, `${viewport.label} ${name} metadata는 별도 열처럼 밀리지 않고 자산명 바로 뒤에 와야 합니다`).toBeLessThanOrEqual(1)
+    expect(identityGeometry.identityWhiteSpace, `${viewport.label} ${name} identity는 이름과 부가정보의 읽기 순서를 유지해야 합니다`).toBe('normal')
+    expect(identityGeometry.linesOverlap, `${viewport.label} ${name} metadata는 자산명과 겹치면 안 됩니다`).toBe(false)
     expect(identityGeometry.nameWhiteSpace).toBe('nowrap')
     expect(identityGeometry.nameOverflow).toBe('hidden')
     expect(identityGeometry.nameTextOverflow).toBe('ellipsis')
     if (identity.visibleType || identity.visibleOwner) {
-      expect(identityGeometry.metadataWidth, `${viewport.label} ${name} metadata는 자산명보다 우선하면 안 됩니다`).toBeLessThanOrEqual(identityGeometry.identityWidth * 0.45 + 1)
       expect(identityGeometry.metadataWhiteSpace).toBe('nowrap')
       expect(identityGeometry.metadataOverflow).toBe('hidden')
       expect(identityGeometry.metadataTextOverflow).toBe('ellipsis')
@@ -781,7 +807,7 @@ async function expectAssetRow(
 }
 
 async function expectLabeledAmount(scope: Locator, label: string, value: string): Promise<Locator> {
-  const labelNode = scope.getByText(label, { exact: true })
+  const labelNode = scope.getByRole('term').filter({ hasText: label })
   await expect(labelNode, `${label} label이 보여야 합니다`).toHaveCount(1)
   const line = labelNode.locator('..')
   const amount = line.getByText(value, { exact: true })
@@ -790,8 +816,11 @@ async function expectLabeledAmount(scope: Locator, label: string, value: string)
 }
 
 async function expectDomOrder(scope: Locator, firstText: string, secondText: string) {
-  const ordered = scope.getByText(firstText, { exact: true }).or(scope.getByText(secondText, { exact: true }))
-  await expect(ordered).toHaveText([firstText, secondText])
+  const terms = scope.getByRole('term')
+  const labels = await terms.evaluateAll((elements) => elements.map((element) => element.querySelector('.sr-only')?.textContent?.trim() ?? element.textContent?.trim() ?? ''))
+  expect(labels.indexOf(firstText), `${firstText} label이 있어야 합니다`).toBeGreaterThanOrEqual(0)
+  expect(labels.indexOf(secondText), `${secondText} label이 있어야 합니다`).toBeGreaterThanOrEqual(0)
+  expect(labels.indexOf(firstText), `${firstText}은 ${secondText}보다 먼저 읽혀야 합니다`).toBeLessThan(labels.indexOf(secondText))
 }
 
 async function expectMoneyRailLayout(lines: RailLines, viewport: typeof RESPONSIVE_VIEWPORTS[number]) {
@@ -803,6 +832,7 @@ async function expectMoneyRailLayout(lines: RailLines, viewport: typeof RESPONSI
         whiteSpace: style.whiteSpace,
         scrollWidth: element.scrollWidth,
         clientWidth: element.clientWidth,
+        textAlign: style.textAlign,
       }
     })
     const fits = metrics.whiteSpace === 'nowrap' && metrics.scrollWidth <= metrics.clientWidth + 1
@@ -810,22 +840,8 @@ async function expectMoneyRailLayout(lines: RailLines, viewport: typeof RESPONSI
       fits,
       `${viewport.width}px에서 ${metrics.text} money rail 금액이 줄바꿈되거나 넘치면 안 됩니다 (scroll ${metrics.scrollWidth}px / client ${metrics.clientWidth}px)`,
     ).toBe(true)
+    expect(metrics.textAlign, `${viewport.width}px에서 ${metrics.text} 금액은 우측 정렬되어야 합니다`).toBe('right')
   }
-  if (viewport.width < 390) return
-
-  const debtBoxes = await Promise.all(lines.debts.map((line) => line.boundingBox()))
-  const assetBoxes = await Promise.all(lines.assets.map((line) => line.boundingBox()))
-  const zeroBoxes = await Promise.all(lines.zeros.map((line) => line.boundingBox()))
-  if (debtBoxes.some((box) => !box) || assetBoxes.some((box) => !box) || zeroBoxes.some((box) => !box)) throw new Error('money rail geometry를 읽지 못했습니다.')
-  const debts = debtBoxes as NonNullable<typeof debtBoxes[number]>[]
-  const assets = assetBoxes as NonNullable<typeof assetBoxes[number]>[]
-  const zeros = zeroBoxes as NonNullable<typeof zeroBoxes[number]>[]
-  const debtRight = debts[0].x + debts[0].width
-  const assetRight = assets[0].x + assets[0].width
-  for (const box of debts) expect(Math.abs(box.x + box.width - debtRight), `${viewport.width}px 부채 rail right edge`).toBeLessThanOrEqual(2)
-  for (const box of assets) expect(Math.abs(box.x + box.width - assetRight), `${viewport.width}px 자산 rail right edge`).toBeLessThanOrEqual(2)
-  expect(debtRight, `${viewport.width}px에서 부채 rail은 자산 rail보다 안쪽이어야 합니다`).toBeLessThan(assetRight)
-  for (const box of zeros) expect(Math.abs(box.x + box.width - assetRight), `${viewport.width}px 0원은 두 rail을 span해야 합니다`).toBeLessThanOrEqual(2)
 }
 
 function escapeRegExp(value: string) {

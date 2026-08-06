@@ -85,6 +85,7 @@ public class DefaultAssetBootstrapService {
                 name,
                 openedOn,
                 null,
+                0,
                 assetType.getSortOrder(),
                 creatorMemberId,
                 now);

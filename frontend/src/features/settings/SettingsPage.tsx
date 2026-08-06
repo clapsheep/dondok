@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRight, Check, Clipboard, LoaderCircle, Plus, Tags, Trash2 } from 'lucide-react'
+import { ArrowRight, Check, Clipboard, LoaderCircle, Plus, Tags, Trash2 } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
+import { LogoutButton } from '../../components/LogoutButton'
+import { ThemeSettings } from '../../components/ThemeSettings'
 import { Button } from '../../components/ui/Button'
 import { MemberList } from '../membership/MemberList'
 import {
@@ -78,12 +80,13 @@ export function SettingsPage({ ledger }: { ledger: LedgerBook }) {
   return (
     <AppShell ledgerNavigation>
       <section className="py-8 md:py-12">
-        <Button asChild variant="ghost"><Link to="/"><ArrowLeft size={17} />가계부로 돌아가기</Link></Button>
-        <div className="mt-5 max-w-2xl">
-          <p className="text-sm font-semibold text-brass-500">공동 관리</p>
+        <div className="max-w-2xl">
+          <p className="text-sm font-semibold text-brass-500">설정</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-[-.035em] md:text-4xl">가계부 설정</h1>
-          <p className="mt-3 leading-7 text-[var(--muted)]">구성원을 확인하고 함께 기록할 사람을 추가로 초대할 수 있어요.</p>
+          <p className="mt-3 leading-7 text-[var(--muted)]">내 화면을 조정하고, 구성원을 확인하거나 함께 기록할 사람을 초대할 수 있어요.</p>
         </div>
+
+        <ThemeSettings />
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,.9fr)_minmax(24rem,1.1fr)] lg:divide-x lg:divide-[var(--line)]">
           <MemberList ledger={ledger} />
@@ -126,6 +129,12 @@ export function SettingsPage({ ledger }: { ledger: LedgerBook }) {
             <span className="min-w-0"><span id="category-settings-title" className="block font-semibold group-hover:text-forest-700 dark:group-hover:text-forest-100">분류 설정</span><span className="mt-1 block text-sm text-[var(--muted)]">공동으로 쓰는 수입·지출 분류를 추가하거나 이름을 바꾸고 정리해요.</span></span>
             <ArrowRight className="text-[var(--muted)]" size={19} aria-hidden="true" />
           </Link>
+        </section>
+
+        <section className="mt-10 max-w-4xl border-t border-[var(--line)] pt-7" aria-labelledby="session-settings-title">
+          <h2 id="session-settings-title" className="text-xl font-semibold">로그인</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">이 기기에서 돈독 사용을 마치고 로그인 화면으로 돌아갑니다.</p>
+          <LogoutButton className="mt-4" variant="secondary" />
         </section>
 
         <section className="mt-12 max-w-4xl border-t border-[var(--line)] pt-7" aria-labelledby="destructive-settings-title">

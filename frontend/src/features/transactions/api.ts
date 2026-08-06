@@ -31,6 +31,7 @@ export type Transaction = {
   createdBy: { memberId: string; displayName: string } | null
   asset: { assetId: string; name: string } | null
   description: string | null
+  excludedFromStatistics: boolean
   postings: { assetId: string; assetName: string; deltaWon: number }[]
   installmentCount: number | null
   version: number
@@ -48,13 +49,13 @@ export type CommonTransactionInput = {
 }
 
 export type CreateTransactionInput =
-  | CommonTransactionInput & { type: 'INCOME'; categoryId: string; assetId: string }
-  | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string; installmentCount?: number }
+  | CommonTransactionInput & { type: 'INCOME'; categoryId: string; assetId: string; excludedFromStatistics: boolean }
+  | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string; installmentCount?: number; excludedFromStatistics: boolean }
   | CommonTransactionInput & { type: 'TRANSFER'; sourceAssetId: string; destinationAssetId: string }
 
 export type UpdateTransactionInput = (
-  | CommonTransactionInput & { type: 'INCOME'; categoryId: string; assetId: string }
-  | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string }
+  | CommonTransactionInput & { type: 'INCOME'; categoryId: string; assetId: string; excludedFromStatistics: boolean }
+  | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string; excludedFromStatistics: boolean }
   | CommonTransactionInput & { type: 'TRANSFER'; sourceAssetId: string; destinationAssetId: string }
 ) & { expectedVersion: number }
 
@@ -113,6 +114,7 @@ export type CardPurchaseRefund = {
   refundTransactionId: string
   refundedOn: string
   amountWon: number
+  excludedFromStatistics: boolean
   unpaidCardReductionWon: number
   accountReturns: CardPurchaseAccountReturn[]
 }
@@ -135,6 +137,7 @@ export type CardPurchaseCorrectionInput = {
   description?: string
   installmentCount: number
   expectedVersion: number
+  excludedFromStatistics: boolean
 }
 
 export type CardPurchaseCorrectionPreview = {
@@ -149,6 +152,7 @@ export type CardPurchaseRefundInput = {
   amountWon: number
   expectedVersion: number
   description?: string
+  excludedFromStatistics: boolean
 }
 
 export type CardPurchaseRefundPreview = {

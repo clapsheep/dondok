@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { DondokLogo } from '../../components/DondokLogo'
-import { ThemeToggle } from '../../components/ThemeToggle'
 
 type Props = { eyebrow?: string; title: string; description: string; children: ReactNode }
 
@@ -9,9 +8,8 @@ export function AuthLayout({ eyebrow, title, description, children }: Props) {
   return (
     <main className="auth-shell min-h-dvh bg-cream-100 p-3 text-ink-900 dark:bg-[#101714] dark:text-white xs:p-5 md:p-8">
       <div className="mx-auto flex min-h-[calc(100dvh-1.5rem)] max-w-6xl flex-col xs:min-h-[calc(100dvh-2.5rem)] md:min-h-[calc(100dvh-4rem)]">
-        <header className="flex items-center justify-between px-1 py-2 md:px-3">
+        <header className="flex items-center px-1 py-2 md:px-3">
           <Link to="/" aria-label="돈독 홈"><DondokLogo className="h-10" /></Link>
-          <ThemeToggle />
         </header>
 
         <section className="auth-split-layout my-auto grid border-y border-[var(--line)]">

@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test'
-import { registerAndLogin } from './support/auth'
+import { expect, test, type Page } from '@playwright/test'
+import { logoutFromLedger, registerAndLogin } from './support/auth'
 
-test('가계부 생성자가 초대하고 다른 사용자가 참여하면 양쪽에서 구성원을 확인한다', async ({ page, request }) => {
+test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 관리하고 이체한다', async ({ page, request }) => {
   const ownerName = `초대한 사람 ${test.info().workerIndex}`
   const memberName = `참여한 사람 ${test.info().workerIndex}`
   const owner = await registerAndLogin(page, request, ownerName)
@@ -23,7 +23,7 @@ test('가계부 생성자가 초대하고 다른 사용자가 참여하면 양�
   expect(invitationCode!.trim()).toMatch(/^\d{6}$/)
   await expect(page.getByText('초대가 준비됐어요')).toBeVisible()
 
-  await page.getByRole('button', { name: '로그아웃' }).click()
+  await logoutFromLedger(page)
   await registerAndLogin(page, request, memberName)
   await page.getByRole('link', { name: '초대 코드 입력하기' }).click()
   await page.getByLabel('6자리 초대 코드').fill(invitationCode!.trim())
@@ -45,7 +45,7 @@ test('가계부 생성자가 초대하고 다른 사용자가 참여하면 양�
   await expect(page).toHaveURL('/')
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: '로그아웃' }).click()
+  await logoutFromLedger(page)
   await page.getByLabel('아이디').fill(owner.loginId)
   await page.getByLabel('비밀번호').fill(owner.password)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
@@ -66,4 +66,87 @@ test('가계부 생성자가 초대하고 다른 사용자가 참여하면 양�
   await page.getByRole('button', { name: '수입', exact: true }).click()
   await expect(page.getByRole('radiogroup', { name: '누가 받았나요?' })).toBeVisible()
   await expect(page.getByRole('radio', { name: new RegExp(memberName) })).toBeChecked()
+
+  const accounts = await createOtherMemberAccount(page, `${memberName} 계좌`)
+  await page.goto('/transactions/new')
+  await page.getByRole('button', { name: '이체', exact: true }).click()
+  await expect(page.getByText('함께 쓰는 구성원의 계좌와 공동 계좌를 모두 선택할 수 있어요.')).toBeVisible()
+  const sourceAccount = page.getByLabel('보내는 계좌')
+  const destinationAccount = page.getByLabel('받는 계좌')
+  await expect(sourceAccount.locator(`option[value="${accounts.source.assetId}"]`)).toHaveText(`${accounts.source.name} · 나`)
+  await expect(destinationAccount.locator(`option[value="${accounts.destination.assetId}"]`)).toHaveText(`${accounts.destination.name} · ${memberName}`)
+
+  await sourceAccount.selectOption(accounts.source.assetId)
+  await destinationAccount.selectOption(accounts.destination.assetId)
+  await page.getByLabel('금액').fill('210000')
+  await page.getByLabel('내용 (선택)').fill('구성원 간 계좌 이체')
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  const balances = await accountBalances(page, [accounts.source.assetId, accounts.destination.assetId])
+  expect(balances[accounts.source.assetId]).toBe(accounts.source.balanceWon - 210_000)
+  expect(balances[accounts.destination.assetId]).toBe(accounts.destination.balanceWon + 210_000)
 })
+
+type AccountSeed = { assetId: string; name: string; balanceWon: number }
+
+async function createOtherMemberAccount(page: Page, name: string): Promise<{ source: AccountSeed; destination: AccountSeed }> {
+  return page.evaluate(async (accountName) => {
+    type Member = { memberId: string; currentUser: boolean }
+    type Asset = { assetId: string; assetTypeId: string; systemCode: string; ownershipScope: 'PERSONAL' | 'JOINT'; ownerMemberId: string | null; name: string; currentBalanceWon: number }
+    type AssetType = { assetTypeId: string; systemCode: string }
+    const requiredJson = async <T,>(path: string): Promise<T> => {
+      const response = await fetch(path, { credentials: 'include' })
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`)
+      return response.json() as Promise<T>
+    }
+    const csrf = await requiredJson<{ headerName: string; token: string }>('/api/auth/csrf')
+    const current = await requiredJson<{ ledger: { members: Member[] } }>('/api/ledger-books/current')
+    const assets = await requiredJson<Asset[]>('/api/assets')
+    const types = await requiredJson<AssetType[]>('/api/asset-types')
+    const currentMember = current.ledger.members.find((member) => member.currentUser)
+    const otherMember = current.ledger.members.find((member) => !member.currentUser)
+    const source = assets.find((asset) => asset.systemCode === 'BANK' && asset.ownerMemberId === currentMember?.memberId)
+    const bankType = types.find((type) => type.systemCode === 'BANK')
+    if (!currentMember || !otherMember || !source || !bankType) throw new Error('cross-member transfer seed prerequisites were not found')
+
+    const openedOn = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+    const response = await fetch('/api/assets', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        [csrf.headerName]: csrf.token,
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        assetTypeId: bankType.assetTypeId,
+        ownershipScope: 'PERSONAL',
+        ownerMemberId: otherMember.memberId,
+        name: accountName,
+        openedOn,
+        memo: null,
+        openingBalanceWon: 0,
+        cardSettings: null,
+        debitCardSettings: null,
+        savingsSettings: null,
+      }),
+    })
+    if (!response.ok) throw new Error(`/api/assets returned ${response.status}: ${await response.text()}`)
+    const destination = await response.json() as Asset
+    return {
+      source: { assetId: source.assetId, name: source.name, balanceWon: source.currentBalanceWon },
+      destination: { assetId: destination.assetId, name: destination.name, balanceWon: destination.currentBalanceWon },
+    }
+  }, name)
+}
+
+async function accountBalances(page: Page, assetIds: string[]) {
+  return page.evaluate(async (ids) => {
+    const response = await fetch('/api/assets', { credentials: 'include' })
+    if (!response.ok) throw new Error(`/api/assets returned ${response.status}`)
+    const assets = await response.json() as Array<{ assetId: string; currentBalanceWon: number }>
+    return Object.fromEntries(assets.filter((asset) => ids.includes(asset.assetId)).map((asset) => [asset.assetId, asset.currentBalanceWon]))
+  }, assetIds)
+}

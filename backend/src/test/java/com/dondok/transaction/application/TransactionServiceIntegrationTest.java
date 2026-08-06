@@ -75,6 +75,10 @@ class TransactionServiceIntegrationTest {
                 .containsExactly(-30L);
         assertThat(transfer.postings()).extracting(TransactionService.PostingView::deltaWon)
                 .containsExactly(-20L, 20L);
+        assertThat(assetService.asset(fixture.userId(), bank.assetId()).currentBalanceWon())
+                .isEqualTo(1_050);
+        assertThat(assetService.asset(fixture.userId(), secondBank.assetId()).currentBalanceWon())
+                .isEqualTo(20);
         assertThat(income.performedBy().memberId()).isEqualTo(performer);
         assertThat(income.createdBy().memberId()).isEqualTo(fixture.memberId());
 
@@ -101,6 +105,155 @@ class TransactionServiceIntegrationTest {
         assertThat(remaining.items()).allMatch(item -> item.type() != null);
         assertThat(count("select count(*) from ledger_transaction where book_id = ? and source_type = 'OPENING_BALANCE'",
                 fixture.bookId())).isEqualTo(1);
+    }
+
+    @Test
+    void excludedIncomeAndExpenseChangeBalanceStayVisibleAndCanReturnToAggregates() {
+        Fixture fixture = fixture();
+        AssetService.AssetView account = createStandardAsset(
+                fixture, "BANK", "집계 제외 계좌", 10_000, "excluded-statistics-account");
+        UUID incomeCategory = category(fixture.userId(), CategoryKind.INCOME, "OTHER");
+        UUID expenseCategory = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+
+        TransactionService.TransactionView income = transactionService.create(
+                fixture.userId(), "excluded-income",
+                new TransactionService.CreateIncome(
+                        LocalDate.of(2026, 7, 10), 1_000, incomeCategory, account.assetId(),
+                        fixture.memberId(), "집계 제외 수입", true));
+        TransactionService.TransactionView expense = transactionService.create(
+                fixture.userId(), "excluded-expense",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 7, 11), 300, expenseCategory, account.assetId(),
+                        fixture.memberId(), "집계 제외 지출", 1, true));
+
+        assertThat(income.excludedFromStatistics()).isTrue();
+        assertThat(expense.excludedFromStatistics()).isTrue();
+        assertThat(assetService.asset(fixture.userId(), account.assetId()).currentBalanceWon())
+                .isEqualTo(10_700);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)))
+                .satisfies(calendar -> {
+                    assertThat(calendar.totalIncomeWon()).isZero();
+                    assertThat(calendar.totalExpenseWon()).isZero();
+                    assertThat(calendar.days()).isEmpty();
+                });
+        assertThat(transactionService.transactions(
+                fixture.userId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 8, 1), null, 10).items())
+                .extracting(TransactionService.TransactionView::transactionId)
+                .contains(income.transactionId(), expense.transactionId());
+
+        TransactionService.TransactionView includedExpense = transactionService.update(
+                fixture.userId(), expense.transactionId(),
+                new TransactionService.UpdateCommand(
+                        TransactionType.EXPENSE, expense.occurredOn(), expense.amountWon(),
+                        expenseCategory, account.assetId(), null, null, fixture.memberId(),
+                        expense.description(), expense.version(), false));
+
+        assertThat(includedExpense.excludedFromStatistics()).isFalse();
+        assertThat(assetService.asset(fixture.userId(), account.assetId()).currentBalanceWon())
+                .isEqualTo(10_700);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)))
+                .satisfies(calendar -> {
+                    assertThat(calendar.totalIncomeWon()).isZero();
+                    assertThat(calendar.totalExpenseWon()).isEqualTo(300);
+                });
+    }
+
+    @Test
+    void memberCanTransferBetweenBankAccountsOwnedByDifferentLedgerMembers() {
+        Fixture fixture = fixture();
+        UUID partnerMemberId = addMember(fixture.bookId(), "함께 관리하는 구성원");
+        UUID bankTypeId = assetType(fixture.userId(), "BANK");
+        AssetService.AssetView myAccount = assetService.create(
+                fixture.userId(), "cross-owner-transfer-source",
+                new AssetService.AssetCommand(
+                        bankTypeId, AssetOwnershipScope.PERSONAL, fixture.memberId(),
+                        "내 계좌", LocalDate.of(2026, 7, 1), null, 500_000, null));
+        AssetService.AssetView partnerAccount = assetService.create(
+                fixture.userId(), "cross-owner-transfer-destination",
+                new AssetService.AssetCommand(
+                        bankTypeId, AssetOwnershipScope.PERSONAL, partnerMemberId,
+                        "상대 계좌", LocalDate.of(2026, 7, 1), null, 20_000, null));
+
+        TransactionService.TransactionView transfer = transactionService.create(
+                fixture.userId(), "cross-owner-transfer",
+                new TransactionService.CreateTransfer(
+                        LocalDate.of(2026, 7, 12), 210_000,
+                        myAccount.assetId(), partnerAccount.assetId(), partnerMemberId,
+                        "구성원 간 이체"));
+
+        assertThat(transfer.postings()).satisfiesExactly(
+                source -> {
+                    assertThat(source.assetId()).isEqualTo(myAccount.assetId());
+                    assertThat(source.deltaWon()).isEqualTo(-210_000);
+                },
+                destination -> {
+                    assertThat(destination.assetId()).isEqualTo(partnerAccount.assetId());
+                    assertThat(destination.deltaWon()).isEqualTo(210_000);
+                });
+        assertThat(transfer.performedBy().memberId()).isEqualTo(partnerMemberId);
+        assertThat(transfer.createdBy().memberId()).isEqualTo(fixture.memberId());
+        assertThat(assetService.asset(fixture.userId(), myAccount.assetId()).currentBalanceWon())
+                .isEqualTo(290_000);
+        assertThat(assetService.asset(fixture.userId(), partnerAccount.assetId()).currentBalanceWon())
+                .isEqualTo(230_000);
+        assertThat(assetService.asset(fixture.userId(), myAccount.assetId()).ownerMemberId())
+                .isEqualTo(fixture.memberId());
+        assertThat(assetService.asset(fixture.userId(), partnerAccount.assetId()).ownerMemberId())
+                .isEqualTo(partnerMemberId);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)))
+                .satisfies(calendar -> {
+                    assertThat(calendar.totalIncomeWon()).isZero();
+                    assertThat(calendar.totalExpenseWon()).isZero();
+                });
+    }
+
+    @Test
+    void balanceAnchorAbsorbsEarlierTransactionsButKeepsThemInStatistics() {
+        Fixture fixture = fixture();
+        AssetService.AssetView account = assetService.create(
+                fixture.userId(), "balance-anchor-account",
+                new AssetService.AssetCommand(
+                        assetType(fixture.userId(), "BANK"), AssetOwnershipScope.PERSONAL,
+                        fixture.memberId(), "기준 잔액 계좌", LocalDate.of(2026, 8, 3), null,
+                        100_000, null));
+        UUID expenseCategory = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+        UUID incomeCategory = category(fixture.userId(), CategoryKind.INCOME, "OTHER");
+
+        TransactionService.TransactionView earlierExpense = transactionService.create(
+                fixture.userId(), "expense-before-balance-anchor",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 2), 20_000, expenseCategory,
+                        account.assetId(), fixture.memberId(), "기준일 전 지출", 1));
+
+        AssetService.AssetView afterEarlierExpense = assetService.asset(
+                fixture.userId(), account.assetId());
+        assertThat(afterEarlierExpense.openingBalanceWon()).isEqualTo(100_000);
+        assertThat(afterEarlierExpense.currentBalanceWon()).isEqualTo(100_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 8)).totalExpenseWon())
+                .isEqualTo(20_000);
+
+        transactionService.create(
+                fixture.userId(), "income-on-balance-anchor",
+                new TransactionService.CreateIncome(
+                        LocalDate.of(2026, 8, 3), 5_000, incomeCategory,
+                        account.assetId(), fixture.memberId(), "기준일 수입"));
+
+        assertThat(assetService.asset(fixture.userId(), account.assetId()).currentBalanceWon())
+                .isEqualTo(105_000);
+
+        TransactionService.TransactionView movedAfterAnchor = transactionService.update(
+                fixture.userId(), earlierExpense.transactionId(),
+                new TransactionService.UpdateCommand(
+                        TransactionType.EXPENSE, LocalDate.of(2026, 8, 4), 20_000,
+                        expenseCategory, account.assetId(), null, null, fixture.memberId(),
+                        earlierExpense.description(), earlierExpense.version()));
+        assertThat(assetService.asset(fixture.userId(), account.assetId()).currentBalanceWon())
+                .isEqualTo(85_000);
+
+        transactionService.delete(
+                fixture.userId(), movedAfterAnchor.transactionId(), movedAfterAnchor.version());
+        assertThat(assetService.asset(fixture.userId(), account.assetId()).currentBalanceWon())
+                .isEqualTo(105_000);
     }
 
     @Test
@@ -141,6 +294,64 @@ class TransactionServiceIntegrationTest {
                     select charge.statement_id from card_charge charge where charge.source_transaction_id = ?
                  )
                 """, created.transactionId())).isEqualTo(3);
+    }
+
+    @Test
+    void cardPurchaseBeforeBalanceAnchorStaysInStatisticsWithoutIncreasingPaymentDue() {
+        Fixture fixture = fixture();
+        AssetService.AssetView bank = createStandardAsset(
+                fixture, "BANK", "카드 결제 계좌", 500_000, "anchor-card-bank");
+        UUID cardType = assetType(fixture.userId(), "CREDIT_CARD");
+        AssetService.CardSettingsCommand cardSettings = new AssetService.CardSettingsCommand(
+                14, 25, 1, bank.assetId(), true);
+        AssetService.AssetView card = assetService.create(
+                fixture.userId(), "anchor-card",
+                new AssetService.AssetCommand(
+                        cardType, AssetOwnershipScope.PERSONAL, fixture.memberId(), "기준일 카드",
+                        LocalDate.of(2026, 8, 3), null, -100_000, cardSettings));
+        UUID category = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+
+        TransactionService.TransactionView historicalPurchase = transactionService.create(
+                fixture.userId(), "anchor-card-historical-purchase",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 2), 20_000, category, card.assetId(),
+                        fixture.memberId(), "기준일 전 카드 지출", 1));
+
+        assertThat(assetService.asset(fixture.userId(), card.assetId()).currentBalanceWon())
+                .isEqualTo(-100_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 8)).totalExpenseWon())
+                .isEqualTo(20_000);
+        assertThat(jdbcTemplate.queryForObject("""
+                select absorbed_by_balance_anchor
+                  from card_charge
+                 where source_transaction_id = ?
+                """, Boolean.class, historicalPurchase.transactionId())).isTrue();
+        assertThat(queryLong("""
+                select coalesce(sum(forecast.payment_amount_won), 0)
+                  from card_statement_forecast forecast
+                 where forecast.card_asset_id = ?
+                   and forecast.status in ('OPEN', 'FINALIZED')
+                """, card.assetId())).isEqualTo(100_000);
+
+        AssetService.AssetView reanchored = assetService.update(
+                fixture.userId(), card.assetId(), new AssetService.UpdateAssetCommand(
+                        new AssetService.AssetCommand(
+                                cardType, AssetOwnershipScope.PERSONAL, fixture.memberId(), "기준일 카드",
+                                LocalDate.of(2026, 8, 2), null, -100_000, cardSettings),
+                        card.version(), false));
+
+        assertThat(reanchored.currentBalanceWon()).isEqualTo(-120_000);
+        assertThat(jdbcTemplate.queryForObject("""
+                select absorbed_by_balance_anchor
+                  from card_charge
+                 where source_transaction_id = ?
+                """, Boolean.class, historicalPurchase.transactionId())).isFalse();
+        assertThat(queryLong("""
+                select coalesce(sum(forecast.payment_amount_won), 0)
+                  from card_statement_forecast forecast
+                 where forecast.card_asset_id = ?
+                   and forecast.status in ('OPEN', 'FINALIZED')
+                """, card.assetId())).isEqualTo(120_000);
     }
 
     @Test

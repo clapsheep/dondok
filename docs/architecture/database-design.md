@@ -14,7 +14,7 @@
 - 카드 구매는 구매일의 지출 통계에 즉시 포함하고, 결제 계좌 잔액은 결제일에 감소한다.
 - 카드대금 결제는 새로운 지출이 아니라 결제 계좌 자산에서 카드 부채로 이동하는 정산 이체다.
 
-실행 스키마의 단일 원본은 [`backend/src/main/resources/db/migration/`](../../backend/src/main/resources/db/migration/)의 순차 Flyway migration이며, 정상·제약 거부 흐름은 [`database/tests/V1__schema_smoke.sql`](../../database/tests/V1__schema_smoke.sql), 전체 삭제 cascade는 [`database/tests/V1__ledger_delete_smoke.sql`](../../database/tests/V1__ledger_delete_smoke.sql)에서 검증한다.
+실행 스키마의 단일 원본은 [`backend/src/main/resources/db/migration/`](../../backend/src/main/resources/db/migration/)의 순차 Flyway migration이며, 정상·제약 거부 흐름은 [`database/tests/V1__schema_smoke.sql`](../../database/tests/V1__schema_smoke.sql), 전체 삭제 cascade는 [`database/tests/V1__ledger_delete_smoke.sql`](../../database/tests/V1__ledger_delete_smoke.sql), V18 잔액 보존 이관은 [`database/tests/V18__balance_anchor_fixture.sql`](../../database/tests/V18__balance_anchor_fixture.sql)과 [`database/tests/V18__balance_anchor_smoke.sql`](../../database/tests/V18__balance_anchor_smoke.sql)에서 검증한다.
 
 ## 2. 도메인 관계
 
@@ -77,7 +77,7 @@ erDiagram
 
 사용자 정의 자산 종류는 두지 않고 `asset_type.system_code`는 필수다. `기타`는 `현금`과 동일하게 `STANDARD`, `payment_source_capable = false`인 현금성 종류다. 개별 용도는 `asset.name`으로 표현한다. 기존 사용자 정의 종류는 같은 가계부의 `OTHER`로 재지정한 뒤 제거하되 자산과 거래·posting은 유지한다. `BANK`의 표시명은 `계좌`, `SAVINGS`는 `적금`이다. 마이너스 통장은 별도 물리 종류가 아니라 signed 잔액이 음수인 `BANK` 계좌이며 일반 계좌와 같은 결제·이체 기능을 사용한다. 기능은 표시명이나 잔액 부호가 아니라 behavior가 결정한다. 연결 설정의 대상과 출금 계좌는 composite FK로 같은 가계부임을 보장하고 서로 같은 자산일 수 없다. V9·V10은 기존 `BANK` 유형의 표시명만 `계좌`로 바꾸고 사용자가 입력한 `asset.name`은 보존한다. V16은 기존 `OVERDRAFT` 자산의 ID·이름·소유자·posting·연결 설정을 유지한 채 같은 가계부의 `BANK` 유형으로 재지정하고 `OVERDRAFT` 유형과 허용 코드를 제거한다. 자산 version만 증가시켜 이전 화면의 stale 저장을 거부하며 잔액은 기존 posting 합계를 그대로 사용한다.
 
-신규 가계부 생성 트랜잭션은 자산 유형 bootstrap 뒤 `CASH`, `BANK`, `CREDIT_CARD`, `DEBIT_CARD` 자산을 생성자 `PERSONAL` 소유로 하나씩 생성한다. 금액은 모두 0원이어서 `OPENING_BALANCE` 거래와 posting을 만들지 않고, 등록일은 `Asia/Seoul` 기준 가계부 생성일이다. 신용카드와 체크카드 설정은 동일 트랜잭션에서 기본 `BANK` 자산을 참조한다. 기존 가계부는 이 네 자산을 backfill하지 않고, 기본 자산도 활성 50개 한도에 포함한다.
+신규 가계부 생성 트랜잭션은 자산 유형 bootstrap 뒤 `CASH`, `BANK`, `CREDIT_CARD`, `DEBIT_CARD` 자산을 생성자 `PERSONAL` 소유로 하나씩 생성한다. 기준일 잔액은 모두 0원이어서 `OPENING_BALANCE` 거래와 posting을 만들지 않고, 잔액 기준일은 `Asia/Seoul` 기준 가계부 생성일이다. 신용카드와 체크카드 설정은 동일 트랜잭션에서 기본 `BANK` 자산을 참조한다. 기존 가계부는 이 네 자산을 backfill하지 않고, 기본 자산도 활성 50개 한도에 포함한다.
 
 ### 자산 삭제·보관 계약
 
@@ -117,7 +117,7 @@ erDiagram
 
 ## 6. 거래와 posting
 
-`ledger_transaction`은 날짜, 금액, 카테고리, 거래 주체, 작성자를 저장한다. 실제 잔액 변화는 `transaction_posting.delta_won`이 원본이다. 이체와 내부 `OPENING_BALANCE` 조정에는 카테고리를 두지 않는다.
+`ledger_transaction`은 날짜, 금액, 카테고리, 거래 주체, 작성자와 사용자 선택 `excluded_from_statistics`를 저장한다. 기준일 시작값은 `asset.balance_anchor_won`, 그 이후 실제 잔액 변화는 `transaction_posting.delta_won`이 원본이다. 이체와 내부 `OPENING_BALANCE` 조정에는 카테고리를 두지 않는다. 집계 제외 기본값은 `false`라 기존 데이터와 이전 클라이언트가 만든 수입·지출은 계속 포함된다.
 
 | 거래 | Posting | 통계 |
 |---|---|---|
@@ -128,7 +128,9 @@ erDiagram
 | 카드 환불 | 미결제 카드·원 결제 계좌 `+amount` | 환불일 지출에서 차감 |
 | 카드대금 결제 | 은행 `-amount`, 카드 `+amount` | 제외 |
 
-최초 금액이 0이 아니면 자산 생성과 같은 트랜잭션에서 내부 `OPENING_BALANCE` 조정 거래와 posting을 만든다. 현재 잔액과 날짜별 잔액은 유효한 posting 합계다. 등록일 이전 거래도 허용하며 등록일 변경은 opening posting의 날짜를 함께 바꾼다. 잔액 컬럼을 매 거래마다 직접 덮어쓰지 않는다.
+사용자가 수입·지출 또는 카드 구매·환불에 `excluded_from_statistics=true`를 저장하면 위 posting과 카드 업무 행은 바꾸지 않고 canonical `ledger_financial_activity` view에서만 제외한다. 따라서 자산 잔액과 원장 이력은 유지되며 월간 달력·분류 통계·연간 흐름은 같은 조건을 공유한다. 일반 이체·카드 정산·선결제는 거래 유형 자체가 view 대상이 아니므로 이 flag를 사용하지 않는다.
+
+`asset.balance_anchor_won`은 `asset.opened_on` 시작 시점의 선언된 기준일 잔액이다. 기준일 이전 거래도 허용하고 통계·원장 이력에는 포함하지만 잔액에는 다시 합산하지 않는다. `asset_current_balance`는 기준일 잔액에 기준일 당일 이후의 삭제되지 않은 비-`OPENING_BALANCE` posting만 더한다. 기존 `OPENING_BALANCE` 거래는 API 호환과 카드 opening 업무 이력을 위해 유지하지만 잔액 view에서 중복 합산하지 않는다. V18은 기존 opening posting과 기준일 이전 유효 posting을 기준일 잔액으로 backfill해 배포 전후 현재 잔액을 보존한다. `card_charge.absorbed_by_balance_anchor=true`인 기준일 이전 구매도 명세 원금에서는 제외하며, 이후 환불 allocation은 카드의 `OPENING_BALANCE` 명세를 줄여 카드 잔액과 결제 예정액을 함께 맞춘다.
 
 사람 관련 값도 분리한다.
 
@@ -140,7 +142,7 @@ erDiagram
 
 작성자는 감사 정보이며 소비 통계는 `performed_by_member_id`를 기준으로 한다. 수입·지출·일반 이체의 거래 주체는 같은 가계부의 멤버 한 명을 필수로 지정하고 공동·분할 attribution scope는 만들지 않는다. 카드 정산·선결제는 결제 계좌가 자금 출처인 통계 제외 자산 이동이므로 거래 주체를 두지 않는다.
 
-사용자가 직접 만드는 `TRANSFER/NORMAL`의 두 posting 자산은 모두 활성 `asset_type.system_code=BANK` 계좌여야 한다. 이 유형 일관성은 여러 테이블을 조회해야 하므로 단순 DB `CHECK`로 중복하지 않고 transaction application service가 같은 가계부·활성 상태와 함께 검증한다. 카드 정산·선결제처럼 별도 subtype과 전용 command를 쓰는 시스템 이체는 각 정책이 허용 자산을 검증한다.
+사용자가 직접 만드는 `TRANSFER/NORMAL`의 두 posting 자산은 모두 활성 `asset_type.system_code=BANK` 계좌여야 한다. 두 계좌의 `owner_member_id`와 `ownership_scope`는 서로 같을 필요가 없고 소유 marker에 따른 FK 외 권한 제약을 추가하지 않는다. 이 유형 일관성은 여러 테이블을 조회해야 하므로 단순 DB `CHECK`로 중복하지 않고 transaction application service가 같은 가계부·활성 상태와 함께 검증한다. 카드 정산·선결제처럼 별도 subtype과 전용 command를 쓰는 시스템 이체는 각 정책이 허용 자산을 검증한다.
 
 자산 소유자를 다른 구성원으로 변경할 때 사용자가 동의하면 해당 자산의 삭제되지 않은 수입·지출 거래 `performed_by_member_id`를 새 소유자로 한 트랜잭션에서 bulk update한다. 이체·카드 정산은 통계 대상이 아니므로 자동 변경하지 않는다. 공동 소유로 바꾸면 공동 거래 주체가 없으므로 기존 거래 주체를 유지한다.
 
@@ -166,7 +168,7 @@ erDiagram
 
 은행 잔액은 이 시점에 변하지 않는다. 카드 자산이 20만원 음수가 되어 부채가 늘고, 순자산은 구매 시점에 즉시 줄어든다.
 
-`card_purchase_billing_snapshot`은 구매 당시의 카드·마감일·결제일·결제 월 offset·할부 수를 보존해 나중의 카드 설정 변경이 과거 관리 화면과 정정 기준을 바꾸지 않게 한다. `card_purchase_refund`는 원 구매·환불 거래를 연결하고, `card_purchase_refund_charge`는 할부 charge별 환불액, `card_purchase_refund_payment`는 실제 statement payment별 계좌 반환액을 보존한다. 이 배분 행들은 원 구매·결제 이력을 덮어쓰지 않고 유효 청구액과 유효 결제액을 계산하는 근거다.
+`card_purchase_billing_snapshot`은 구매 당시의 카드·마감일·결제일·결제 월 offset·할부 수를 보존해 나중의 카드 설정 변경이 과거 관리 화면과 정정 기준을 바꾸지 않게 한다. `card_purchase_refund`는 원 구매·환불 거래를 연결하고, `card_purchase_refund_charge`는 할부 charge별 환불액, `card_purchase_refund_payment`는 실제 statement payment별 계좌 반환액을 보존한다. 이 배분 행들은 원 구매·결제 이력을 덮어쓰지 않고 유효 청구액과 유효 결제액을 계산하는 근거다. 구매일이 카드의 잔액 기준일보다 이르면 charge를 기준일 잔액 흡수 상태로 두어 명세에는 다시 합산하지 않는다. 그 구매의 기준일 이후 환불은 기준일 명세의 미결제액부터 차감하고, 이미 결제된 금액은 최신 실제 statement payment 계좌로 반환한다.
 
 ### 체크카드 구매와 적금 연결 설정
 
@@ -217,7 +219,7 @@ erDiagram
 
 MVP 통계는 선택 월 수입·지출·순액과 카테고리 비중, 선택 월이 속한 연도의 1~12월 수입·지출 합계를 제공한다. 일별 거래는 통계에서 중복 집계하지 않고 홈의 일별 원장에서 조회한다. 거래 목록은 날짜·ID 기반 cursor pagination으로 필요한 범위만 조회하고, 달력·통계는 시작일과 종료일이 있는 bounded query만 허용한다. JPA `LAZY` 연관관계를 순회해 목록을 만드는 대신 projection과 명시적 SQL로 N+1과 전체 원장 로드를 피한다.
 
-월간 통계는 `ledger_financial_activity`가 노출하는 `primary_asset_id`를 자산 소유 marker 필터에 사용한다. 체크카드 지출도 실제 posting 계좌가 아니라 사용자가 선택한 체크카드의 소유 marker로 귀속하고, 개인 소유는 `asset.owner_member_id`, 공동 소유는 `asset.ownership_scope = 'JOINT'`의 현재 값을 적용한다. 거래 주체·자산 소유자·분류 필터는 모두 같은 가계부에 속하는지 먼저 확인한 뒤 AND로 조합한다. 선택 월 합계·분류는 월 범위 `GROUPING SETS`, 연간 막대는 같은 연도의 `date_trunc('month')` group query로 제한한다. 두 query는 read-only repeatable-read transaction에서 같은 MVCC snapshot을 공유하고 application layer는 누락된 달만 0으로 채워 항상 12개를 반환한다. 실제 실행 계획에서 병목이 확인되기 전에는 새 통계 전용 인덱스나 materialized view를 추가하지 않는다.
+월간 통계는 `excluded_from_statistics=false`인 수입·지출만 담는 `ledger_financial_activity`가 노출하는 `primary_asset_id`를 자산 소유 marker 필터에 사용한다. 체크카드 지출도 실제 posting 계좌가 아니라 사용자가 선택한 체크카드의 소유 marker로 귀속하고, 개인 소유는 `asset.owner_member_id`, 공동 소유는 `asset.ownership_scope = 'JOINT'`의 현재 값을 적용한다. 거래 주체·자산 소유자·분류 필터는 모두 같은 가계부에 속하는지 먼저 확인한 뒤 AND로 조합한다. 선택 월 합계·분류는 월 범위 `GROUPING SETS`, 연간 막대는 같은 연도의 `date_trunc('month')` group query로 제한한다. 두 query는 read-only repeatable-read transaction에서 같은 MVCC snapshot을 공유하고 application layer는 누락된 달만 0으로 채워 항상 12개를 반환한다. 실제 실행 계획에서 병목이 확인되기 전에는 새 통계 전용 인덱스나 materialized view를 추가하지 않는다.
 
 ```sql
 sum(case

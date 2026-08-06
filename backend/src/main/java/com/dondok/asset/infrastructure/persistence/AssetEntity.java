@@ -24,6 +24,7 @@ public class AssetEntity {
     @Column(name = "owner_member_id") private UUID ownerMemberId;
     @Column(nullable = false, length = 100) private String name;
     @Column(name = "opened_on", nullable = false) private LocalDate openedOn;
+    @Column(name = "balance_anchor_won", nullable = false) private long balanceAnchorWon;
     @Column(length = 1000) private String memo;
     @Column(name = "include_in_net_worth", nullable = false) private boolean includeInNetWorth;
     @Column(name = "sort_order", nullable = false) private int sortOrder;
@@ -41,7 +42,7 @@ public class AssetEntity {
     public AssetEntity(
             UUID id, UUID bookId, UUID assetTypeId, AssetOwnershipScope ownershipScope,
             UUID ownerMemberId, String name, LocalDate openedOn, String memo,
-            int sortOrder, UUID memberId, Instant now
+            long balanceAnchorWon, int sortOrder, UUID memberId, Instant now
     ) {
         this.id = id;
         this.bookId = bookId;
@@ -50,6 +51,7 @@ public class AssetEntity {
         this.ownerMemberId = ownerMemberId;
         this.name = name;
         this.openedOn = openedOn;
+        this.balanceAnchorWon = balanceAnchorWon;
         this.memo = memo;
         this.includeInNetWorth = true;
         this.sortOrder = sortOrder;
@@ -61,13 +63,15 @@ public class AssetEntity {
 
     public void update(
             UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
-            String name, LocalDate openedOn, String memo, UUID updatedByMemberId, Instant now
+            String name, LocalDate openedOn, String memo, long balanceAnchorWon,
+            UUID updatedByMemberId, Instant now
     ) {
         this.assetTypeId = assetTypeId;
         this.ownershipScope = ownershipScope;
         this.ownerMemberId = ownerMemberId;
         this.name = name;
         this.openedOn = openedOn;
+        this.balanceAnchorWon = balanceAnchorWon;
         this.memo = memo;
         this.updatedByMemberId = updatedByMemberId;
         this.updatedAt = now;
@@ -87,6 +91,7 @@ public class AssetEntity {
     public UUID getOwnerMemberId() { return ownerMemberId; }
     public String getName() { return name; }
     public LocalDate getOpenedOn() { return openedOn; }
+    public long getBalanceAnchorWon() { return balanceAnchorWon; }
     public String getMemo() { return memo; }
     public Instant getArchivedAt() { return archivedAt; }
     public boolean isArchived() { return archivedAt != null; }
