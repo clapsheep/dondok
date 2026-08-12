@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { cardAssetRow, expectCardPaymentAmounts } from './support/assets'
+import { openAssetPicker } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 
 type PaymentSourceMask = {
@@ -136,8 +137,8 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
 
   const settlementAsset = parentForm.getByLabel('결제 계좌', { exact: true })
   await expect(dialog).toBeHidden()
-  await expect(settlementAsset).toHaveValue(created.assetId)
-  await expect(settlementAsset.locator('option:checked')).toContainText('QC 카드 결제 계좌')
+  await expect(settlementAsset).toHaveAttribute('data-value', created.assetId)
+  await expect(settlementAsset).toContainText('QC 카드 결제 계좌')
   await expect(settlementAsset).toBeFocused()
   await expectParentCardDraft(parentForm)
   expect(context.pages(), '계좌 생성은 새 탭을 열지 않아야 합니다').toHaveLength(1)
@@ -179,8 +180,8 @@ for (const scenario of LINKED_ASSET_SCENARIOS) {
     paymentSources.enabled = false
     const created = await submitInlineAccount(page, dialog, scenario.accountName, 410000)
     const linkedAsset = parentForm.getByLabel(scenario.selectName, { exact: true })
-    await expect(linkedAsset).toHaveValue(created.assetId)
-    await expect(linkedAsset.locator('option:checked')).toContainText(scenario.accountName)
+    await expect(linkedAsset).toHaveAttribute('data-value', created.assetId)
+    await expect(linkedAsset).toContainText(scenario.accountName)
     await expect(linkedAsset).toBeFocused()
     await expect(parentName).toHaveValue(scenario.parentName)
     await expect(parentAmount).toHaveValue('270,000')
@@ -207,10 +208,9 @@ test('기본 계좌 후보가 있어도 카드와 적금에서 계좌를 추가�
       if (!(await autoTransferSwitch.isChecked())) await autoTransferSwitch.click()
     }
     const linkedAsset = parentForm.getByLabel(scenario.selectName, { exact: true })
-    await expect.poll(
-      () => linkedAsset.locator('option').count(),
-      { message: `${scenario.typeName}에는 기본 계좌 후보가 있어야 합니다` },
-    ).toBeGreaterThan(1)
+    const linkedPicker = await openAssetPicker(page, scenario.selectName, parentForm)
+    expect(await linkedPicker.picker.locator('[data-asset-option]').count(), `${scenario.typeName}에는 기본 계좌 후보가 있어야 합니다`).toBeGreaterThan(0)
+    await page.keyboard.press('Escape')
 
     const trigger = parentForm.getByRole('button', { name: scenario.triggerName })
     await expect(trigger, `${scenario.typeName}은 기존 후보가 있어도 계좌 추가 행동을 보여야 합니다`).toBeVisible()
@@ -226,8 +226,8 @@ test('기본 계좌 후보가 있어도 카드와 적금에서 계좌를 추가�
     const created = await submitInlineAccount(page, dialog, scenario.accountName, 0)
 
     await expect(dialog).toBeHidden()
-    await expect(linkedAsset).toHaveValue(created.assetId)
-    await expect(linkedAsset.locator('option:checked')).toContainText(scenario.accountName)
+    await expect(linkedAsset).toHaveAttribute('data-value', created.assetId)
+    await expect(linkedAsset).toContainText(scenario.accountName)
     await expect(linkedAsset).toBeFocused()
     expect(context.pages(), `${scenario.typeName} 계좌 추가는 새 탭을 열지 않아야 합니다`).toHaveLength(1)
   }

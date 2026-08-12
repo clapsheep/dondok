@@ -7,12 +7,13 @@ import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
-import { SelectField } from '../../components/ui/SelectField'
 import { TextareaField } from '../../components/ui/TextareaField'
 import { ApiError } from '../../lib/api'
 import { hasFieldErrors } from '../../lib/formErrors'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { assetApi, assetKeys, type Asset } from '../assets/api'
+import { AssetPicker } from '../assets/AssetPicker'
+import { cardStatementKeys } from '../card-statements/api'
 import { categoryApi, categoryKeys, type Category } from '../categories/api'
 import type { LedgerBook } from '../membership/api'
 import {
@@ -123,7 +124,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
       : '')
   const categoryId = editing ? draft.categoryId : draft.categoryId || categories.data?.[0]?.categoryId || ''
   const selectedAsset = assets.find((asset) => asset.assetId === assetId)
-  const isCardExpense = !editing && draft.type === 'EXPENSE' && selectedAsset?.behavior === 'CREDIT_CARD'
+  const isCardExpense = draft.type === 'EXPENSE' && selectedAsset?.behavior === 'CREDIT_CARD'
   const unavailableTransferSelection = draft.type === 'TRANSFER'
     && ((!sourceAssetId && Boolean(draft.sourceAssetId))
       || (!destinationAssetId && Boolean(draft.destinationAssetId)))
@@ -134,10 +135,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
   })
   const updateTransaction = useMutation({
     mutationFn: (input: UpdateTransactionInput) => transactionApi.update(transaction!.transactionId, input),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(transactionKeys.detail(updated.transactionId), updated)
-      finishMutation(updated, 'transactionUpdated')
-    },
+    onSuccess: (updated) => finishMutation(updated, 'transactionUpdated'),
     onError: (error) => void handleMutationError(error, 'update'),
   })
   const remove = useMutation({
@@ -154,6 +152,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
   function finishMutation(saved: Transaction, status: 'transactionSaved' | 'transactionUpdated') {
     void queryClient.invalidateQueries({ queryKey: transactionKeys.all })
     void queryClient.invalidateQueries({ queryKey: assetKeys.all })
+    void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all })
     const fallback = `/?view=daily&month=${saved.occurredOn.slice(0, 7)}`
     navigate(editing ? returnTo : fallback, { replace: true, state: { [status]: true } })
   }
@@ -293,15 +292,15 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
               {transferAccounts.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] lg:col-span-3" role="status">이체하려면 서로 다른 계좌가 두 개 이상 필요해요. 계좌를 하나 더 등록해 주세요.</p> : null}
               {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] lg:col-span-3" role="status">이 이체에 연결된 자산은 현재 계좌 이체에 사용할 수 없어요. 보내는 계좌와 받는 계좌를 다시 선택해 주세요.</p> : null}
               <p className="text-xs leading-5 text-[var(--muted)] lg:col-span-3">함께 쓰는 구성원의 계좌와 공동 계좌를 모두 선택할 수 있어요.</p>
-              <SelectField id="sourceAsset" label="보내는 계좌" value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId}>{!sourceAssetId ? <option value="">계좌를 선택해 주세요</option> : null}{transferAccounts.map((asset) => <option key={asset.assetId} value={asset.assetId}>{transferAccountLabel(asset, ledger.members)}</option>)}</SelectField>
+              <AssetPicker id="sourceAsset" label="보내는 계좌" assets={transferAccounts} members={ledger.members} value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId} placeholder="계좌를 선택해 주세요" required />
               <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] lg:block" size={20} />
-              <SelectField id="destinationAsset" label="받는 계좌" value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId}>{!destinationAssetId ? <option value="">계좌를 선택해 주세요</option> : null}{transferAccounts.map((asset) => <option key={asset.assetId} value={asset.assetId}>{transferAccountLabel(asset, ledger.members)}</option>)}</SelectField>
+              <AssetPicker id="destinationAsset" label="받는 계좌" assets={transferAccounts} members={ledger.members} value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId} placeholder="계좌를 선택해 주세요" required />
             </div>
           ) : (
             <div className={`grid items-start gap-5 border-b border-[var(--line)] py-5 md:grid-cols-2 ${isCardExpense ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(8rem,.55fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]'}`}>
               {categories.isError ? <div className={`border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf] md:col-span-2 ${isCardExpense ? 'lg:col-span-3' : 'lg:col-span-2'}`} role="alert"><p>분류를 불러오지 못했어요. 분류를 확인한 뒤 거래를 저장할 수 있어요.</p><Button className="mt-3" type="button" variant="secondary" onClick={() => categories.refetch()}>분류 다시 불러오기</Button></div> : null}
               <CategoryPicker key={categoryKind} kind={categoryKind} categories={categories.data ?? []} value={categoryId} missingName={transaction?.category?.name} onChange={(value) => updateDraft('categoryId', value)} error={errors.categoryId} disabled={categories.isPending || categories.isError || pending || remoteDeleted} online={online} />
-              <SelectField id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} value={assetId} onChange={(value) => updateDraft('assetId', value)} error={errors.assetId}>{missingAssetOption(assetId, assets)}{assets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name} · {asset.assetTypeName}</option>)}</SelectField>
+              <AssetPicker id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} assets={assets} members={ledger.members} value={assetId} onChange={(value) => updateDraft('assetId', value)} missingSelection={transaction?.asset && !assets.some((asset) => asset.assetId === transaction.asset?.assetId) ? { assetId: transaction.asset.assetId, name: transaction.asset.name } : undefined} error={errors.assetId} required />
               {isCardExpense ? <div className="md:col-span-2 md:max-w-40 lg:col-span-1 lg:max-w-none"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
             </div>
           )}
@@ -422,7 +421,7 @@ function parseDraft(draft: Draft, isCardExpense: boolean): { input?: CreateTrans
 function toUpdateInput(input: CreateTransactionInput, expectedVersion: number): UpdateTransactionInput {
   const common = { occurredOn: input.occurredOn, amountWon: input.amountWon, performedByMemberId: input.performedByMemberId, ...(input.description ? { description: input.description } : {}), expectedVersion }
   if (input.type === 'INCOME') return { ...common, type: 'INCOME', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics }
-  if (input.type === 'EXPENSE') return { ...common, type: 'EXPENSE', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics }
+  if (input.type === 'EXPENSE') return { ...common, type: 'EXPENSE', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics, ...(input.installmentCount ? { installmentCount: input.installmentCount } : {}) }
   return { ...common, type: 'TRANSFER', sourceAssetId: input.sourceAssetId, destinationAssetId: input.destinationAssetId }
 }
 
@@ -440,7 +439,6 @@ function validNavigationDraft(draft: Draft | undefined, memberId: string): Draft
 function apiFieldErrors(error: ApiError): FieldErrors { const mapped: FieldErrors = {}; for (const item of error.fieldErrors) if (item.field in defaultDraftKeys) mapped[item.field as keyof Draft] = item.code; for (const [field, message] of Object.entries(error.errors ?? {})) if (field in defaultDraftKeys) mapped[field as keyof Draft] = message; return mapped }
 const defaultDraftKeys: Record<keyof Draft, true> = { type: true, amountWon: true, occurredOn: true, categoryId: true, assetId: true, sourceAssetId: true, destinationAssetId: true, performedByMemberId: true, description: true, installmentCount: true, excludedFromStatistics: true }
 function transferSelection(id: string, accounts: Asset[]) { return accounts.some((asset) => asset.assetId === id) ? id : '' }
-function missingAssetOption(id: string, assets: Asset[]) { return id && !assets.some((asset) => asset.assetId === id) ? <option value={id}>연결했던 자산 (현재 목록에 없음)</option> : null }
 function safeReturnTo(state: unknown, occurredOn?: string) { const value = (state as NavigationState | null)?.returnTo; return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : `/?view=daily&month=${(occurredOn ?? todayInSeoul()).slice(0, 7)}` }
 function transferAssetName(id: string, assets: Asset[], ledger: LedgerBook, fallback: string) { const asset = assets.find((item) => item.assetId === id); return asset ? transferAccountLabel(asset, ledger.members) : fallback }
 function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], ledger: LedgerBook) { const assetName = (id: string) => draft.type === 'TRANSFER' ? transferAssetName(id, assets, ledger, id) : assets.find((asset) => asset.assetId === id)?.name ?? id; const category = categories.find((item) => item.categoryId === draft.categoryId)?.name ?? draft.categoryId; const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)?.displayName ?? draft.performedByMemberId; return [`종류: ${typeLabel(draft.type)}`, `날짜: ${draft.occurredOn}`, `금액: ${draft.amountWon}원`, draft.type === 'TRANSFER' ? `자산: ${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `분류/자산: ${category} / ${assetName(draft.assetId)}`, ...(draft.type !== 'TRANSFER' ? [`달력·통계: ${draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}`] : []), `${performerPersonLabel(draft.type)}: ${member}`, `내용: ${draft.description}`].join('\n') }

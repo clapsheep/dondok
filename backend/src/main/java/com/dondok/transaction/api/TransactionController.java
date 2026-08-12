@@ -40,9 +40,10 @@ public class TransactionController {
     @GetMapping("/calendar")
     TransactionService.CalendarView calendar(
             @AuthenticationPrincipal DondokPrincipal principal,
-            @RequestParam YearMonth month
+            @RequestParam YearMonth month,
+            @RequestParam(required = false) UUID performedByMemberId
     ) {
-        return transactionService.calendar(principal.userId(), month);
+        return transactionService.calendar(principal.userId(), month, performedByMemberId);
     }
 
     @GetMapping
@@ -51,9 +52,11 @@ public class TransactionController {
             @RequestParam LocalDate from,
             @RequestParam LocalDate toExclusive,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit
+            @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit,
+            @RequestParam(required = false) UUID performedByMemberId
     ) {
-        return transactionService.transactions(principal.userId(), from, toExclusive, cursor, limit);
+        return transactionService.transactions(
+                principal.userId(), from, toExclusive, cursor, limit, performedByMemberId);
     }
 
     @GetMapping("/{transactionId}")
@@ -153,14 +156,20 @@ public class TransactionController {
             UUID destinationAssetId,
             @NotNull UUID performedByMemberId,
             @Size(max = 500) String description,
+            Integer installmentCount,
             @NotNull @Min(0) Long expectedVersion,
             Boolean excludedFromStatistics
     ) {
         TransactionService.UpdateCommand toCommand() {
+            if (type != TransactionType.EXPENSE && installmentCount != null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
+                        "거래 유형에 맞는 입력값을 확인해 주세요.");
+            }
             return new TransactionService.UpdateCommand(
                     type, occurredOn, amountWon, categoryId, assetId, sourceAssetId,
                     destinationAssetId, performedByMemberId, description, expectedVersion,
-                    Boolean.TRUE.equals(excludedFromStatistics));
+                    Boolean.TRUE.equals(excludedFromStatistics),
+                    installmentCount == null ? 1 : installmentCount);
         }
     }
 }

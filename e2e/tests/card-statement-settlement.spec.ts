@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { balanceAssetRow, cardAssetRow, expectCardPaymentAmounts } from './support/assets'
+import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 import { selectTransactionCategory, transactionCategoryTrigger } from './support/transactions'
 
@@ -108,6 +109,7 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(page.getByTitle('-120,000원', { exact: true }).first()).toBeVisible()
   await expect(page.getByTitle('+0원', { exact: true })).toHaveCount(0)
   await expect(page.getByTitle('0원', { exact: true }).first()).toBeVisible()
+  await page.getByRole('radio', { name: '모두 모든 구성원 기록 보기' }).locator('..').click()
   await page.getByRole('button', { name: '일별 보기' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: '카드 선결제' })).toHaveCount(2)
   expect(await hasPageOverflow(page)).toBe(false)
@@ -184,7 +186,7 @@ async function createCardPurchase(page: Page, purchase: { amount: string; occurr
   const category = transactionCategoryTrigger(page)
   await expect(category).toContainText('식비')
   await selectTransactionCategory(page, '식비')
-  await page.getByLabel('결제 자산').selectOption({ label: '신용카드 · 신용카드' })
+  await selectAsset(page, '결제 자산', '신용카드')
   await page.getByLabel('할부 개월').fill('1')
   await page.getByLabel('내용 (선택)').fill(purchase.description)
   await page.getByRole('button', { name: '기록 저장' }).click()

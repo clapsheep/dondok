@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { submitQuickAsset } from './support/assets'
+import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 import { selectTransactionCategory } from './support/transactions'
 
@@ -42,6 +43,86 @@ test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계
   await expect(page.getByRole('status')).toContainText('거래를 삭제했어요.')
   await expect(transactionRow(page, after)).toHaveCount(0)
   await expect(page.getByText('-24,000원', { exact: true })).toHaveCount(0)
+  expect(await hasPageOverflow(page)).toBe(false)
+})
+
+test('계좌 지출은 신용카드 구매로 정정하고 이전 계좌 잔액과 카드 할부 명세를 함께 맞춘다', async ({ page, request }) => {
+  const suffix = `${test.info().workerIndex}-${Date.now().toString().slice(-6)}`
+  const before = `QC 계좌 지출 ${suffix}`
+  const after = `QC 카드 정정 ${suffix}`
+
+  await registerAndLogin(page, request, `카드 전환 관리자 ${suffix}`)
+  await prepareLedgerWithBank(page)
+  await createExpense(page, {
+    amount: '10000',
+    description: before,
+    assetName: '거래 관리 계좌',
+  })
+
+  await transactionRow(page, before).getByRole('link', { name: `${before} 거래 수정` }).click()
+  await expect(page.getByRole('heading', { name: '거래 수정' })).toBeVisible()
+  await expect(page.getByLabel('할부 개월')).toHaveCount(0)
+  await selectAsset(page, '결제 자산', '신용카드')
+  await expect(page.getByLabel('할부 개월')).toBeVisible()
+  await page.getByLabel('할부 개월').fill('3')
+  await page.getByLabel('금액').fill('30000')
+  await page.getByLabel('내용 (선택)').fill(after)
+
+  const updateResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'PUT' && /^\/api\/transactions\/[^/]+$/.test(url.pathname)
+  })
+  await page.getByRole('button', { name: '변경 저장' }).click()
+  const updateResponse = await updateResponsePromise
+  expect(updateResponse.status()).toBe(200)
+  const updated = await updateResponse.json() as {
+    managementType: string
+    amountWon: number
+    installmentCount: number | null
+    asset: { assetId: string; name: string } | null
+    postings: Array<{ assetId: string; deltaWon: number }>
+  }
+  expect(updated).toMatchObject({
+    managementType: 'CARD_PURCHASE',
+    amountWon: 30_000,
+    installmentCount: 3,
+    asset: { name: '신용카드' },
+  })
+  expect(updated.postings).toHaveLength(1)
+  expect(updated.postings[0]).toMatchObject({ assetId: updated.asset?.assetId, deltaWon: -30_000 })
+
+  await expect(page.getByRole('status')).toContainText('거래를 수정했어요.')
+  const correctedRow = page.getByRole('listitem').filter({ hasText: after })
+  await expect(correctedRow).toContainText('-30,000원')
+  await expect(transactionRow(page, before)).toHaveCount(0)
+
+  const ledger = await page.evaluate(async () => {
+    const assetsResponse = await fetch('/api/assets')
+    if (!assetsResponse.ok) throw new Error(`자산 조회 실패: ${assetsResponse.status}`)
+    const assets = await assetsResponse.json() as Array<{
+      assetId: string
+      name: string
+      currentBalanceWon: number
+    }>
+    const bank = assets.find((asset) => asset.name === '거래 관리 계좌')
+    const card = assets.find((asset) => asset.name === '신용카드')
+    if (!bank || !card) throw new Error('검증할 계좌 또는 신용카드를 찾지 못했습니다.')
+    const statementsResponse = await fetch(`/api/assets/${card.assetId}/card-statements?includePaid=false&limit=20`)
+    if (!statementsResponse.ok) throw new Error(`카드 명세 조회 실패: ${statementsResponse.status}`)
+    const statements = await statementsResponse.json() as {
+      items: Array<{ grossAmountWon: number; remainingAmountWon: number }>
+    }
+    return { bank, card, statements: statements.items }
+  })
+  expect(ledger.bank.currentBalanceWon).toBe(400_000)
+  expect(ledger.card.currentBalanceWon).toBe(-30_000)
+  expect(ledger.statements).toHaveLength(3)
+  expect(ledger.statements.reduce((sum, statement) => sum + statement.grossAmountWon, 0)).toBe(30_000)
+  expect(ledger.statements.reduce((sum, statement) => sum + statement.remainingAmountWon, 0)).toBe(30_000)
+
+  await correctedRow.getByRole('link', { name: new RegExp(`${after}.*지출.*원 카드 구매 상세`) }).click()
+  await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
+  await expect(page.getByText('결제 방식', { exact: true }).locator('..')).toContainText('3개월 할부')
   expect(await hasPageOverflow(page)).toBe(false)
 })
 
@@ -108,10 +189,11 @@ async function prepareLedgerWithBank(page: Page) {
   })
 }
 
-async function createExpense(page: Page, transaction: { amount: string; description: string }) {
+async function createExpense(page: Page, transaction: { amount: string; description: string; assetName?: string }) {
   await page.goto('/transactions/new')
   await page.getByLabel('금액').fill(transaction.amount)
   await selectTransactionCategory(page, '식비')
+  if (transaction.assetName) await selectAsset(page, '결제 자산', transaction.assetName)
   await page.getByLabel('내용 (선택)').fill(transaction.description)
   await page.getByRole('button', { name: '기록 저장' }).click()
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')

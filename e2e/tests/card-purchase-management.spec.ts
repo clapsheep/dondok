@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { cardAssetRow, expectCardPaymentAmounts } from './support/assets'
+import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 import { selectTransactionCategory, transactionCategoryTrigger } from './support/transactions'
 
@@ -226,7 +227,7 @@ async function createCardPurchase(page: Page, purchase: { amount: string; occurr
   const category = transactionCategoryTrigger(page)
   await expect(category).toContainText('식비')
   await selectTransactionCategory(page, '식비')
-  await page.getByLabel('결제 자산').selectOption({ label: '신용카드 · 신용카드' })
+  await selectAsset(page, '결제 자산', '신용카드')
   await expect(page.getByLabel('할부 개월')).toBeVisible()
   await page.getByLabel('할부 개월').fill('1')
   await page.getByLabel('내용 (선택)').fill(purchase.description)

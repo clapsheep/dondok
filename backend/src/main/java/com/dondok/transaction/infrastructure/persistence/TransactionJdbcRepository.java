@@ -117,8 +117,19 @@ public class TransactionJdbcRepository {
         }
     }
 
-    public List<CalendarRow> calendar(UUID bookId, LocalDate from, LocalDate toExclusive) {
-        return jdbcTemplate.query("""
+    public List<CalendarRow> calendar(
+            UUID bookId, LocalDate from, LocalDate toExclusive, UUID performedByMemberId
+    ) {
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(bookId);
+        arguments.add(Date.valueOf(from));
+        arguments.add(Date.valueOf(toExclusive));
+        String performerClause = "";
+        if (performedByMemberId != null) {
+            performerClause = " and performed_by_member_id = ?";
+            arguments.add(performedByMemberId);
+        }
+        String sql = """
                 select occurred_on,
                        coalesce(sum(statistics_amount_won)
                            filter (where transaction_type = 'INCOME'), 0) income_won,
@@ -126,18 +137,28 @@ public class TransactionJdbcRepository {
                            filter (where transaction_type = 'EXPENSE'), 0) expense_won
                   from ledger_financial_activity
                  where book_id = ? and occurred_on >= ? and occurred_on < ?
+                """ + performerClause + """
                  group by occurred_on
                  order by occurred_on
-                """, (rs, rowNum) -> new CalendarRow(
+                """;
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new CalendarRow(
                 rs.getObject("occurred_on", LocalDate.class), rs.getLong("income_won"),
-                rs.getLong("expense_won")), bookId, Date.valueOf(from), Date.valueOf(toExclusive));
+                rs.getLong("expense_won")), arguments.toArray());
     }
 
-    public PageRows page(UUID bookId, LocalDate from, LocalDate toExclusive, Cursor cursor, int limit) {
+    public PageRows page(
+            UUID bookId, LocalDate from, LocalDate toExclusive, Cursor cursor, int limit,
+            UUID performedByMemberId
+    ) {
         List<Object> arguments = new ArrayList<>();
         arguments.add(bookId);
         arguments.add(Date.valueOf(from));
         arguments.add(Date.valueOf(toExclusive));
+        String performerClause = "";
+        if (performedByMemberId != null) {
+            performerClause = " and transaction.performed_by_member_id = ?";
+            arguments.add(performedByMemberId);
+        }
         String cursorClause = "";
         if (cursor != null) {
             cursorClause = " and (transaction.occurred_on, transaction.created_at, transaction.id) < (?, ?, ?)";
@@ -153,7 +174,7 @@ public class TransactionJdbcRepository {
                      where transaction.book_id = ? and transaction.occurred_on >= ?
                        and transaction.occurred_on < ? and transaction.deleted_at is null
                        and transaction.transaction_type in ('INCOME', 'EXPENSE', 'TRANSFER')
-                """ + cursorClause + """
+                """ + performerClause + cursorClause + """
                      order by transaction.occurred_on desc, transaction.created_at desc,
                               transaction.id desc
                      limit ?

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { balanceAssetRow, cardAssetRow, expectCardPaymentAmounts, openQuickAssetDetail } from './support/assets'
+import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 import { expectInputBodyOpensDatePicker } from './support/date-picker'
 
@@ -186,7 +187,7 @@ async function expectConditionalCreateAcrossBreakpoints(
   for (const width of [320, 390, 768, 1024, 1280]) {
     await page.setViewportSize({ width, height: width < 768 ? 820 : 900 })
     for (const [field, value, label] of expectedValues) {
-      await expect(field, `${width}px에서 ${label} draft를 보존해야 합니다`).toHaveValue(value)
+      await expectFieldValue(field, value, `${width}px에서 ${label} draft를 보존해야 합니다`)
     }
     await expect(focusedField, `${width}px에서 조건부 필드 focus를 보존해야 합니다`).toBeFocused()
     await expect(selectedButton, `${width}px에서 자산 종류 선택을 보존해야 합니다`).toHaveAttribute('aria-pressed', 'true')
@@ -200,6 +201,14 @@ async function expectConditionalCreateAcrossBreakpoints(
     ], width)
     expect(await hasPageOverflow(page), `${width}px 조건부 자산 화면에 가로 overflow가 없어야 합니다`).toBe(false)
   }
+}
+
+async function expectFieldValue(field: Locator, value: string, message: string) {
+  if (await field.getAttribute('data-value') !== null) {
+    await expect(field, message).toHaveAttribute('data-value', value)
+    return
+  }
+  await expect(field, message).toHaveValue(value)
 }
 
 async function expectCardDetailAcrossBreakpoints(page: Page) {
@@ -465,14 +474,14 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await expect(page).toHaveURL(/\/assets\/new/)
   await expect(debitAmount).toHaveValue('180,000')
   await expect(debitOpenedOn).toHaveValue('2026-06-20')
-  await settlementAccount.selectOption({ label: `${paymentAssetName} · 1,250,000원` })
-  const settlementAccountId = await settlementAccount.inputValue()
+  await selectAsset(page, '결제 계좌', paymentAssetName)
+  const settlementAccountId = await settlementAccount.getAttribute('data-value') ?? ''
 
   await selectAssetTypeWithKeyboard(page, savingsButton, '적금')
   await expect(debitAmount).toHaveValue('180,000')
   await expect(debitOpenedOn).toHaveValue('2026-06-20')
   await selectAssetTypeWithKeyboard(page, debitCardButton, '체크카드')
-  await expect(settlementAccount).toHaveValue(settlementAccountId)
+  await expect(settlementAccount).toHaveAttribute('data-value', settlementAccountId)
   await expectConditionalCreateAcrossBreakpoints(page, typeGroup, debitCardButton, [
     [debitAmount, '180,000', '기준일 잔액'],
     [debitOpenedOn, '2026-06-20', '잔액 기준일'],
@@ -487,8 +496,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await debitCardRow.getByRole('link').click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('잔액 기준일', { exact: true })).toHaveValue('2026-06-20')
-  await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveValue(settlementAccountId)
-  await expect(page.getByLabel('결제 계좌', { exact: true }).locator('option:checked')).toContainText(paymentAssetName)
+  await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveAttribute('data-value', settlementAccountId)
+  await expect(page.getByLabel('결제 계좌', { exact: true })).toContainText(paymentAssetName)
 
   await openNewAssetForm(page)
   typeGroup = page.getByRole('group', { name: '자산 종류' })
@@ -523,8 +532,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await page.getByRole('button', { name: '변경 저장', exact: true }).click()
   await expect(autoTransferAccount, '자동이체를 켜면 계좌가 필수여야 합니다').toHaveAttribute('aria-invalid', 'true')
   await expect(autoTransferDay, '자동이체를 켜면 이체일이 필수여야 합니다').toHaveAttribute('aria-invalid', 'true')
-  await autoTransferAccount.selectOption({ label: `${paymentAssetName} · 1,250,000원` })
-  const autoTransferAccountId = await autoTransferAccount.inputValue()
+  await selectAsset(page, '자동이체 계좌', paymentAssetName)
+  const autoTransferAccountId = await autoTransferAccount.getAttribute('data-value') ?? ''
   await autoTransferDay.fill('32')
   await page.getByRole('button', { name: '변경 저장', exact: true }).click()
   await expect(autoTransferDay, '적금 자동이체일은 31일을 넘을 수 없습니다').toHaveAttribute('aria-invalid', 'true')
@@ -541,8 +550,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await page.getByRole('button', { name: '변경 저장', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요.')
   await expect(detailAutoTransferSwitch).toBeChecked()
-  await expect(page.getByLabel('자동이체 계좌', { exact: true })).toHaveValue(autoTransferAccountId)
-  await expect(page.getByLabel('자동이체 계좌', { exact: true }).locator('option:checked')).toContainText(paymentAssetName)
+  await expect(page.getByLabel('자동이체 계좌', { exact: true })).toHaveAttribute('data-value', autoTransferAccountId)
+  await expect(page.getByLabel('자동이체 계좌', { exact: true })).toContainText(paymentAssetName)
   await expect(page.getByRole('spinbutton', { name: '자동이체일', exact: true })).toHaveValue('27')
 })
 
@@ -578,7 +587,7 @@ test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산
   await expect(page.getByRole('spinbutton', { name: '결제일', exact: true })).toHaveValue('25')
   await expect(page.getByLabel('결제 월')).toHaveValue('1')
 
-  await page.getByLabel('결제 계좌', { exact: true }).selectOption({ label: `${settlementAssetName} · 1,250,000원` })
+  await selectAsset(page, '결제 계좌', settlementAssetName)
   await page.getByRole('button', { name: '자산 등록', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
   await expect(page.getByRole('status')).toContainText('자산을 등록했어요.')
@@ -589,7 +598,7 @@ test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산
 
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('생활비 신용카드')
-  await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveValue(/.+/)
+  await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveAttribute('data-value', /.+/)
   const autoSettlement = page.getByRole('switch', { name: /^결제일에 자동 정산/ })
   await expect(autoSettlement).not.toBeChecked()
   await expectFlatStructure(page.getByRole('group', { name: '신용카드 설정' }), '상세 신용카드 설정 fieldset')

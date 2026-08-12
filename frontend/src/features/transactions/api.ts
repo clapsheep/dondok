@@ -55,7 +55,7 @@ export type CreateTransactionInput =
 
 export type UpdateTransactionInput = (
   | CommonTransactionInput & { type: 'INCOME'; categoryId: string; assetId: string; excludedFromStatistics: boolean }
-  | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string; excludedFromStatistics: boolean }
+  | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string; installmentCount?: number; excludedFromStatistics: boolean }
   | CommonTransactionInput & { type: 'TRANSFER'; sourceAssetId: string; destinationAssetId: string }
 ) & { expectedVersion: number }
 
@@ -172,17 +172,22 @@ export type CardPurchaseRefundResult = {
 
 export const transactionKeys = {
   all: ['transactions'] as const,
-  calendar: (month: string) => ['transactions', 'calendar', month] as const,
-  list: (from: string, toExclusive: string) => ['transactions', 'list', from, toExclusive] as const,
+  calendar: (month: string, performedByMemberId?: string) => ['transactions', 'calendar', month, performedByMemberId ?? 'all'] as const,
+  list: (from: string, toExclusive: string, performedByMemberId?: string) => ['transactions', 'list', from, toExclusive, performedByMemberId ?? 'all'] as const,
   detail: (transactionId: string) => ['transactions', 'detail', transactionId] as const,
   cardPurchaseManagement: (transactionId: string) => ['transactions', 'card-purchase-management', transactionId] as const,
 }
 
 export const transactionApi = {
-  calendar: (month: string) => api<MonthlyCalendar>(`/api/transactions/calendar?month=${encodeURIComponent(month)}`),
-  list: ({ from, toExclusive, cursor, limit = 50 }: { from: string; toExclusive: string; cursor?: string | null; limit?: number }) => {
+  calendar: (month: string, performedByMemberId?: string) => {
+    const params = new URLSearchParams({ month })
+    if (performedByMemberId) params.set('performedByMemberId', performedByMemberId)
+    return api<MonthlyCalendar>(`/api/transactions/calendar?${params}`)
+  },
+  list: ({ from, toExclusive, cursor, limit = 50, performedByMemberId }: { from: string; toExclusive: string; cursor?: string | null; limit?: number; performedByMemberId?: string }) => {
     const params = new URLSearchParams({ from, toExclusive, limit: String(limit) })
     if (cursor) params.set('cursor', cursor)
+    if (performedByMemberId) params.set('performedByMemberId', performedByMemberId)
     return api<TransactionPage>(`/api/transactions?${params}`)
   },
   detail: (transactionId: string) => api<Transaction>(`/api/transactions/${transactionId}`),

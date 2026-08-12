@@ -721,6 +721,11 @@ paths:
           in: query
           required: true
           schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
+        - name: performedByMemberId
+          in: query
+          required: false
+          description: 지정하면 해당 구성원이 받은 수입·쓴 지출만 집계하며, 생략하면 모든 구성원을 집계
+          schema: { type: string, format: uuid }
       responses:
         "200":
           description: 이체와 조정을 제외한 월·일 합계
@@ -745,6 +750,11 @@ paths:
           in: query
           required: true
           schema: { type: string, format: date }
+        - name: performedByMemberId
+          in: query
+          required: false
+          description: 지정하면 해당 구성원이 주체인 거래만 조회하며, 생략하면 모든 구성원의 거래를 조회
+          schema: { type: string, format: uuid }
         - name: cursor
           in: query
           required: false
@@ -813,7 +823,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     put:
       summary: expected version 기준 일반 거래 전체 수정
-      description: 거래 종류는 변경할 수 없고 신용카드 구매와 시스템 거래는 별도 command를 사용한다.
+      description: 거래 종류는 변경할 수 없다. 일반 지출의 결제 자산을 신용카드로 바꾸면 카드 구매·명세를 원자적으로 생성하고, 이미 카드 구매가 된 거래와 시스템 거래는 별도 command를 사용한다.
       operationId: updateTransaction
       tags: [Transaction]
       security: [{ cookieAuth: [] }]
@@ -1454,6 +1464,12 @@ components:
         amountWon: { type: integer, format: int64, minimum: 1 }
         categoryId: { type: string, format: uuid }
         assetId: { type: string, format: uuid }
+        installmentCount:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 1
+          description: EXPENSE의 결제 자산을 신용카드로 변경할 때 사용하며 생략하면 일시불로 처리한다.
         sourceAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 활성 BANK 계좌 자산 ID" }
         destinationAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 출발과 다른 활성 BANK 계좌 자산 ID" }
         performedByMemberId: { type: string, format: uuid }

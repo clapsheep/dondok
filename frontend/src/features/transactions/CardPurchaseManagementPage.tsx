@@ -12,6 +12,7 @@ import { TextareaField } from '../../components/ui/TextareaField'
 import { ApiError } from '../../lib/api'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { assetApi, assetKeys, type Asset } from '../assets/api'
+import { AssetPicker } from '../assets/AssetPicker'
 import { categoryApi, categoryKeys, type Category } from '../categories/api'
 import type { LedgerBook } from '../membership/api'
 import {
@@ -290,10 +291,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
               {originalCategoryMissing && purchase.category ? <option value={purchase.category.categoryId}>{purchase.category.name} (현재 목록에 없음)</option> : null}
               {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
             </SelectField>
-            <SelectField id="correctionCard" label="결제 카드" value={draft.cardAssetId} onChange={(value) => updateDraft('cardAssetId', value)} error={errors.cardAssetId} disabled={pending}>
-              {originalCardMissing ? <option value={draft.cardAssetId}>{management.billingSnapshot.cardAssetName} (현재 목록에 없음)</option> : null}
-              {cardAssets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name}</option>)}
-            </SelectField>
+            <AssetPicker id="correctionCard" label="결제 카드" assets={cardAssets} members={ledger.members} value={draft.cardAssetId} onChange={(value) => updateDraft('cardAssetId', value)} missingSelection={originalCardMissing ? { assetId: draft.cardAssetId, name: management.billingSnapshot.cardAssetName, assetTypeName: '신용카드' } : undefined} error={errors.cardAssetId} disabled={pending} required />
             <Field id="correctionInstallments" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} inputMode="numeric" value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} error={errors.installmentCount} disabled={pending} required />
             <div className="md:col-span-2 lg:col-span-3"><PerformerPicker id="correctionPerformer" label={performerQuestionLabel('EXPENSE')} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending} /></div>
           </div>

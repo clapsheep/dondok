@@ -224,7 +224,7 @@ audit에는 영향 건수와 날짜 범위를 한 건으로 남긴다. command�
 
 분류 생성·이름 변경은 같은 거래 방향에서 대소문자 무시 이름 중복을 막고, 응답에 `version`과 연결 거래 수를 포함한다. 거래 생성·수정은 분류를 read lock으로 확인하고 분류 삭제는 write lock으로 이동·archive하여, 삭제가 끝난 분류를 새 거래가 다시 참조하는 경쟁 상태를 만들지 않는다.
 
-일반 거래 수정·삭제는 `UpdateGeneralTransactionUseCase`와 `DeleteGeneralTransactionUseCase` 경계에서 처리한다. 원 거래 행을 잠그고 `expectedVersion`이 다르면 `412`로 전체 저장을 거부한다. 수정은 유형을 불변으로 유지하면서 posting을 한 트랜잭션에서 재구성하고, 삭제는 거래만 soft delete해 감사 가능한 posting 원본을 보존한다. 신용카드 구매와 시스템 거래는 `managementType`으로 구분해 일반 command에서 차단한다.
+일반 거래 수정·삭제는 `UpdateGeneralTransactionUseCase`와 `DeleteGeneralTransactionUseCase` 경계에서 처리한다. 원 거래 행을 잠그고 `expectedVersion`이 다르면 `412`로 전체 저장을 거부한다. 수정은 유형을 불변으로 유지하면서 posting을 한 트랜잭션에서 재구성하고, 삭제는 거래만 soft delete해 감사 가능한 posting 원본을 보존한다. 아직 card charge가 없는 일반 지출이 결제 자산을 신용카드로 바꾸면 같은 update 트랜잭션에서 기존 posting을 교체하고 billing snapshot·회차별 charge·명세·schedule을 생성해 `CARD_PURCHASE` aggregate로 승격한다. 이미 card charge가 있는 신용카드 구매와 시스템 거래는 `managementType`으로 구분해 일반 command에서 차단한다.
 
 사용자 수입·지출 command는 `excludedFromStatistics`를 함께 받고 응답에도 반환한다. 이 값은 posting 생성과 자산 잔액 계산에 관여하지 않고 `ledger_financial_activity` 포함 여부만 제어한다. 신용카드 구매 정정과 환불 preview/apply command도 같은 값을 preview token·idempotency hash에 포함해 확인 뒤 다른 집계 상태가 저장되는 것을 막는다. 이전 클라이언트가 필드를 생략하면 `false`로 처리하고 일반 이체에는 `true`를 허용하지 않는다.
 
@@ -273,7 +273,7 @@ unique 충돌은 DB를 최종 진실로 두고 안정된 409 오류 코드로 �
 
 수정 조회 응답에는 aggregate `version`을 포함하고 update command는 `If-Match` 또는 `expectedVersion`으로 편집 시작 시 version을 전달한다. 현재 version과 다르면 `412 VERSION_CONFLICT`를 반환하고 어떤 필드도 저장하지 않는다. 서버는 필드 자동 병합을 하지 않으며 응답에 최신 resource를 다시 읽을 수 있는 안정된 식별자를 제공한다.
 
-MVP에는 SSE와 sync outbox를 두지 않는다. REST command 결과가 authoritative하며 작성 세션은 해당 응답으로 TanStack Query cache를 갱신하거나 관련 query를 invalidate한다. 다른 세션은 route 진입, window focus, 사용자 새로고침에서 재조회한다. 목록은 cursor pagination, 달력·통계는 기간이 제한된 projection query를 사용한다.
+MVP에는 SSE와 sync outbox를 두지 않는다. REST command 결과가 authoritative하며 작성 세션은 해당 응답으로 TanStack Query cache를 갱신하거나 관련 query를 invalidate한다. 다른 세션은 route 진입, window focus, 사용자 새로고침에서 재조회한다. 목록은 cursor pagination, 달력·통계는 기간이 제한된 projection query를 사용한다. 홈 달력과 거래 목록은 선택적 `performedByMemberId`를 같은 가계부 구성원으로 검증한 뒤 동일하게 적용하고, 생략한 이전 클라이언트에는 전체 기록을 반환한다. 프론트 query key에는 월·기간과 선택 구성원을 함께 넣어 서로 다른 범위의 응답을 공유하지 않는다.
 
 월간 통계는 별도 `statistics` feature의 read-only controller/application/repository로 둔다. transaction feature의 persistence 구현에 의존하지 않고 DB의 canonical `ledger_financial_activity` view와 공개된 월간 HTTP 계약만 공유한다. view가 사용자 선택 집계 제외를 먼저 제거하므로 달력·월 합계·분류·연간 흐름이 같은 의미를 유지하며, 원장 목록은 base transaction을 조회해 제외 기록도 반환한다. `YearMonth`에서 한 달 반개구간을 서버가 만들고 동적 WHERE로 선택 필터만 SQL에 포함해 nullable `OR` 조건의 generic plan을 피한다. 모든 필터 ID와 자산 소유 조합은 같은 가계부 경계에서 검증하며, 조회에는 version·행 잠금·idempotency를 적용하지 않는다. 응답은 DB 집계 금액을 바꾸지 않고 환불로 음수가 된 지출·분류 순금액도 그대로 전달한다.
 

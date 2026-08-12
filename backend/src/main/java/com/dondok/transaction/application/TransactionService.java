@@ -90,10 +90,17 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public CalendarView calendar(UUID userId, YearMonth month) {
+        return calendar(userId, month, null);
+    }
+
+    @Transactional(readOnly = true)
+    public CalendarView calendar(UUID userId, YearMonth month, UUID performedByMemberId) {
         LedgerMemberEntity member = currentMember(userId);
+        requireOptionalPerformer(member.getBookId(), performedByMemberId);
         LocalDate from = month.atDay(1);
         LocalDate toExclusive = month.plusMonths(1).atDay(1);
-        List<DaySummary> days = transactions.calendar(member.getBookId(), from, toExclusive).stream()
+        List<DaySummary> days = transactions.calendar(
+                        member.getBookId(), from, toExclusive, performedByMemberId).stream()
                 .map(row -> new DaySummary(row.date(), row.incomeWon(), row.expenseWon(),
                         row.incomeWon() - row.expenseWon()))
                 .toList();
@@ -106,6 +113,14 @@ public class TransactionService {
     public TransactionPage transactions(
             UUID userId, LocalDate from, LocalDate toExclusive, String encodedCursor, int limit
     ) {
+        return transactions(userId, from, toExclusive, encodedCursor, limit, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TransactionPage transactions(
+            UUID userId, LocalDate from, LocalDate toExclusive, String encodedCursor, int limit,
+            UUID performedByMemberId
+    ) {
         requireRange(from, toExclusive);
         if (limit < 1 || limit > MAX_PAGE_SIZE) {
             throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_PAGE_INVALID", "페이지 크기를 확인해 주세요.");
@@ -117,8 +132,9 @@ public class TransactionService {
             throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_CURSOR_INVALID", "목록 커서가 올바르지 않습니다.");
         }
         LedgerMemberEntity member = currentMember(userId);
+        requireOptionalPerformer(member.getBookId(), performedByMemberId);
         TransactionJdbcRepository.PageRows page = transactions.page(
-                member.getBookId(), from, toExclusive, cursor, limit);
+                member.getBookId(), from, toExclusive, cursor, limit, performedByMemberId);
         return new TransactionPage(page.items().stream().map(this::toView).toList(), page.nextCursor());
     }
 
@@ -169,7 +185,8 @@ public class TransactionService {
                         .orElseThrow(() -> error(HttpStatus.BAD_REQUEST, "CARD_SETTINGS_MISSING",
                                 "카드 설정을 먼저 입력해 주세요."));
                 cardPurchase = new CardPurchase(asset, setting,
-                        installments(expense, setting));
+                        installments(expense.occurredOn(), expense.amountWon(),
+                                expense.installmentCount(), setting));
             } else if (type.getBehavior() == AssetBehavior.DEBIT_CARD) {
                 if (expense.installmentCount() != 1) {
                     throw installmentInvalid();
@@ -252,6 +269,12 @@ public class TransactionService {
                 stripToNull(command.description()), command.excludedFromStatistics(),
                 editor.getId(), command.expectedVersion(), now,
                 mutation.postings()));
+        if (mutation.cardPurchase() != null) {
+            CardPurchase cardPurchase = mutation.cardPurchase();
+            transactions.insertCardInstallments(editor.getBookId(), transactionId,
+                    cardPurchase.asset().getId(), cardPurchase.installments(), cardPurchase.setting(),
+                    command.occurredOn().isBefore(cardPurchase.asset().getOpenedOn()), now);
+        }
         return requiredView(editor.getBookId(), transactionId);
     }
 
@@ -283,22 +306,35 @@ public class TransactionService {
             CategoryEntity category = lockedCategory;
             AssetEntity asset = requireAsset(bookId, command.assetId());
             return new TransactionMutation(category.getId(), asset.getId(),
-                    List.of(new TransactionJdbcRepository.PostingWrite(asset.getId(), command.amountWon())));
+                    List.of(new TransactionJdbcRepository.PostingWrite(asset.getId(), command.amountWon())), null);
         }
         if (type == TransactionType.EXPENSE) {
             requireShape(command.categoryId() != null && command.assetId() != null
                     && command.sourceAssetId() == null && command.destinationAssetId() == null);
             CategoryEntity category = lockedCategory;
             AssetEntity asset = requireAsset(bookId, command.assetId());
+            AssetTypeEntity assetType = requireAssetType(bookId, asset.getAssetTypeId());
+            if (assetType.getBehavior() == AssetBehavior.CREDIT_CARD) {
+                if (command.installmentCount() < 1 || command.installmentCount() > MAX_INSTALLMENTS) {
+                    throw installmentInvalid();
+                }
+                CardSettingEntity setting = cardSettings.findById(asset.getId())
+                        .orElseThrow(() -> error(HttpStatus.BAD_REQUEST, "CARD_SETTINGS_MISSING",
+                                "카드 설정을 먼저 입력해 주세요."));
+                CardPurchase cardPurchase = new CardPurchase(asset, setting,
+                        installments(command.occurredOn(), command.amountWon(),
+                                command.installmentCount(), setting));
+                return new TransactionMutation(category.getId(), asset.getId(),
+                        List.of(new TransactionJdbcRepository.PostingWrite(
+                                asset.getId(), -command.amountWon())), cardPurchase);
+            }
+            if (command.installmentCount() != 1) {
+                throw installmentInvalid();
+            }
             UUID postingAssetId;
             if (asset.getId().equals(state.primaryAssetId())) {
                 postingAssetId = state.postingAssetId();
             } else {
-                AssetTypeEntity assetType = requireAssetType(bookId, asset.getAssetTypeId());
-                if (assetType.getBehavior() == AssetBehavior.CREDIT_CARD) {
-                    throw error(HttpStatus.CONFLICT, "CARD_PURCHASE_CORRECTION_REQUIRED",
-                            "신용카드 구매는 기록 정정 또는 환불 처리로 변경해 주세요.");
-                }
                 postingAssetId = asset.getId();
                 if (assetType.getBehavior() == AssetBehavior.DEBIT_CARD) {
                     DebitCardSettingEntity setting = debitCardSettings.findById(asset.getId())
@@ -309,7 +345,7 @@ public class TransactionService {
             }
             return new TransactionMutation(category.getId(), asset.getId(),
                     List.of(new TransactionJdbcRepository.PostingWrite(
-                            postingAssetId, -command.amountWon())));
+                            postingAssetId, -command.amountWon())), null);
         }
         if (type == TransactionType.TRANSFER) {
             requireShape(command.categoryId() == null && command.assetId() == null
@@ -323,7 +359,7 @@ public class TransactionService {
             AssetEntity destination = requireTransferAccount(bookId, command.destinationAssetId());
             return new TransactionMutation(null, null, List.of(
                     new TransactionJdbcRepository.PostingWrite(source.getId(), -command.amountWon()),
-                    new TransactionJdbcRepository.PostingWrite(destination.getId(), command.amountWon())));
+                    new TransactionJdbcRepository.PostingWrite(destination.getId(), command.amountWon())), null);
         }
         throw error(HttpStatus.CONFLICT, "TRANSACTION_MUTATION_NOT_ALLOWED",
                 "이 거래는 일반 수정으로 변경할 수 없습니다.");
@@ -368,11 +404,10 @@ public class TransactionService {
     }
 
     private List<TransactionJdbcRepository.InstallmentWrite> installments(
-            CreateExpense expense, CardSettingEntity setting
+            LocalDate occurredOn, long amountWon, int count, CardSettingEntity setting
     ) {
-        int count = expense.installmentCount();
-        long base = expense.amountWon() / count;
-        long remainder = expense.amountWon() % count;
+        long base = amountWon / count;
+        long remainder = amountWon % count;
         List<TransactionJdbcRepository.InstallmentWrite> result = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
             long amount = base + (index < remainder ? 1 : 0);
@@ -380,7 +415,7 @@ public class TransactionService {
                 throw installmentInvalid();
             }
             CardBillingCyclePolicy.Cycle cycle = billingCyclePolicy.calculate(
-                    expense.occurredOn().plusMonths(index), setting.getStatementClosingDay(),
+                    occurredOn.plusMonths(index), setting.getStatementClosingDay(),
                     setting.getPaymentDay(), setting.getPaymentMonthOffset(), assetLedger::isPublicHoliday);
             result.add(new TransactionJdbcRepository.InstallmentWrite(index + 1, amount, cycle));
         }
@@ -440,6 +475,12 @@ public class TransactionService {
         return members.findByIdAndBookId(performerId, bookId).map(LedgerMemberEntity::getId)
                 .orElseThrow(() -> error(HttpStatus.BAD_REQUEST, "TRANSACTION_PERFORMER_INVALID",
                         "같은 가계부의 구성원을 선택해 주세요."));
+    }
+
+    private void requireOptionalPerformer(UUID bookId, UUID performerId) {
+        if (performerId != null) {
+            requirePerformer(bookId, performerId);
+        }
     }
 
     private AssetEntity requireAsset(UUID bookId, UUID assetId) {
@@ -554,7 +595,8 @@ public class TransactionService {
     private record TransactionMutation(
             UUID categoryId,
             UUID primaryAssetId,
-            List<TransactionJdbcRepository.PostingWrite> postings
+            List<TransactionJdbcRepository.PostingWrite> postings,
+            CardPurchase cardPurchase
     ) {
     }
     public record UpdateCommand(
@@ -568,7 +610,8 @@ public class TransactionService {
             UUID performedByMemberId,
             String description,
             long expectedVersion,
-            boolean excludedFromStatistics
+            boolean excludedFromStatistics,
+            int installmentCount
     ) {
         public UpdateCommand(
                 TransactionType type, LocalDate occurredOn, long amountWon, UUID categoryId,
@@ -576,7 +619,18 @@ public class TransactionService {
                 UUID performedByMemberId, String description, long expectedVersion
         ) {
             this(type, occurredOn, amountWon, categoryId, assetId, sourceAssetId,
-                    destinationAssetId, performedByMemberId, description, expectedVersion, false);
+                    destinationAssetId, performedByMemberId, description, expectedVersion, false, 1);
+        }
+
+        public UpdateCommand(
+                TransactionType type, LocalDate occurredOn, long amountWon, UUID categoryId,
+                UUID assetId, UUID sourceAssetId, UUID destinationAssetId,
+                UUID performedByMemberId, String description, long expectedVersion,
+                boolean excludedFromStatistics
+        ) {
+            this(type, occurredOn, amountWon, categoryId, assetId, sourceAssetId,
+                    destinationAssetId, performedByMemberId, description, expectedVersion,
+                    excludedFromStatistics, 1);
         }
     }
     public enum TransactionManagementType {
