@@ -446,12 +446,12 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
     const other = current.ledger.members.find((member) => !member.currentUser)
     if (!owner || !other) throw new Error('statistics seed requires two ledger members')
     const account = assets.find((asset) => asset.systemCode === 'BANK')
-    const card = assets.find((asset) => asset.systemCode === 'CREDIT_CARD')
     const bankType = assetTypes.find((assetType) => assetType.systemCode === 'BANK')
+    const creditCardType = assetTypes.find((assetType) => assetType.systemCode === 'CREDIT_CARD')
     const incomeOther = incomes.find((category) => category.systemCode === 'OTHER')
     const food = expenses.find((category) => category.systemCode === 'FOOD')
     const transport = expenses.find((category) => category.systemCode === 'TRANSPORT')
-    if (!account || !card || !bankType || !incomeOther || !food || !transport) {
+    if (!account || !bankType || !creditCardType || !incomeOther || !food || !transport) {
       throw new Error('statistics seed defaults were not found')
     }
     const requestIds: string[] = []
@@ -490,6 +490,24 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
       memo: null,
       openingBalanceWon: 777_777,
       cardSettings: null,
+      debitCardSettings: null,
+      savingsSettings: null,
+    }, true)
+    const card = await mutate<Asset>('/api/assets', {
+      assetTypeId: creditCardType.assetTypeId,
+      ownershipScope: 'PERSONAL',
+      ownerMemberId: owner.memberId,
+      name: '통계 검증 카드',
+      openedOn: `${previousMonth}-01`,
+      memo: null,
+      openingBalanceWon: 0,
+      cardSettings: {
+        statementClosingDay: 14,
+        paymentDay: 25,
+        paymentMonthOffset: 1,
+        settlementAssetId: account.assetId,
+        autoSettlementEnabled: false,
+      },
       debitCardSettings: null,
       savingsSettings: null,
     }, true)
