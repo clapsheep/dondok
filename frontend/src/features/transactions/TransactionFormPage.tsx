@@ -151,9 +151,12 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
   })
 
   function finishMutation(saved: Transaction, status: 'transactionSaved' | 'transactionUpdated') {
-    void queryClient.invalidateQueries({ queryKey: transactionKeys.all })
-    void queryClient.invalidateQueries({ queryKey: assetKeys.all })
-    void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all })
+    // 이 화면에서 활성화된 상세 query가 먼저 재조회되면 일반 거래를 카드 구매로
+    // 바꾼 직후 전용 상세 redirect가 목록 복귀보다 앞설 수 있다. 이동할 화면에서
+    // 최신 데이터를 읽도록 stale 처리만 하고 현재 route에서는 refetch하지 않는다.
+    void queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType: 'none' })
+    void queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType: 'none' })
+    void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType: 'none' })
     const fallback = `/?view=daily&month=${saved.occurredOn.slice(0, 7)}`
     navigate(editing ? returnTo : fallback, { replace: true, state: { [status]: true } })
   }
