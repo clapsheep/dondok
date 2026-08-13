@@ -94,4 +94,6 @@ Tailwind에서 사용하는 forest 단계는 theme token에 모두 정의해 생
 
 토큰은 직접 화면별로 복제하지 않는다. 새로운 색·간격·컴포넌트 변형은 UX/UI와 Frontend가 의미와 재사용 범위를 합의한 뒤 공통 토큰 또는 shadcn variant로 추가한다.
 
+자산과 연결 계좌 선택은 Base UI Popover 기반 공통 `AssetPicker`를 사용한다. 모바일은 safe area 위의 bottom drawer, iPad·데스크톱은 trigger에 붙는 popover로 같은 DOM을 재배치한다. trigger와 option에는 자산 종류 icon, 이름, 종류, 소유자 avatar/marker와 잔액을 함께 두고, 여러 종류가 섞이면 compact 종류 필터를 제공한다. option은 큰 카드가 아니라 구분선 기반 64px 내외 행으로 유지하며 overlay radius는 8px을 넘기지 않는다.
+
 내비게이션의 현재 위치는 배경색만으로 표시하지 않는다. primary leading indicator, 굵기 변화, 텍스트 또는 아이콘 상태와 `aria-current="page"`를 함께 사용한다.

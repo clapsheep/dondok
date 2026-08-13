@@ -108,6 +108,76 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
+    void calendarAndLedgerRowsCanBeFilteredByEconomicPerformer() {
+        Fixture fixture = fixture();
+        UUID partnerMemberId = addMember(fixture.bookId(), "함께 쓰는 사람");
+        AssetService.AssetView account = createStandardAsset(
+                fixture, "BANK", "구성원 필터 계좌", 0, "member-filter-account");
+        UUID incomeCategory = category(fixture.userId(), CategoryKind.INCOME, "OTHER");
+        UUID expenseCategory = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+
+        TransactionService.TransactionView myIncome = transactionService.create(
+                fixture.userId(), "member-filter-my-income",
+                new TransactionService.CreateIncome(
+                        LocalDate.of(2026, 8, 3), 100_000, incomeCategory,
+                        account.assetId(), fixture.memberId(), "내 수입"));
+        TransactionService.TransactionView myExpense = transactionService.create(
+                fixture.userId(), "member-filter-my-expense",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 4), 30_000, expenseCategory,
+                        account.assetId(), fixture.memberId(), "내 지출", 1));
+        TransactionService.TransactionView partnerIncome = transactionService.create(
+                fixture.userId(), "member-filter-partner-income",
+                new TransactionService.CreateIncome(
+                        LocalDate.of(2026, 8, 5), 70_000, incomeCategory,
+                        account.assetId(), partnerMemberId, "상대 수입"));
+        TransactionService.TransactionView partnerExpense = transactionService.create(
+                fixture.userId(), "member-filter-partner-expense",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 6), 20_000, expenseCategory,
+                        account.assetId(), partnerMemberId, "상대 지출", 1));
+
+        assertThat(transactionService.calendar(
+                fixture.userId(), YearMonth.of(2026, 8), fixture.memberId()))
+                .satisfies(calendar -> {
+                    assertThat(calendar.totalIncomeWon()).isEqualTo(100_000);
+                    assertThat(calendar.totalExpenseWon()).isEqualTo(30_000);
+                    assertThat(calendar.days()).extracting(TransactionService.DaySummary::date)
+                            .containsExactly(LocalDate.of(2026, 8, 3), LocalDate.of(2026, 8, 4));
+                });
+        assertThat(transactionService.calendar(
+                fixture.userId(), YearMonth.of(2026, 8), partnerMemberId))
+                .satisfies(calendar -> {
+                    assertThat(calendar.totalIncomeWon()).isEqualTo(70_000);
+                    assertThat(calendar.totalExpenseWon()).isEqualTo(20_000);
+                    assertThat(calendar.days()).extracting(TransactionService.DaySummary::date)
+                            .containsExactly(LocalDate.of(2026, 8, 5), LocalDate.of(2026, 8, 6));
+                });
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 8)))
+                .satisfies(calendar -> {
+                    assertThat(calendar.totalIncomeWon()).isEqualTo(170_000);
+                    assertThat(calendar.totalExpenseWon()).isEqualTo(50_000);
+                });
+
+        assertThat(transactionService.transactions(
+                fixture.userId(), LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 1),
+                null, 10, fixture.memberId()).items())
+                .extracting(TransactionService.TransactionView::transactionId)
+                .containsExactly(myExpense.transactionId(), myIncome.transactionId());
+        assertThat(transactionService.transactions(
+                fixture.userId(), LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 1),
+                null, 10, partnerMemberId).items())
+                .extracting(TransactionService.TransactionView::transactionId)
+                .containsExactly(partnerExpense.transactionId(), partnerIncome.transactionId());
+
+        assertThatThrownBy(() -> transactionService.calendar(
+                fixture.userId(), YearMonth.of(2026, 8), UUID.randomUUID()))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo("TRANSACTION_PERFORMER_INVALID"));
+    }
+
+    @Test
     void excludedIncomeAndExpenseChangeBalanceStayVisibleAndCanReturnToAggregates() {
         Fixture fixture = fixture();
         AssetService.AssetView account = createStandardAsset(
@@ -545,6 +615,54 @@ class TransactionServiceIntegrationTest {
         assertThatThrownBy(() -> transactionService.transaction(fixture.userId(), created.transactionId()))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo("TRANSACTION_NOT_FOUND"));
+    }
+
+    @Test
+    void generalExpenseCanBeCorrectedFromBankToCreditCardPurchase() {
+        Fixture fixture = fixture();
+        AssetService.AssetView bank = createStandardAsset(
+                fixture, "BANK", "잘못 선택한 계좌", 100_000, "expense-to-card-bank");
+        AssetService.AssetView card = assetService.create(
+                fixture.userId(), "expense-to-card",
+                new AssetService.AssetCommand(
+                        assetType(fixture.userId(), "CREDIT_CARD"), AssetOwnershipScope.PERSONAL,
+                        fixture.memberId(), "실제 결제 카드", LocalDate.of(2026, 7, 1), null, 0,
+                        new AssetService.CardSettingsCommand(
+                                14, 25, 1, bank.assetId(), false)));
+        UUID food = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+        TransactionService.TransactionView accountExpense = transactionService.create(
+                fixture.userId(), "expense-before-card-correction",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 7, 20), 10_000, food, bank.assetId(),
+                        fixture.memberId(), "계좌로 잘못 기록", 1));
+
+        TransactionService.TransactionView cardPurchase = transactionService.update(
+                fixture.userId(), accountExpense.transactionId(),
+                new TransactionService.UpdateCommand(
+                        TransactionType.EXPENSE, LocalDate.of(2026, 7, 21), 30_000,
+                        food, card.assetId(), null, null, fixture.memberId(),
+                        "신용카드로 정정", accountExpense.version(), false, 3));
+
+        assertThat(cardPurchase.managementType())
+                .isEqualTo(TransactionService.TransactionManagementType.CARD_PURCHASE);
+        assertThat(cardPurchase.installmentCount()).isEqualTo(3);
+        assertThat(cardPurchase.version()).isEqualTo(accountExpense.version() + 1);
+        assertThat(cardPurchase.postings()).singleElement().satisfies(posting -> {
+            assertThat(posting.assetId()).isEqualTo(card.assetId());
+            assertThat(posting.deltaWon()).isEqualTo(-30_000);
+        });
+        assertThat(assetService.asset(fixture.userId(), bank.assetId()).currentBalanceWon())
+                .isEqualTo(100_000);
+        assertThat(assetService.asset(fixture.userId(), card.assetId()).currentBalanceWon())
+                .isEqualTo(-30_000);
+        assertThat(count("select count(*) from card_purchase_billing_snapshot where purchase_transaction_id = ?",
+                accountExpense.transactionId())).isOne();
+        assertThat(count("select count(*) from card_charge where source_transaction_id = ?",
+                accountExpense.transactionId())).isEqualTo(3);
+        assertThat(queryLong("select sum(principal_amount_won) from card_charge where source_transaction_id = ?",
+                accountExpense.transactionId())).isEqualTo(30_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)).totalExpenseWon())
+                .isEqualTo(30_000);
     }
 
     @Test

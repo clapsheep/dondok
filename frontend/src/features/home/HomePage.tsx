@@ -1,16 +1,19 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, SquarePen } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
+import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, SquarePen, UsersRound } from 'lucide-react'
+import { type ReactNode, useEffect, useMemo, useRef } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
+import { RadioGroup, RadioGroupItem } from '../../components/ui/RadioGroup'
 import { addMonths, currentMonthInSeoul, monthBounds, monthTitle, todayInSeoul } from '../../lib/month'
 import {
   membershipApi,
   membershipKeys,
   type CurrentLedgerBook,
+  type LedgerBook,
+  type LedgerMember,
 } from '../membership/api'
 import type { LedgerNavigationState } from '../membership/ledgerLifecycle'
 import { transactionApi, transactionKeys, type CalendarDay, type Transaction } from '../transactions/api'
@@ -25,7 +28,7 @@ function ErrorNotice({ error }: { error: unknown }) {
 export function HomePage({ current }: { current: CurrentLedgerBook }) {
   return (
     <AppShell ledgerNavigation={Boolean(current.ledger)}>
-      {current.ledger ? <LedgerHome /> : <LedgerSetup />}
+      {current.ledger ? <LedgerHome ledger={current.ledger} /> : <LedgerSetup />}
     </AppShell>
   )
 }
@@ -82,10 +85,18 @@ function LedgerSetup() {
   )
 }
 
-function LedgerHome() {
+function LedgerHome({ ledger }: { ledger: LedgerBook }) {
   const queryClient = useQueryClient()
   const location = useLocation()
   const [params, setParams] = useSearchParams()
+  const currentMember = ledger.members.find((member) => member.currentUser)!
+  const requestedMember = params.get('member')
+  const selectedMemberKey = requestedMember === 'all'
+    ? 'all'
+    : ledger.members.some((member) => member.memberId === requestedMember)
+      ? requestedMember!
+      : currentMember.memberId
+  const performedByMemberId = selectedMemberKey === 'all' ? undefined : selectedMemberKey
   const month = /^\d{4}-\d{2}$/.test(params.get('month') ?? '') ? params.get('month')! : currentMonthInSeoul()
   const view = params.get('view') === 'daily' ? 'daily' : 'calendar'
   const dayDetailOpen = view === 'calendar' && params.get('detail') === 'day'
@@ -93,14 +104,14 @@ function LedgerHome() {
   const selectedDate = selectedDateForMonth(params.get('date'), month, todayInSeoul())
   const selectedDateToExclusive = nextCalendarDate(selectedDate)
   const calendar = useQuery({
-    queryKey: transactionKeys.calendar(month),
-    queryFn: () => transactionApi.calendar(month),
+    queryKey: transactionKeys.calendar(month, performedByMemberId),
+    queryFn: () => transactionApi.calendar(month, performedByMemberId),
     staleTime: 0,
     refetchOnWindowFocus: 'always',
   })
   const transactions = useInfiniteQuery({
-    queryKey: transactionKeys.list(bounds.from, bounds.toExclusive),
-    queryFn: ({ pageParam }) => transactionApi.list({ from: bounds.from, toExclusive: bounds.toExclusive, cursor: pageParam }),
+    queryKey: transactionKeys.list(bounds.from, bounds.toExclusive, performedByMemberId),
+    queryFn: ({ pageParam }) => transactionApi.list({ from: bounds.from, toExclusive: bounds.toExclusive, cursor: pageParam, performedByMemberId }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: view === 'daily',
@@ -108,8 +119,8 @@ function LedgerHome() {
     refetchOnWindowFocus: 'always',
   })
   const selectedTransactions = useInfiniteQuery({
-    queryKey: transactionKeys.list(selectedDate, selectedDateToExclusive),
-    queryFn: ({ pageParam }) => transactionApi.list({ from: selectedDate, toExclusive: selectedDateToExclusive, cursor: pageParam }),
+    queryKey: transactionKeys.list(selectedDate, selectedDateToExclusive, performedByMemberId),
+    queryFn: ({ pageParam }) => transactionApi.list({ from: selectedDate, toExclusive: selectedDateToExclusive, cursor: pageParam, performedByMemberId }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: dayDetailOpen,
@@ -157,6 +168,15 @@ function LedgerHome() {
     }, { replace: true })
   }
 
+  function selectMember(nextMemberKey: string) {
+    setParams((current) => {
+      const updated = new URLSearchParams(current)
+      if (nextMemberKey === currentMember.memberId) updated.delete('member')
+      else updated.set('member', nextMemberKey)
+      return updated
+    }, { replace: true })
+  }
+
   function selectDate(date: string) {
     setParams((current) => {
       const updated = new URLSearchParams(current)
@@ -200,11 +220,18 @@ function LedgerHome() {
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-x-8 xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-x-10">
         <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-          <div className="mt-5 flex items-center justify-between gap-3 lg:mt-0">
-            <Button variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={20} /></Button>
-            <h2 className="text-xl font-semibold tabular-nums">{monthTitle(month)}</h2>
-            <Button variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={20} /></Button>
+          <div className="mt-2 flex items-center justify-between gap-2 lg:mt-0">
+            <Button variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></Button>
+            <h2 className="whitespace-nowrap text-sm font-medium tabular-nums text-[var(--muted)]" data-month-title>{monthTitle(month)}</h2>
+            <Button variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={18} /></Button>
           </div>
+
+          <CalendarMemberFilter
+            members={ledger.members}
+            currentMemberId={currentMember.memberId}
+            value={selectedMemberKey}
+            onChange={selectMember}
+          />
 
           {transactionStatus(location.state)}
           {ledgerLifecycleStatus(location.state)}
@@ -259,6 +286,67 @@ function LedgerHome() {
         returnTo={`${location.pathname}${location.search}`}
       />
     </section>
+  )
+}
+
+function CalendarMemberFilter({ members, currentMemberId, value, onChange }: {
+  members: LedgerMember[]
+  currentMemberId: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  const orderedMembers = [...members].sort((left, right) => Number(right.currentUser) - Number(left.currentUser))
+  return (
+    <fieldset className="-mx-4 mt-1 min-w-0 xs:-mx-6 md:mx-0">
+      <legend id="calendar-member-filter-label" className="sr-only">표시할 구성원</legend>
+      <div className="overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xs:px-6 md:px-0">
+        <RadioGroup
+          name="calendar-member-filter"
+          value={value}
+          onValueChange={onChange}
+          aria-labelledby="calendar-member-filter-label"
+          className="flex w-max min-w-full items-end gap-1"
+        >
+          {orderedMembers.map((member) => (
+            <CalendarMemberOption
+              key={member.memberId}
+              value={member.memberId}
+              selected={value === member.memberId}
+              label={member.currentUser ? '나' : member.displayName}
+              accessibleLabel={member.memberId === currentMemberId ? '내 기록 보기' : `${member.displayName} 기록 보기`}
+              avatar={<MemberAvatar displayName={member.displayName} memberId={member.memberId} size="xs" />}
+            />
+          ))}
+          <CalendarMemberOption
+            value="all"
+            selected={value === 'all'}
+            label="모두"
+            accessibleLabel="모든 구성원 기록 보기"
+            avatar={<UsersRound aria-hidden="true" size={16} />}
+          />
+        </RadioGroup>
+      </div>
+    </fieldset>
+  )
+}
+
+function CalendarMemberOption({ value, selected, label, accessibleLabel, avatar }: {
+  value: string
+  selected: boolean
+  label: string
+  accessibleLabel: string
+  avatar: ReactNode
+}) {
+  const id = `calendar-member-${value}`
+  return (
+    <label
+      htmlFor={id}
+      className={`flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-2.5 text-sm transition-colors focus-within:ring-3 focus-within:ring-inset focus-within:ring-[var(--ring)] ${selected ? 'border-forest-700 font-semibold text-forest-800 dark:border-forest-300 dark:text-forest-100' : 'border-transparent font-medium text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`}
+    >
+      {avatar}
+      <span className="max-w-36 whitespace-nowrap" title={label}>{label}</span>
+      <RadioGroupItem id={id} value={value} className="sr-only" aria-label={accessibleLabel} />
+    </label>
   )
 }
 

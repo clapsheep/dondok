@@ -34,6 +34,7 @@ import {
   type SavingsSettings,
   type UpdateAssetInput,
 } from './api'
+import { AssetPicker } from './AssetPicker'
 import { resolveAssetName } from './assetName'
 import { formatWon, todayInSeoul } from './format'
 import { blockingLinkKindLabel, removalActionLabel, removalDescription, removalTitle, removalWarnings } from './removal'
@@ -454,9 +455,9 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
           {editing ? <TextareaField id="assetMemo" name="assetMemo" label="메모 (선택)" value={draft.memo} onChange={(value) => update('memo', value)} maxLength={1000} error={fieldErrors.memo} /> : null}
         </div>
 
-        {isCreditCard ? <CardSettingsFields editing={editing} draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('settlementAssetId', trigger)} /> : null}
-        {isDebitCard ? <DebitCardSettingsFields draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('debitCardPaymentAssetId', trigger)} /> : null}
-        {isSavings ? <SavingsSettingsFields draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('savingsTransferAssetId', trigger)} /> : null}
+        {isCreditCard ? <CardSettingsFields editing={editing} draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} members={ledger.members} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('settlementAssetId', trigger)} /> : null}
+        {isDebitCard ? <DebitCardSettingsFields draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} members={ledger.members} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('debitCardPaymentAssetId', trigger)} /> : null}
+        {isSavings ? <SavingsSettingsFields draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} members={ledger.members} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('savingsTransferAssetId', trigger)} /> : null}
 
         {!online ? <p className="mt-6 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">인터넷 연결을 확인해 주세요. 입력은 그대로 두었고 연결되면 저장할 수 있어요.</p> : null}
         {remoteDeleted ? <p className="mt-6 border-l-4 border-red-600 px-4 py-2 text-sm leading-6 text-red-800 dark:text-[#ffd5cf]" role="alert">이 자산을 더 이상 찾을 수 없어요. 작성 중인 입력은 이 화면에 그대로 두었지만 저장할 수는 없습니다. 필요한 내용을 확인한 뒤 자산 목록으로 돌아가 주세요.</p> : remoteArchived ? <p className="mt-6 border-l-4 border-amber-500 px-4 py-2 text-sm leading-6 text-amber-950 dark:text-[#ffe3a3]" role="alert">다른 구성원이 이 자산을 보관했어요. 작성 중인 입력은 그대로 두었지만 저장할 수 없습니다. 필요한 내용을 확인한 뒤 자산 목록으로 돌아가 주세요.</p> : backgroundError && !conflict ? <p className="mt-6 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">최신값을 확인하지 못했어요. 작성 중인 입력은 그대로 두었습니다.</p> : null}
@@ -689,12 +690,13 @@ function AssetRemovalDialog({ assetId, onRequestClose, onApplied, onNavigateToAs
   )
 }
 
-function CardSettingsFields({ editing, draft, update, errors, candidates, onCreatePaymentSource }: {
+function CardSettingsFields({ editing, draft, update, errors, candidates, members, onCreatePaymentSource }: {
   editing: boolean
   draft: AssetDraft
   update: <K extends keyof AssetDraft>(key: K, value: AssetDraft[K]) => void
   errors: FieldErrors
   candidates: Asset[]
+  members: LedgerBook['members']
   onCreatePaymentSource: (trigger: HTMLButtonElement) => void
 }) {
   return (
@@ -707,7 +709,7 @@ function CardSettingsFields({ editing, draft, update, errors, candidates, onCrea
           <Field id="paymentDay" name="paymentDay" label="결제일" hint="1일부터 31일까지" value={draft.paymentDay} onChange={(event) => update('paymentDay', event.target.value)} type="number" min={1} max={31} inputMode="numeric" error={errors.paymentDay} required />
         </div>
       </div>
-      <div className="mt-4"><SelectField id="settlementAsset" label="결제 계좌" value={draft.settlementAssetId} onChange={(value) => { update('settlementAssetId', value); if (!value) update('autoSettlementEnabled', false) }} error={errors.settlementAssetId} required><option value="">결제 계좌를 선택해 주세요</option>{candidates.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name} · {formatWon(asset.currentBalanceWon)}</option>)}</SelectField><PaymentSourceAction hasCandidates={candidates.length > 0} emptyMessage="결제 계좌가 없어 신용카드를 저장할 수 없어요. 계좌를 추가해 계속할 수 있어요." triggerLabel="신용카드 결제 계좌 만들기" onCreate={onCreatePaymentSource} /></div>
+      <div className="mt-4"><AssetPicker id="settlementAsset" label="결제 계좌" assets={candidates} members={members} value={draft.settlementAssetId} onChange={(value) => { update('settlementAssetId', value); if (!value) update('autoSettlementEnabled', false) }} error={errors.settlementAssetId} placeholder="결제 계좌를 선택해 주세요" required /><PaymentSourceAction hasCandidates={candidates.length > 0} emptyMessage="결제 계좌가 없어 신용카드를 저장할 수 없어요. 계좌를 추가해 계속할 수 있어요." triggerLabel="신용카드 결제 계좌 만들기" onCreate={onCreatePaymentSource} /></div>
       {editing ? <label className={`mt-4 flex min-h-11 items-start gap-3 border-y border-[var(--line)] px-1 py-3 ${draft.settlementAssetId ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} htmlFor="autoSettlementEnabled">
           <Switch id="autoSettlementEnabled" className="mt-0.5" checked={draft.autoSettlementEnabled} onCheckedChange={(checked) => update('autoSettlementEnabled', checked)} disabled={!draft.settlementAssetId} />
           <span><span className="block text-sm font-semibold">결제일에 자동 정산</span><span className="mt-1 block text-xs leading-5 text-[var(--muted)]">선택한 계좌 잔액이 부족해도 전액 기록하며 음수 잔액을 허용해요.</span></span>
@@ -716,32 +718,31 @@ function CardSettingsFields({ editing, draft, update, errors, candidates, onCrea
   )
 }
 
-function DebitCardSettingsFields({ draft, update, errors, candidates, onCreatePaymentSource }: {
+function DebitCardSettingsFields({ draft, update, errors, candidates, members, onCreatePaymentSource }: {
   draft: AssetDraft
   update: <K extends keyof AssetDraft>(key: K, value: AssetDraft[K]) => void
   errors: FieldErrors
   candidates: Asset[]
+  members: LedgerBook['members']
   onCreatePaymentSource: (trigger: HTMLButtonElement) => void
 }) {
   return (
     <fieldset className="mt-5 border-t border-[var(--line)] pt-4" aria-label="체크카드 설정">
       <legend className="pr-3 text-sm font-semibold">체크카드 설정</legend>
       <div className="mt-3">
-        <SelectField id="debitCardPaymentAsset" label="결제 계좌" value={draft.debitCardPaymentAssetId} onChange={(value) => update('debitCardPaymentAssetId', value)} error={errors.debitCardPaymentAssetId} required>
-          <option value="">결제 계좌를 선택해 주세요</option>
-          {candidates.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name} · {formatWon(asset.currentBalanceWon)}</option>)}
-        </SelectField>
+        <AssetPicker id="debitCardPaymentAsset" label="결제 계좌" assets={candidates} members={members} value={draft.debitCardPaymentAssetId} onChange={(value) => update('debitCardPaymentAssetId', value)} error={errors.debitCardPaymentAssetId} placeholder="결제 계좌를 선택해 주세요" required />
         <PaymentSourceAction hasCandidates={candidates.length > 0} emptyMessage="결제 계좌가 없어 체크카드를 저장할 수 없어요. 계좌를 추가해 계속할 수 있어요." triggerLabel="체크카드 결제 계좌 만들기" onCreate={onCreatePaymentSource} />
       </div>
     </fieldset>
   )
 }
 
-function SavingsSettingsFields({ draft, update, errors, candidates, onCreatePaymentSource }: {
+function SavingsSettingsFields({ draft, update, errors, candidates, members, onCreatePaymentSource }: {
   draft: AssetDraft
   update: <K extends keyof AssetDraft>(key: K, value: AssetDraft[K]) => void
   errors: FieldErrors
   candidates: Asset[]
+  members: LedgerBook['members']
   onCreatePaymentSource: (trigger: HTMLButtonElement) => void
 }) {
   return (
@@ -767,10 +768,7 @@ function SavingsSettingsFields({ draft, update, errors, candidates, onCreatePaym
       {draft.savingsAutoTransferEnabled ? (
         <div id="savings-auto-transfer-fields" className="mt-4 grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(9rem,.38fr)] md:gap-5">
           <div>
-            <SelectField id="savingsTransferAsset" label="자동이체 계좌" value={draft.savingsTransferAssetId} onChange={(value) => update('savingsTransferAssetId', value)} error={errors.savingsTransferAssetId} required>
-              <option value="">자동이체 계좌를 선택해 주세요</option>
-              {candidates.map((asset) => <option key={asset.assetId} value={asset.assetId}>{asset.name} · {formatWon(asset.currentBalanceWon)}</option>)}
-            </SelectField>
+            <AssetPicker id="savingsTransferAsset" label="자동이체 계좌" assets={candidates} members={members} value={draft.savingsTransferAssetId} onChange={(value) => update('savingsTransferAssetId', value)} error={errors.savingsTransferAssetId} placeholder="자동이체 계좌를 선택해 주세요" required />
             <PaymentSourceAction hasCandidates={candidates.length > 0} emptyMessage="자동이체에 사용할 계좌가 없어요. 계좌를 추가해 계속할 수 있어요." triggerLabel="적금 자동이체 계좌 만들기" onCreate={onCreatePaymentSource} />
           </div>
           <Field id="savingsTransferDay" name="savingsTransferDay" label="자동이체일" hint="1일부터 31일까지" value={draft.savingsTransferDay} onChange={(event) => update('savingsTransferDay', event.target.value)} type="number" min={1} max={31} inputMode="numeric" error={errors.savingsTransferDay} required />

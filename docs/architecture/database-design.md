@@ -150,7 +150,7 @@ erDiagram
 
 거래 삭제 API는 단순하게 제공하고 DB에서는 `deleted_at` soft delete를 사용한다. 잔액과 통계는 삭제 거래의 posting을 제외한다. 카드 구매는 `기록 정정`과 `환불 처리`를 별도 command로 둔다. 기록 정정은 원 결제일 기준으로 원거래·charge·명세·정산을 소급 교정한다. 실제 환불은 원 구매·결제 이력을 보존하고 환불일 통계를 상쇄하며, 미결제분은 카드 부채를 줄이고 결제 완료분은 최신 결제부터 실제 원 결제 계좌로 반환한다. 카드·계좌 posting, `card_charge`와 statement 변경은 한 application transaction에서 처리한다.
 
-일반 수입·지출·이체 수정은 원 거래 행을 잠그고 편집 시작 `version`을 비교한 뒤, 같은 DB 트랜잭션에서 거래 필드와 posting을 함께 다시 만든다. 거래 유형은 수정할 수 없다. 체크카드 지출이 같은 체크카드를 유지하면 이후 연결 계좌 설정이 바뀌었더라도 기존 posting 계좌를 보존하고, 다른 체크카드로 변경할 때만 새 카드의 현재 연결 계좌를 사용한다. 신용카드 구매와 자동 정산 거래는 일반 수정·삭제 API에서 거부하고 전용 정정·환불 command로 넘긴다.
+일반 수입·지출·이체 수정은 원 거래 행을 잠그고 편집 시작 `version`을 비교한 뒤, 같은 DB 트랜잭션에서 거래 필드와 posting을 함께 다시 만든다. 거래 유형은 수정할 수 없다. 체크카드 지출이 같은 체크카드를 유지하면 이후 연결 계좌 설정이 바뀌었더라도 기존 posting 계좌를 보존하고, 다른 체크카드로 변경할 때만 새 카드의 현재 연결 계좌를 사용한다. 아직 `card_charge`가 없는 일반 지출을 신용카드로 바꾸는 수정은 기존 posting 교체와 `card_purchase_billing_snapshot`·할부 `card_charge`·명세·schedule 생성을 같은 트랜잭션에서 수행한다. 이 생성이 끝난 신용카드 구매와 자동 정산 거래는 일반 수정·삭제 API에서 거부하고 전용 정정·환불 command로 넘긴다.
 
 ## 7. 카드 구매, 명세, 결제 예정액
 
@@ -217,7 +217,7 @@ erDiagram
 
 기본 화면에는 멤버·거래 주체·자산 소유자 필터를 자동 적용하지 않고 가계부 전체를 보여준다. 개인/공동/멤버별 통계는 사용자가 명시적으로 필터를 선택했을 때만 계산한다.
 
-MVP 통계는 선택 월 수입·지출·순액과 카테고리 비중, 선택 월이 속한 연도의 1~12월 수입·지출 합계를 제공한다. 일별 거래는 통계에서 중복 집계하지 않고 홈의 일별 원장에서 조회한다. 거래 목록은 날짜·ID 기반 cursor pagination으로 필요한 범위만 조회하고, 달력·통계는 시작일과 종료일이 있는 bounded query만 허용한다. JPA `LAZY` 연관관계를 순회해 목록을 만드는 대신 projection과 명시적 SQL로 N+1과 전체 원장 로드를 피한다.
+MVP 통계는 선택 월 수입·지출·순액과 카테고리 비중, 선택 월이 속한 연도의 1~12월 수입·지출 합계를 제공한다. 일별 거래는 통계에서 중복 집계하지 않고 홈의 일별 원장에서 조회한다. 거래 목록은 날짜·ID 기반 cursor pagination으로 필요한 범위만 조회하고, 달력·통계는 시작일과 종료일이 있는 bounded query만 허용한다. 홈의 구성원별 보기는 선택한 경우에만 `performed_by_member_id = ?`를 bounded 달력 projection과 cursor 목록 SQL에 추가하고, 전체 보기에는 nullable `OR` 조건을 만들지 않는다. JPA `LAZY` 연관관계를 순회해 목록을 만드는 대신 projection과 명시적 SQL로 N+1과 전체 원장 로드를 피한다.
 
 월간 통계는 `excluded_from_statistics=false`인 수입·지출만 담는 `ledger_financial_activity`가 노출하는 `primary_asset_id`를 자산 소유 marker 필터에 사용한다. 체크카드 지출도 실제 posting 계좌가 아니라 사용자가 선택한 체크카드의 소유 marker로 귀속하고, 개인 소유는 `asset.owner_member_id`, 공동 소유는 `asset.ownership_scope = 'JOINT'`의 현재 값을 적용한다. 거래 주체·자산 소유자·분류 필터는 모두 같은 가계부에 속하는지 먼저 확인한 뒤 AND로 조합한다. 선택 월 합계·분류는 월 범위 `GROUPING SETS`, 연간 막대는 같은 연도의 `date_trunc('month')` group query로 제한한다. 두 query는 read-only repeatable-read transaction에서 같은 MVCC snapshot을 공유하고 application layer는 누락된 달만 0으로 채워 항상 12개를 반환한다. 실제 실행 계획에서 병목이 확인되기 전에는 새 통계 전용 인덱스나 materialized view를 추가하지 않는다.
 
