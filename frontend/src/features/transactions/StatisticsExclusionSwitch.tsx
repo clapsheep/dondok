@@ -17,7 +17,7 @@ export function StatisticsExclusionSwitch({
   const label = type === 'INCOME' ? '수입에 포함하지 않기' : '지출에 포함하지 않기'
 
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[var(--line)] py-5">
+    <div className="flex items-start justify-between gap-4 border-b border-[var(--line)] py-4 sm:py-5">
       <div className="min-w-0">
         <p id={labelId} className="text-sm font-semibold">{label}</p>
         <p id={descriptionId} className="mt-1 text-xs leading-5 text-[var(--muted)]">

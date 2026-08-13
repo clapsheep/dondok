@@ -6,6 +6,7 @@ import { AppShell } from '../../components/AppShell'
 import { LogoutButton } from '../../components/LogoutButton'
 import { ThemeSettings } from '../../components/ThemeSettings'
 import { Button } from '../../components/ui/Button'
+import { PageTitle } from '../../components/ui/PageTitle'
 import { MemberList } from '../membership/MemberList'
 import {
   membershipApi,
@@ -82,7 +83,7 @@ export function SettingsPage({ ledger }: { ledger: LedgerBook }) {
       <section className="py-8 md:py-12">
         <div className="max-w-2xl">
           <p className="text-sm font-semibold text-brass-500">설정</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-[-.035em] md:text-4xl">가계부 설정</h1>
+          <PageTitle className="mt-1">가계부 설정</PageTitle>
           <p className="mt-3 leading-7 text-[var(--muted)]">내 화면을 조정하고, 구성원을 확인하거나 함께 기록할 사람을 초대할 수 있어요.</p>
         </div>
 

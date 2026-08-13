@@ -113,7 +113,7 @@ export function AssetPicker({
               id={id}
               type="button"
               variant="secondary"
-              className="h-auto min-h-12 w-full min-w-0 justify-start gap-2.5 px-3 py-2 text-left font-normal"
+              className="h-auto min-h-12 w-full min-w-0 justify-start gap-2 px-2.5 py-1.5 text-left font-normal"
               data-value={value}
               aria-label={label}
               aria-invalid={Boolean(error)}
@@ -127,11 +127,11 @@ export function AssetPicker({
           <ChevronDown className="ml-auto shrink-0 text-[var(--muted)]" size={18} aria-hidden="true" />
         </PopoverTrigger>
 
-        <PopoverContent positionerClassName="asset-picker-positioner" aria-labelledby={titleId} aria-describedby={descriptionId} finalFocus={trigger}>
-          <PopoverHeader className="shrink-0 border-b border-[var(--line)] px-4 py-4 md:px-5">
+        <PopoverContent className="h-[min(52dvh,30rem)] md:h-auto" positionerClassName="asset-picker-positioner" aria-labelledby={titleId} aria-describedby={descriptionId} finalFocus={trigger}>
+          <PopoverHeader className="shrink-0 border-b border-[var(--line)] px-4 py-3 md:px-5 md:py-4">
             <div className="min-w-0">
               <PopoverTitle id={titleId}>{label} 선택</PopoverTitle>
-              <PopoverDescription id={descriptionId} className="mt-1">종류와 소유자를 확인하고 기록에 연결할 자산을 골라 주세요.</PopoverDescription>
+              <PopoverDescription id={descriptionId} className="sr-only md:not-sr-only md:mt-1">종류와 소유자를 확인하고 기록에 연결할 자산을 골라 주세요.</PopoverDescription>
             </div>
             <PopoverClose
               render={<Button type="button" size="icon" variant="ghost" className="shrink-0" aria-label={`${label} 선택 닫기`} />}
@@ -141,13 +141,13 @@ export function AssetPicker({
           </PopoverHeader>
 
           {groups.length > 1 ? (
-            <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1 border-b border-[var(--line)] px-3 py-2 md:px-4" role="group" aria-label="자산 종류 필터">
+            <div className="flex shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-[var(--line)] px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] md:overflow-visible md:px-4 md:py-2" role="group" aria-label="자산 종류 필터">
               <GroupFilter label="전체" count={assets.length} active={activeGroup === 'all'} onSelect={() => setActiveGroup('all')} />
               {groups.map((group) => <GroupFilter key={group.key} label={group.label} count={group.items.length} active={activeGroup === group.key} onSelect={() => setActiveGroup(group.key)} />)}
             </div>
           ) : null}
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-2 md:px-4 md:pb-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-1.5 md:px-4 md:pb-4 md:pt-2">
             {missingSelected ? (
               <section aria-labelledby={`${id}-missing-group`}>
                 <h3 id={`${id}-missing-group`} className="px-1 py-2 text-xs font-semibold text-[var(--muted)]">현재 연결</h3>
@@ -171,8 +171,8 @@ export function AssetPicker({
 
             {filteredGroups.length ? filteredGroups.map((group) => (
               <section className={missingSelected ? 'mt-3' : undefined} key={group.key} aria-labelledby={`${id}-${group.key}-group`}>
-                <h3 id={`${id}-${group.key}-group`} className="flex items-center justify-between px-1 py-2 text-xs font-semibold text-[var(--muted)]"><span>{group.label}</span><span>{group.items.length}개</span></h3>
-                <div className="grid border-t border-l border-[var(--line)] min-[24rem]:grid-cols-2" role="group" aria-label={`${group.label} 자산`}>
+                <h3 id={`${id}-${group.key}-group`} className="flex items-center justify-between px-1 py-1.5 text-xs font-semibold text-[var(--muted)]"><span>{group.label}</span><span>{group.items.length}개</span></h3>
+                <div className="grid border-t border-[var(--line)] md:grid-cols-2 md:border-l" role="group" aria-label={`${group.label} 자산`}>
                   {group.items.map((asset) => (
                     <AssetOption key={asset.assetId} asset={asset} members={members} active={asset.assetId === value} onSelect={selectAsset} />
                   ))}
@@ -194,10 +194,10 @@ function AssetTriggerValue({ asset, members }: { asset: Asset; members: LedgerMe
   const owner = resolveOwner(asset, members)
   return (
     <>
-      <span className="grid size-8 shrink-0 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={17} aria-hidden="true" /></span>
+      <span className="grid size-7 shrink-0 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>
       <span className="min-w-0 flex-1">
-        <span className="block break-words text-sm font-semibold leading-5">{asset.name}</span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 break-words">{asset.assetTypeName} · {owner.label}</span></span>
+        <span className="block truncate text-sm font-semibold leading-4" title={asset.name}>{asset.name}</span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{asset.assetTypeName} · {owner.label}</span></span>
       </span>
       <span className="shrink-0 text-right text-xs font-semibold tabular-nums text-[var(--muted)] max-[22rem]:hidden">{assetAmountLabel(asset)}</span>
     </>
@@ -216,7 +216,7 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
     <PopoverClose
       render={<button
         type="button"
-        className={`grid min-h-16 min-w-0 grid-cols-[2rem_minmax(0,1fr)_auto] items-start gap-2 border-r border-b border-[var(--line)] px-2 py-2.5 text-left transition-colors hover:bg-forest-50 dark:hover:bg-forest-950 ${active ? 'bg-forest-50 text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'bg-[var(--surface)]'}`}
+        className={`grid min-h-14 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-[var(--line)] px-2 py-1.5 text-left transition-colors hover:bg-forest-50 dark:hover:bg-forest-950 md:border-r ${active ? 'bg-forest-50 text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'bg-[var(--surface)]'}`}
         data-asset-option
         data-asset-id={asset.assetId}
         data-asset-system-code={asset.systemCode}
@@ -225,11 +225,10 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
       />}
       onClick={() => onSelect(asset.assetId)}
     >
-      <span className="grid size-8 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={17} aria-hidden="true" /></span>
+      <span className="grid size-7 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>
       <span className="min-w-0">
-        <span className="block break-words text-sm font-semibold leading-5">{asset.name}</span>
-        <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 break-words">{asset.assetTypeName} · {owner.label}</span></span>
-        <span className="mt-1 block text-xs font-semibold tabular-nums text-[var(--muted)]">{assetAmountLabel(asset)}</span>
+        <span className="flex min-w-0 items-baseline gap-2 leading-4"><span className="min-w-0 flex-1 truncate text-sm font-semibold" title={asset.name}>{asset.name}</span><span className="shrink-0 text-[0.6875rem] font-semibold tabular-nums text-[var(--muted)]">{assetAmountLabel(asset)}</span></span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{asset.assetTypeName} · {owner.label}</span></span>
       </span>
       {active ? <Check className="mt-0.5 shrink-0 text-forest-700 dark:text-forest-100" size={17} aria-hidden="true" /> : null}
     </PopoverClose>
@@ -237,7 +236,7 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
 }
 
 function GroupFilter({ label, count, active, onSelect }: { label: string; count: number; active: boolean; onSelect: () => void }) {
-  return <Button type="button" variant="ghost" className={`min-h-11 min-w-0 gap-1 rounded-none px-2 text-xs ${active ? 'bg-forest-100 text-forest-800 dark:bg-forest-800 dark:text-white' : 'text-[var(--muted)]'}`} aria-pressed={active} onClick={onSelect}><span>{label}</span><span className="tabular-nums opacity-70">{count}</span></Button>
+  return <Button type="button" variant="ghost" className={`min-h-11 shrink-0 gap-1 rounded-none px-2.5 text-xs md:min-w-0 md:px-2 ${active ? 'bg-forest-100 text-forest-800 dark:bg-forest-800 dark:text-white' : 'text-[var(--muted)]'}`} aria-pressed={active} onClick={onSelect}><span>{label}</span><span className="tabular-nums opacity-70">{count}</span></Button>
 }
 
 function pickerGroups(assets: Asset[]): PickerGroup[] {

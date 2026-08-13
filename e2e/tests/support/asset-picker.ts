@@ -37,6 +37,17 @@ export async function expectResponsiveAssetPicker(page: Page, trigger: Locator, 
     expect(Math.abs(pickerBox.x)).toBeLessThanOrEqual(1)
     expect(Math.abs(pickerBox.width - viewport.width)).toBeLessThanOrEqual(2)
     expect(Math.abs(pickerBox.y + pickerBox.height - viewport.height)).toBeLessThanOrEqual(2)
+    expect(triggerBox.height, '모바일 자산 선택 trigger가 카드처럼 높아지면 안 됩니다').toBeLessThanOrEqual(52)
+
+    const optionHeights = await picker.locator('[data-asset-option]').evaluateAll((options) => options.map((option) => option.getBoundingClientRect().height))
+    expect(optionHeights.length).toBeGreaterThan(0)
+    expect(optionHeights.every((height) => height >= 44 && height <= 58), '모바일 자산 option은 44px 조작 영역을 지키는 compact 행이어야 합니다').toBe(true)
+
+    const filter = picker.getByRole('group', { name: '자산 종류 필터' })
+    if (await filter.count()) {
+      const filterRows = await filter.getByRole('button').evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().top)))
+      expect(new Set(filterRows).size, '모바일 자산 종류 필터는 줄바꿈하지 않아야 합니다').toBe(1)
+    }
   } else {
     expect(pickerBox.width).toBeLessThan(viewport.width - 16)
     const gapBelow = Math.abs(pickerBox.y - (triggerBox.y + triggerBox.height))

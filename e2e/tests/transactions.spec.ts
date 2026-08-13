@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page, type TestInfo } from '@playwrigh
 import { balanceAssetRow, submitQuickAsset } from './support/assets'
 import { expectResponsiveAssetPicker, openAssetPicker, selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
-import { expectInputBodyOpensDatePicker } from './support/date-picker'
+import { expectResponsiveDatePicker, selectDate } from './support/date-picker'
 import { transactionCategoryTrigger } from './support/transactions'
 
 type SeedResult = {
@@ -26,7 +26,13 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
 
   await recordNavigation(page).click()
   await expect(page.getByRole('heading', { name: '거래 기록', level: 1 })).toHaveCount(1)
-  await expectInputBodyOpensDatePicker(page, page.getByLabel('날짜', { exact: true }), '거래 날짜')
+  const dateTrigger = page.getByLabel('날짜', { exact: true })
+  await expectResponsiveDatePicker(page, dateTrigger, '날짜')
+  const originalDate = await dateTrigger.getAttribute('data-value')
+  const adjacentDate = addUtcDays(originalDate!, 1)
+  await selectDate(page, '날짜', adjacentDate)
+  await expect(dateTrigger).toContainText(displayDate(adjacentDate))
+  await selectDate(page, '날짜', originalDate!)
   await expect(page.getByRole('radiogroup', { name: '누가 썼나요?' })).toBeVisible()
   await expect(page.getByRole('radio', { name: new RegExp(displayName) })).toBeChecked()
   await expect(page.getByRole('radiogroup', { name: '누가 썼나요?' }).locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '거')
@@ -34,9 +40,18 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(assetPicker.picker.getByRole('group', { name: '자산 종류 필터' })).toBeVisible()
   await expect(assetPicker.picker.getByRole('button', { name: /^전체 \d+$/ })).toBeVisible()
   await expect(assetPicker.picker.getByRole('button', { name: /^자금 \d+$/ })).toBeVisible()
+  await expect.poll(() => assetPicker.picker.evaluate((element) => getComputedStyle(element).transform)).toBe('none')
+  const pickerBoxBeforeFilter = await assetPicker.picker.boundingBox()
   await assetPicker.picker.getByRole('button', { name: /^카드 \d+$/ }).click()
   await expect(assetPicker.picker.locator('[data-asset-option]')).toHaveCount(2)
   expect(await assetPicker.picker.locator('[data-asset-option]').evaluateAll((options) => options.every((option) => ['CREDIT_CARD', 'DEBIT_CARD'].includes(option.getAttribute('data-asset-system-code') ?? '')))).toBe(true)
+  const pickerBoxAfterFilter = await assetPicker.picker.boundingBox()
+  if ((page.viewportSize()?.width ?? 768) < 768) {
+    expect(pickerBoxBeforeFilter).not.toBeNull()
+    expect(pickerBoxAfterFilter).not.toBeNull()
+    expect(Math.abs(pickerBoxAfterFilter!.height - pickerBoxBeforeFilter!.height), '모바일 자산 종류를 바꿔도 drawer 높이는 움직이지 않아야 합니다').toBeLessThanOrEqual(1)
+    expect(Math.abs(pickerBoxAfterFilter!.y - pickerBoxBeforeFilter!.y), '모바일 자산 종류를 바꿔도 drawer 위쪽 위치는 움직이지 않아야 합니다').toBeLessThanOrEqual(1)
+  }
   await expect(assetPicker.picker.locator('[data-member-avatar]')).not.toHaveCount(0)
   await expectResponsiveAssetPicker(page, assetPicker.trigger, assetPicker.picker)
   await page.keyboard.press('Escape')
@@ -304,19 +319,19 @@ async function expectTransactionFormLayout(page: Page, width: number) {
     fieldRect(transactionCategoryTrigger(page)),
     fieldRect(page.getByLabel('입금 자산', { exact: true })),
   ])
-  expect(Math.abs(amount.top - date.top), `${width}px 금액과 날짜는 같은 거래 시점 행에 있어야 합니다`).toBeLessThanOrEqual(1)
-  expect(Math.abs(amount.width - date.width), `${width}px 금액과 날짜는 같은 폭으로 보여야 합니다`).toBeLessThanOrEqual(2)
+  expect(date.top, `${width}px 날짜는 금액 다음 독립 행에 있어야 합니다`).toBeGreaterThanOrEqual(amount.bottom - 1)
+  expect(amount.top, `${width}px 거래 입력은 금액부터 읽혀야 합니다`).toBeLessThan(date.top)
+  expect(Math.abs(amount.width - date.width), `${width}px 금액과 날짜는 같은 전체 폭을 사용해야 합니다`).toBeLessThanOrEqual(1)
   expect(Math.abs(amount.controlHeight - date.controlHeight), `${width}px 금액과 날짜 control 높이가 같아야 합니다`).toBeLessThanOrEqual(1)
+  expect(asset.top, `${width}px 자산은 분류 다음 독립 행에 있어야 합니다`).toBeGreaterThanOrEqual(category.bottom - 1)
 
   const mobileContextHeader = page.locator('[data-mobile-context-header]')
   const pageBackLink = page.locator('[data-page-back-link]')
   const desktopSummary = page.locator('[data-transaction-desktop-summary]')
+  await expect(pageBackLink, `${width}px 거래 입력 본문에 중복 가계부 복귀 링크를 만들면 안 됩니다`).toHaveCount(0)
   if (width < 768) {
     await expect(mobileContextHeader, `${width}px 거래 기록은 앱형 문맥 header를 사용해야 합니다`).toBeVisible()
-    await expect(pageBackLink, `${width}px에서 별도 가계부로 돌아가기 행을 만들면 안 됩니다`).toBeHidden()
     await expect(desktopSummary).toBeHidden()
-    expect(asset.top, `${width}px 입금 자산은 분류 아래에 있어야 합니다`).toBeGreaterThanOrEqual(category.bottom - 1)
-
     const navGeometry = await page.locator('[data-mobile-navigation]').evaluate((element) => {
       const rect = element.getBoundingClientRect()
       const style = getComputedStyle(element)
@@ -334,13 +349,22 @@ async function expectTransactionFormLayout(page: Page, width: number) {
     return
   }
   await expect(mobileContextHeader).toBeHidden()
-  await expect(pageBackLink).toBeVisible()
   if (width >= 1024) {
     await expect(desktopSummary, `${width}px 데스크톱은 현재 입력 요약 rail을 보여야 합니다`).toBeVisible()
     await expect(desktopSummary, `${width}px 요약 rail은 같은 거래 draft의 금액을 즉시 반영해야 합니다`).toContainText('200,000원')
   }
   else await expect(desktopSummary).toBeHidden()
-  expect(Math.abs(category.top - asset.top), `${width}px 분류와 입금 자산은 같은 분류 행에 있어야 합니다`).toBeLessThanOrEqual(1)
+}
+
+function addUtcDays(value: string, days: number): string {
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + days))
+  return date.toISOString().slice(0, 10)
+}
+
+function displayDate(value: string): string {
+  const [year, month, day] = value.split('-').map(Number)
+  return `${year}. ${month}. ${day}.`
 }
 
 async function expectBankingMoneyPresentation(amount: Locator) {
@@ -355,7 +379,7 @@ async function expectBankingMoneyPresentation(amount: Locator) {
       suffix: wrapper?.querySelector('[aria-hidden="true"]')?.textContent,
     }
   })
-  expect(presentation.fontSize, '금액은 날짜와 어울리는 compact 강조 크기여야 합니다').toBeGreaterThanOrEqual(18)
+  expect(presentation.fontSize, '금액은 compact 강조 크기여야 합니다').toBeGreaterThanOrEqual(18)
   expect(presentation.fontSize, '금액 글자가 날짜보다 과도하게 커지면 안 됩니다').toBeLessThanOrEqual(20)
   expect(presentation.fontWeight, '금액은 한눈에 읽히는 굵기로 보여야 합니다').toBeGreaterThanOrEqual(600)
   expect(presentation.height, '금액 입력은 모바일 조작 영역을 유지해야 합니다').toBeGreaterThanOrEqual(48)

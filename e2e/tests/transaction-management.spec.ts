@@ -33,6 +33,9 @@ test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계
   await expect(transactionRow(page, before)).toHaveCount(0)
 
   await updatedRow.getByRole('link', { name: `${after} 거래 수정` }).click()
+  await expect(page.getByRole('heading', { name: '거래 수정' })).toBeVisible()
+  await expect(page.getByLabel('금액')).toHaveValue('24,000')
+  await expect(page.getByLabel('내용 (선택)')).toHaveValue(after)
   await page.getByRole('button', { name: '기록 삭제' }).click()
   await expect(page.getByRole('heading', { name: '거래 삭제' })).toBeVisible()
   await expect(page.getByText('자산 잔액을 되돌리고 해당 월의 수입·지출 통계에서 제외합니다.', { exact: true })).toBeVisible()

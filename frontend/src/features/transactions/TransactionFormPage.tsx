@@ -5,6 +5,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-route
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
+import { DatePickerField } from '../../components/ui/DatePickerField'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
 import { TextareaField } from '../../components/ui/TextareaField'
@@ -150,9 +151,18 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
   })
 
   function finishMutation(saved: Transaction, status: 'transactionSaved' | 'transactionUpdated') {
-    void queryClient.invalidateQueries({ queryKey: transactionKeys.all })
-    void queryClient.invalidateQueries({ queryKey: assetKeys.all })
-    void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all })
+    // 이 화면에서 활성화된 상세 query가 먼저 재조회되면 일반 거래를 카드 구매로
+    // 바꾼 직후 전용 상세 redirect가 목록 복귀보다 앞설 수 있다. 이동할 화면에서
+    // 최신 데이터를 읽도록 stale 처리만 하고 현재 route에서는 refetch하지 않는다.
+    // 일반 거래는 서버 성공 응답을 상세 cache에도 반영해 다시 편집할 때 이전
+    // version으로 초안이 초기화되어 412 충돌이 나는 것을 막는다. 카드 구매 응답은
+    // 현재 route의 전용 상세 redirect를 유발할 수 있으므로 cache에 쓰지 않는다.
+    if (saved.managementType === 'GENERAL') {
+      queryClient.setQueryData(transactionKeys.detail(saved.transactionId), saved)
+    }
+    void queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType: 'none' })
+    void queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType: 'none' })
+    void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType: 'none' })
     const fallback = `/?view=daily&month=${saved.occurredOn.slice(0, 7)}`
     navigate(editing ? returnTo : fallback, { replace: true, state: { [status]: true } })
   }
@@ -252,8 +262,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
   return (
     <AppShell ledgerNavigation mobileHeader={{ title: editing ? '거래 수정' : '거래 기록', backTo: returnTo, backLabel: '가계부로 돌아가기' }}>
       <section className="mx-auto max-w-[48rem] py-3 sm:py-5 lg:max-w-[74rem] lg:py-8">
-        <Button className="hidden md:inline-flex" asChild variant="ghost"><Link to={returnTo} data-page-back-link><ArrowLeft size={17} />가계부로 돌아가기</Link></Button>
-        <header className="mt-4 hidden border-b border-[var(--line)] pb-4 md:block"><h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '거래 수정' : '거래 기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">본인이 한 기록으로 시작해요. 필요하면 다른 구성원을 선택할 수 있어요.{editing ? ' 거래 종류는 기록 후 바꿀 수 없어요.' : ''}</p></header>
+        <header className="hidden border-b border-[var(--line)] pb-4 md:block"><h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '거래 수정' : '거래 기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">본인이 한 기록으로 시작해요. 필요하면 다른 구성원을 선택할 수 있어요.{editing ? ' 거래 종류는 기록 후 바꿀 수 없어요.' : ''}</p></header>
 
         {remoteDeleted ? (
           <section className="mt-5 border-l-4 border-amber-500 px-4 py-2" aria-labelledby="deleted-transaction-title">
@@ -277,31 +286,31 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
             {hasFieldErrors(errors) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
 
           {editing ? (
-            <div className="border-b border-[var(--line)] pb-5"><p className="text-sm font-semibold">거래 종류</p><p className="mt-2 min-h-11 border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold" aria-label="거래 종류">{typeLabel(draft.type)}</p></div>
+            <div className="border-b border-[var(--line)] pb-4 sm:pb-5"><p className="text-sm font-semibold">거래 종류</p><p className="mt-2 min-h-11 border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold" aria-label="거래 종류">{typeLabel(draft.type)}</p></div>
           ) : (
-            <fieldset className="border-b border-[var(--line)] pb-5"><legend className="text-sm font-semibold">거래 종류</legend><div className="mt-2 grid grid-cols-3 border border-[var(--line)]"><TypeButton type="INCOME" selected={draft.type} onSelect={selectType}>수입</TypeButton><TypeButton type="EXPENSE" selected={draft.type} onSelect={selectType}>지출</TypeButton><TypeButton type="TRANSFER" selected={draft.type} onSelect={selectType}>이체</TypeButton></div></fieldset>
+            <fieldset className="border-b border-[var(--line)] pb-4 sm:pb-5"><legend className="text-sm font-semibold">거래 종류</legend><div className="mt-2 grid grid-cols-3 border border-[var(--line)]"><TypeButton type="INCOME" selected={draft.type} onSelect={selectType}>수입</TypeButton><TypeButton type="EXPENSE" selected={draft.type} onSelect={selectType}>지출</TypeButton><TypeButton type="TRANSFER" selected={draft.type} onSelect={selectType}>이체</TypeButton></div></fieldset>
           )}
 
-          <div className="grid grid-cols-2 gap-3 border-b border-[var(--line)] py-5 max-[18rem]:grid-cols-1 sm:gap-5">
+          <div className="grid gap-4 border-b border-[var(--line)] py-4 sm:py-5" data-transaction-primary-fields>
             <MoneyField id="transactionAmount" label="금액" value={draft.amountWon} onValueChange={(value) => updateDraft('amountWon', value)} placeholder="0" error={errors.amountWon} inputClassName="min-h-12 pr-9 text-lg sm:text-xl" autoFocus={!editing} required />
-            <Field id="transactionDate" label="날짜" type="date" className="min-h-12 px-0 text-sm [text-indent:.5rem] sm:text-base sm:[text-indent:.75rem]" value={draft.occurredOn} onChange={(event) => updateDraft('occurredOn', event.target.value)} error={errors.occurredOn} required />
+            <DatePickerField id="transactionDate" label="날짜" value={draft.occurredOn} onChange={(value) => updateDraft('occurredOn', value)} error={errors.occurredOn} required />
           </div>
 
           {draft.type === 'TRANSFER' ? (
-            <div className="grid gap-3 border-b border-[var(--line)] py-5 lg:grid-cols-[1fr_auto_1fr] lg:items-end">
-              {transferAccounts.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] lg:col-span-3" role="status">이체하려면 서로 다른 계좌가 두 개 이상 필요해요. 계좌를 하나 더 등록해 주세요.</p> : null}
-              {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] lg:col-span-3" role="status">이 이체에 연결된 자산은 현재 계좌 이체에 사용할 수 없어요. 보내는 계좌와 받는 계좌를 다시 선택해 주세요.</p> : null}
-              <p className="text-xs leading-5 text-[var(--muted)] lg:col-span-3">함께 쓰는 구성원의 계좌와 공동 계좌를 모두 선택할 수 있어요.</p>
+            <div className="grid gap-4 border-b border-[var(--line)] py-4 sm:py-5 xl:grid-cols-[1fr_auto_1fr] xl:items-end">
+              {transferAccounts.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이체하려면 서로 다른 계좌가 두 개 이상 필요해요. 계좌를 하나 더 등록해 주세요.</p> : null}
+              {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이 이체에 연결된 자산은 현재 계좌 이체에 사용할 수 없어요. 보내는 계좌와 받는 계좌를 다시 선택해 주세요.</p> : null}
+              <p className="text-xs leading-5 text-[var(--muted)] xl:col-span-3">함께 쓰는 구성원의 계좌와 공동 계좌를 모두 선택할 수 있어요.</p>
               <AssetPicker id="sourceAsset" label="보내는 계좌" assets={transferAccounts} members={ledger.members} value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId} placeholder="계좌를 선택해 주세요" required />
-              <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] lg:block" size={20} />
+              <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] xl:block" size={20} />
               <AssetPicker id="destinationAsset" label="받는 계좌" assets={transferAccounts} members={ledger.members} value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId} placeholder="계좌를 선택해 주세요" required />
             </div>
           ) : (
-            <div className={`grid items-start gap-5 border-b border-[var(--line)] py-5 md:grid-cols-2 ${isCardExpense ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(8rem,.55fr)]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]'}`}>
-              {categories.isError ? <div className={`border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf] md:col-span-2 ${isCardExpense ? 'lg:col-span-3' : 'lg:col-span-2'}`} role="alert"><p>분류를 불러오지 못했어요. 분류를 확인한 뒤 거래를 저장할 수 있어요.</p><Button className="mt-3" type="button" variant="secondary" onClick={() => categories.refetch()}>분류 다시 불러오기</Button></div> : null}
+            <div className="grid items-start gap-4 border-b border-[var(--line)] py-4 sm:py-5" data-transaction-classification-fields>
+              {categories.isError ? <div className="border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert"><p>분류를 불러오지 못했어요. 분류를 확인한 뒤 거래를 저장할 수 있어요.</p><Button className="mt-3" type="button" variant="secondary" onClick={() => categories.refetch()}>분류 다시 불러오기</Button></div> : null}
               <CategoryPicker key={categoryKind} kind={categoryKind} categories={categories.data ?? []} value={categoryId} missingName={transaction?.category?.name} onChange={(value) => updateDraft('categoryId', value)} error={errors.categoryId} disabled={categories.isPending || categories.isError || pending || remoteDeleted} online={online} />
               <AssetPicker id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} assets={assets} members={ledger.members} value={assetId} onChange={(value) => updateDraft('assetId', value)} missingSelection={transaction?.asset && !assets.some((asset) => asset.assetId === transaction.asset?.assetId) ? { assetId: transaction.asset.assetId, name: transaction.asset.name } : undefined} error={errors.assetId} required />
-              {isCardExpense ? <div className="md:col-span-2 md:max-w-40 lg:col-span-1 lg:max-w-none"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
+              {isCardExpense ? <div className="w-full max-w-48"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
             </div>
           )}
 
@@ -314,7 +323,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
             />
           ) : null}
 
-          <div className="grid gap-5 border-b border-[var(--line)] py-5">
+          <div className="grid gap-4 border-b border-[var(--line)] py-4 sm:py-5">
             <PerformerPicker id="performedBy" label={performerQuestionLabel(draft.type)} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending || remoteDeleted} />
             <TextareaField id="transactionDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} maxLength={500} />
           </div>
