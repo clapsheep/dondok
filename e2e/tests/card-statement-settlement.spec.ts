@@ -2,6 +2,7 @@ import { expect, test, type Browser, type BrowserContext, type Locator, type Pag
 import { balanceAssetRow, cardAssetRow, expectCardPaymentAmounts } from './support/assets'
 import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
+import { selectDate } from './support/date-picker'
 import { selectTransactionCategory, transactionCategoryTrigger } from './support/transactions'
 
 type Evidence = {
@@ -182,7 +183,7 @@ async function createCardPurchase(page: Page, purchase: { amount: string; occurr
   await page.goto('/transactions/new')
   await expect(page.getByRole('heading', { name: '거래 기록' })).toBeVisible()
   await page.getByLabel('금액').fill(purchase.amount)
-  await page.getByLabel('날짜', { exact: true }).fill(purchase.occurredOn)
+  await selectDate(page, '날짜', purchase.occurredOn)
   const category = transactionCategoryTrigger(page)
   await expect(category).toContainText('식비')
   await selectTransactionCategory(page, '식비')

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { Button } from '../../components/ui/Button'
+import { PageTitle } from '../../components/ui/PageTitle'
 import { ApiError } from '../../lib/api'
 import { addMonths, currentMonthInSeoul, monthTitle } from '../../lib/month'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
@@ -72,7 +73,7 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
     <AppShell ledgerNavigation>
       <section className="py-5 md:py-8 @container">
         <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--line)] pb-4">
-          <h1 className="text-2xl font-semibold tracking-[-.025em]">월간 통계</h1>
+          <PageTitle>월간 통계</PageTitle>
           <div className="flex items-center gap-2">
             <Button type="button" variant="ghost" size="icon" aria-label="최신 통계 확인" onClick={() => queryClient.invalidateQueries({ queryKey: statisticsKeys.all })} disabled={!online}><RefreshCw size={18} /></Button>
             <StatisticsFilters

@@ -4,6 +4,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { JointAvatar, MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
+import { PageTitle } from '../../components/ui/PageTitle'
 import { cn } from '../../lib/cn'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import type { LedgerBook } from '../membership/api'
@@ -61,7 +62,7 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
       <section className="py-4 md:py-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:gap-3">
           <div className="flex min-w-0 items-baseline gap-x-2">
-            <h1 className="whitespace-nowrap text-xl font-semibold tracking-[-.035em] sm:text-3xl">자산 현황</h1>
+            <PageTitle className="whitespace-nowrap">자산 현황</PageTitle>
             <p className="whitespace-nowrap text-xs text-[var(--muted)]">활성 <strong className="font-semibold text-ink-900 dark:text-white">{assetCount}</strong> / {ASSET_LIMIT}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">

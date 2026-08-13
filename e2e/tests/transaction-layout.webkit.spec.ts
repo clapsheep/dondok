@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { registerAndLogin } from './support/auth'
 
-test('모바일 Safari 거래 금액과 날짜가 화면 폭 안에 같은 크기로 놓인다', async ({ page, request }) => {
+test('모바일 Safari 거래 입력이 화면 폭 안에서 한 열로 읽힌다', async ({ page, request }) => {
   await registerAndLogin(page, request, `Safari 거래 ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await recordNavigation(page).click()
@@ -12,31 +12,46 @@ test('모바일 Safari 거래 금액과 날짜가 화면 폭 안에 같은 크�
 
     const geometry = await page.evaluate(() => {
       const amount = document.querySelector<HTMLElement>('[data-slot="money-field"]')
-      const dateInput = document.querySelector<HTMLInputElement>('#transactionDate')
-      const date = dateInput?.closest<HTMLElement>('[data-slot="field"]')
-      if (!amount || !date || !dateInput) throw new Error('거래 금액 또는 날짜 field를 찾지 못했습니다.')
+      const dateTrigger = document.querySelector<HTMLButtonElement>('#transactionDate')
+      const date = dateTrigger?.closest<HTMLElement>('[data-date-picker-field]')
+      if (!amount || !date || !dateTrigger) throw new Error('거래 금액 또는 날짜 field를 찾지 못했습니다.')
 
       const amountRect = amount.getBoundingClientRect()
       const dateRect = date.getBoundingClientRect()
-      const dateInputRect = dateInput.getBoundingClientRect()
+      const dateTriggerRect = dateTrigger.getBoundingClientRect()
       return {
         viewportWidth: document.documentElement.clientWidth,
         pageWidth: document.documentElement.scrollWidth,
         amountTop: amountRect.top,
+        amountBottom: amountRect.bottom,
         amountWidth: amountRect.width,
         dateTop: dateRect.top,
         dateWidth: dateRect.width,
-        dateInputRight: dateInputRect.right,
-        dateInputInlinePadding: Number.parseFloat(getComputedStyle(dateInput).paddingLeft)
-          + Number.parseFloat(getComputedStyle(dateInput).paddingRight),
+        dateTriggerRight: dateTriggerRect.right,
       }
     })
 
-    expect(geometry.dateInputInlinePadding, 'iOS WebKit의 date width 계산 오류를 피하려면 input 자체의 좌우 padding이 없어야 합니다').toBe(0)
     expect(geometry.pageWidth, `${viewport.width}px에서 페이지 가로 스크롤이 생기면 안 됩니다`).toBe(geometry.viewportWidth)
-    expect(geometry.dateInputRight, `${viewport.width}px에서 날짜 입력 오른쪽 경계가 화면 안에 있어야 합니다`).toBeLessThanOrEqual(geometry.viewportWidth)
-    expect(Math.abs(geometry.amountTop - geometry.dateTop), `${viewport.width}px에서 금액과 날짜는 같은 행이어야 합니다`).toBeLessThanOrEqual(1)
-    expect(Math.abs(geometry.amountWidth - geometry.dateWidth), `${viewport.width}px에서 금액과 날짜는 같은 폭이어야 합니다`).toBeLessThanOrEqual(2)
+    expect(geometry.dateTriggerRight, `${viewport.width}px에서 날짜 선택 오른쪽 경계가 화면 안에 있어야 합니다`).toBeLessThanOrEqual(geometry.viewportWidth)
+    expect(geometry.dateTop, `${viewport.width}px에서 날짜는 금액 다음 행에 있어야 합니다`).toBeGreaterThanOrEqual(geometry.amountBottom - 1)
+    expect(geometry.amountTop, `${viewport.width}px에서 금액이 날짜보다 먼저 보여야 합니다`).toBeLessThan(geometry.dateTop)
+    expect(Math.abs(geometry.amountWidth - geometry.dateWidth), `${viewport.width}px에서 금액과 날짜는 같은 전체 폭을 사용해야 합니다`).toBeLessThanOrEqual(1)
+
+    await page.getByRole('button', { name: '결제 자산', exact: true }).click()
+    const assetPicker = page.getByRole('dialog', { name: '결제 자산 선택', exact: true })
+    await expect(assetPicker).toBeVisible()
+    await expect.poll(() => assetPicker.evaluate((element) => getComputedStyle(element).transform)).toBe('none')
+    await assetPicker.getByRole('button', { name: /^전체 \d+$/ }).click()
+    const pickerBoxBeforeFilter = await assetPicker.boundingBox()
+    await assetPicker.getByRole('button', { name: /^카드 \d+$/ }).click()
+    await expect(assetPicker.locator('[data-asset-option]')).toHaveCount(2)
+    const pickerBoxAfterFilter = await assetPicker.boundingBox()
+    expect(pickerBoxBeforeFilter).not.toBeNull()
+    expect(pickerBoxAfterFilter).not.toBeNull()
+    expect(Math.abs(pickerBoxAfterFilter!.height - pickerBoxBeforeFilter!.height), `${viewport.width}px 모바일 Safari에서 종류 전환 시 drawer 높이가 고정되어야 합니다`).toBeLessThanOrEqual(1)
+    expect(Math.abs(pickerBoxAfterFilter!.y - pickerBoxBeforeFilter!.y), `${viewport.width}px 모바일 Safari에서 종류 전환 시 drawer 위치가 고정되어야 합니다`).toBeLessThanOrEqual(1)
+    await page.keyboard.press('Escape')
+    await expect(assetPicker).toHaveCount(0)
   }
 })
 

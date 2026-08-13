@@ -5,6 +5,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
+import { PageTitle } from '../../components/ui/PageTitle'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
 import { RadioGroup, RadioGroupItem } from '../../components/ui/RadioGroup'
 import { addMonths, currentMonthInSeoul, monthBounds, monthTitle, todayInSeoul } from '../../lib/month'
@@ -211,7 +212,7 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
   return (
     <section className="max-w-[74rem] py-5 md:py-8">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4">
-        <h1 className="text-2xl font-semibold tracking-[-.025em]">가계부</h1>
+        <PageTitle>가계부</PageTitle>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" aria-label="최신 거래 확인" onClick={() => queryClient.invalidateQueries({ queryKey: transactionKeys.all })}><RefreshCw size={18} /></Button>
           <Button asChild><Link to="/transactions/new"><SquarePen size={18} />기록</Link></Button>
