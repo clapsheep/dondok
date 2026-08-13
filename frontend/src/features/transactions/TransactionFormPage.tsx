@@ -154,6 +154,12 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
     // 이 화면에서 활성화된 상세 query가 먼저 재조회되면 일반 거래를 카드 구매로
     // 바꾼 직후 전용 상세 redirect가 목록 복귀보다 앞설 수 있다. 이동할 화면에서
     // 최신 데이터를 읽도록 stale 처리만 하고 현재 route에서는 refetch하지 않는다.
+    // 일반 거래는 서버 성공 응답을 상세 cache에도 반영해 다시 편집할 때 이전
+    // version으로 초안이 초기화되어 412 충돌이 나는 것을 막는다. 카드 구매 응답은
+    // 현재 route의 전용 상세 redirect를 유발할 수 있으므로 cache에 쓰지 않는다.
+    if (saved.managementType === 'GENERAL') {
+      queryClient.setQueryData(transactionKeys.detail(saved.transactionId), saved)
+    }
     void queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType: 'none' })
     void queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType: 'none' })
     void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType: 'none' })
