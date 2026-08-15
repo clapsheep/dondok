@@ -54,8 +54,9 @@ public class CardPurchaseManagementRepository {
                 """, (rs, rowNum) -> rs.getObject(1, UUID.class), bookId, purchaseId);
         jdbcTemplate.query("""
                 select payment.id
-                  from card_statement_payment payment
+                 from card_statement_payment payment
                  where payment.book_id = ?
+                   and payment.cancelled_at is null
                    and exists (
                        select 1 from card_charge charge
                         where charge.statement_id = payment.statement_id
@@ -103,6 +104,7 @@ public class CardPurchaseManagementRepository {
             jdbcTemplate.query("""
                     select payment.id from card_statement_payment payment
                      where payment.book_id = ?
+                       and payment.cancelled_at is null
                        and exists (
                            select 1 from card_statement statement
                             where statement.id = payment.statement_id
@@ -141,6 +143,7 @@ public class CardPurchaseManagementRepository {
                        where allocation.statement_payment_id = payment.id
                   ) returned on true
                  where payment.book_id = ? and payment.statement_id = ?
+                   and payment.cancelled_at is null
                  order by payment.paid_on desc, payment.id desc
                 """, (rs, rowNum) -> new PaymentRow(
                 rs.getObject("id", UUID.class), rs.getObject("statement_id", UUID.class),
@@ -178,6 +181,7 @@ public class CardPurchaseManagementRepository {
                            where allocation.statement_payment_id = payment.id
                       ) returned on true
                      where payment.book_id = ? and payment.statement_id = ?
+                       and payment.cancelled_at is null
                      order by payment.paid_on desc, payment.id desc
                     """, (rs, rowNum) -> new PaymentRow(
                     rs.getObject("id", UUID.class), rs.getObject("statement_id", UUID.class),
@@ -276,6 +280,7 @@ public class CardPurchaseManagementRepository {
                        where allocation.statement_payment_id = payment.id
                   ) returned on true
                  where payment.book_id = ?
+                   and payment.cancelled_at is null
                    and exists (
                        select 1 from card_charge charge
                         where charge.statement_id = payment.statement_id

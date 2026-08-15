@@ -17,6 +17,7 @@ type MockAsset = {
   ownershipScope: 'PERSONAL' | 'JOINT'
   ownerMemberId: string | null
   financialInstitutionCode: 'OTHER' | 'KB_KOOKMIN' | 'TOSS_BANK' | null
+  cardIssuerCode: 'OTHER' | 'SHINHAN' | null
   name: string
   openedOn: string
   memo: null
@@ -24,6 +25,10 @@ type MockAsset = {
   currentBalanceWon: number
   currentMonthCardPaymentDueWon: number
   nextMonthCardPaymentDueWon: number
+  nearestCardPaymentDueOn: string | null
+  nearestCardPaymentDueWon: number
+  followingCardPaymentDueOn: string | null
+  followingCardPaymentDueWon: number
   status: 'ACTIVE' | 'ARCHIVED'
   archivedAt: string | null
   version: number
@@ -62,7 +67,7 @@ test('자산 현황 deep-link 직접 진입과 새로고침이 SPA 화면을 유
   await expect(page.getByRole('region', { name: '자산 요약' })).toBeVisible()
 })
 
-test('자산 현황은 자금 signed 금액과 카드의 이번 달·다음 달 두 열 및 분명한 그룹 시작을 반응형으로 유지한다', async ({ page, request }, testInfo) => {
+test('자산 현황은 자금 signed 금액과 카드별 가까운 결제일 두 열 및 분명한 그룹 시작을 반응형으로 유지한다', async ({ page, request }, testInfo) => {
   const displayName = `자산 현황 사용자 ${test.info().workerIndex}`
   await registerAndLogin(page, request, displayName)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
@@ -315,9 +320,9 @@ async function expectOwnerProjection(page: Page, projection: {
       await expect(identity.locator('[data-asset-name]')).toHaveText(name)
       await expect(identity.locator('[data-asset-metadata]')).toContainText(visibleType)
     } else {
-      const institutionAvatar = identity.locator('[data-financial-institution-avatar]')
-      if (await institutionAvatar.count()) {
-        await expect(link.locator('[data-asset-metadata]'), `${name} 금융기관은 filtered 보기에서도 식별되어야 합니다`).toBeVisible()
+      const brandAvatar = identity.locator('[data-financial-institution-avatar], [data-card-issuer-avatar]')
+      if (await brandAvatar.count()) {
+        await expect(link.locator('[data-asset-metadata]'), `${name} 금융기관이나 카드사는 filtered 보기에서도 식별되어야 합니다`).toBeVisible()
         await expect(identity.locator('[data-asset-type]'), `${name} 기본 이름에는 종류를 반복하지 않아야 합니다`).toHaveCount(0)
       } else {
         await expect(link.locator('[data-asset-metadata]'), `${name} 기본 이름은 filtered 보기에서 metadata가 없어야 합니다`).toHaveCount(0)
@@ -347,8 +352,8 @@ async function expectSummaryValues(page: Page, expected: AssetSummaryExpectation
   await expectSummaryItem(summary, '총자산', expected.assets)
   await expectSummaryItem(summary, '총부채', expected.liabilities)
   await expectSummaryItem(summary, '순자산', expected.net)
-  await expectSummaryItem(summary, '이번 달 카드 결제 금액', expected.currentMonth)
-  await expectSummaryItem(summary, '다음 달 카드 결제 예정 금액', expected.nextMonth)
+  await expectSummaryItem(summary, '각 카드의 가장 가까운 결제 합계', expected.currentMonth)
+  await expectSummaryItem(summary, '각 카드의 그다음 결제 합계', expected.nextMonth)
 }
 
 async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerName: string, viewport: typeof RESPONSIVE_VIEWPORTS[number]) {
@@ -358,8 +363,8 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
   await expectSummaryItem(summary, '총자산', '2,600,000원')
   await expectSummaryItem(summary, '총부채', '1,300,000원')
   await expectSummaryItem(summary, '순자산', '1,300,000원')
-  await expectSummaryItem(summary, '이번 달 카드 결제 금액', '400,000원')
-  await expectSummaryItem(summary, '다음 달 카드 결제 예정 금액', '270,000원')
+  await expectSummaryItem(summary, '각 카드의 가장 가까운 결제 합계', '400,000원')
+  await expectSummaryItem(summary, '각 카드의 그다음 결제 합계', '270,000원')
   await expectSummaryHierarchy(summary, viewportLabel)
 
   const funds = page.getByRole('region', { name: /^자금/ })
@@ -393,11 +398,12 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
     [...cashRow.assets, ...accountRow.assets, ...overdraftRow.assets],
     viewport,
   )
-  const creditRow = await expectAssetRow(cards, '신용카드', { type: '신용카드', owner: '공동 소유', visibleOwner: '공동' }, { cardCurrent: '280,000원', cardNext: '190,000원' }, viewport)
-  const debitRow = await expectAssetRow(cards, '체크카드', { type: '체크카드', owner: ownerName, visibleOwner: '나' }, { cardCurrent: '0원', cardNext: '0원' }, viewport)
-  const positiveCardRow = await expectAssetRow(cards, CUSTOM_CARD_NAME, { type: '신용카드', owner: '공동 소유', visibleType: '신용카드', visibleOwner: '공동' }, { cardCurrent: '120,000원', cardNext: '80,000원' }, viewport)
-  const investmentRow = await expectAssetRow(investments, '투자', { type: '투자', owner: otherOwnerName, visibleOwner: otherOwnerName }, { zero: true }, viewport)
-  const loanRow = await expectAssetRow(loans, '대출', { type: '대출', owner: ownerName, visibleOwner: '나' }, { debt: '600,000원' }, viewport)
+  const creditRow = await expectAssetRow(cards, '신용카드', { type: '신용카드', owner: '공동 소유', issuer: '기타 카드사', visibleOwner: '공동' }, { cardCurrent: '280,000원', cardNext: '190,000원' }, viewport)
+  const debitRow = await expectAssetRow(cards, '체크카드', { type: '체크카드', owner: ownerName, issuer: '기타 카드사', visibleOwner: '나' }, {}, viewport)
+  await expect(debitRow.row).toContainText('결제 예정 없음')
+  const positiveCardRow = await expectAssetRow(cards, CUSTOM_CARD_NAME, { type: '신용카드', owner: '공동 소유', issuer: '기타 카드사', visibleType: '신용카드', visibleOwner: '공동' }, { cardCurrent: '120,000원', cardNext: '80,000원' }, viewport)
+  const investmentRow = await expectAssetRow(investments, '투자', { type: '투자', owner: otherOwnerName, institution: '기타 증권사', visibleOwner: otherOwnerName }, { zero: true }, viewport)
+  const loanRow = await expectAssetRow(loans, '대출', { type: '대출', owner: ownerName, institution: '기타 대출 기관', visibleOwner: '나' }, { debt: '600,000원' }, viewport)
   await expectGroupMarkersBelowAssetRows([
     { group: funds, row: cashRow.row, assetName: '현금' },
     { group: cards, row: creditRow.row, assetName: '신용카드' },
@@ -409,13 +415,12 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
   await expect(creditRow.row).not.toContainText('-350,000원')
   await expect(debitRow.row).not.toContainText('-50,000원')
   await expect(positiveCardRow.row).not.toContainText('100,000원')
-  await expectCardPaymentColumns(cards.locator('header'), viewport)
+  await expectCardPaymentColumns(cards.locator('header'), viewport, ['가까운 결제 합계', '그다음 결제 합계'])
   await expectCardPaymentColumns(creditRow.row, viewport)
-  await expectCardPaymentColumns(debitRow.row, viewport)
   await expectCardPaymentColumns(positiveCardRow.row, viewport)
   await expectCardPaymentHierarchy(
     cards.locator('header'),
-    [creditRow.row, debitRow.row, positiveCardRow.row],
+    [creditRow.row, positiveCardRow.row],
     viewport,
   )
 
@@ -467,13 +472,13 @@ async function expectSummaryItem(summary: Locator, label: string, value: string)
 async function expectSummaryHierarchy(summary: Locator, viewportLabel: string) {
   await expect(summary.locator('dl')).toHaveCount(5)
   await expect(summary.locator('dt:not(:has(.sr-only))')).toHaveText([
-    '순자산 · 보관 자산 포함',
+    '순자산 · 사용 종료 자산 포함',
     '총자산',
     '총부채',
   ])
-  await expect(summary.getByRole('term').filter({ hasText: '이번 달 카드 결제 금액' })).toBeVisible()
-  await expect(summary.getByRole('term').filter({ hasText: '다음 달 카드 결제 예정 금액' })).toBeVisible()
-  await expect(summary.locator('dt > [aria-hidden="true"]')).toHaveText(['이번 달', '다음 달'])
+  await expect(summary.getByRole('term').filter({ hasText: '각 카드의 가장 가까운 결제 합계' })).toBeVisible()
+  await expect(summary.getByRole('term').filter({ hasText: '각 카드의 그다음 결제 합계' })).toBeVisible()
+  await expect(summary.locator('dt > [aria-hidden="true"]')).toHaveText(['가까운 결제', '그다음 결제'])
 
   const values = Object.fromEntries(await Promise.all(['순자산', '총자산', '총부채'].map(async (label) => {
     const fontSize = await summary.locator('dl').filter({ hasText: label }).locator('dd').evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
@@ -502,11 +507,11 @@ async function expectGroupSummary(group: Locator, expected: {
   if (expected.liabilities) lines.debts.push(await expectLabeledAmount(header, '부채', expected.liabilities))
   else await expect(header).not.toContainText('부채')
   if (expected.signed) lines.assets.push(await expectLabeledAmount(header, '현재 합계', expected.signed))
-  if (expected.cardCurrent) await expectLabeledAmount(header, '이번 달 결제 금액', expected.cardCurrent)
-  if (expected.cardNext) await expectLabeledAmount(header, '다음 달 결제 예정 금액', expected.cardNext)
+  if (expected.cardCurrent) await expectLabeledAmount(header, '가까운 결제 합계', expected.cardCurrent)
+  if (expected.cardNext) await expectLabeledAmount(header, '그다음 결제 합계', expected.cardNext)
   if (expected.zero) lines.zeros.push(await expectLabeledAmount(header, '잔액', '0원'))
   if (expected.assets && expected.liabilities) await expectDomOrder(header, '부채', '자산')
-  if (expected.cardCurrent && expected.cardNext) await expectDomOrder(header, '이번 달 결제 금액', '다음 달 결제 예정 금액')
+  if (expected.cardCurrent && expected.cardNext) await expectDomOrder(header, '가까운 결제 합계', '그다음 결제 합계')
   return lines
 }
 
@@ -575,13 +580,13 @@ async function expectSingleColumnGroups(groups: Locator[], viewport: typeof RESP
   }
 }
 
-async function expectCardPaymentColumns(scope: Locator, viewport: typeof RESPONSIVE_VIEWPORTS[number]) {
+async function expectCardPaymentColumns(scope: Locator, viewport: typeof RESPONSIVE_VIEWPORTS[number], labels: [string, string] = ['8월 25일 결제', '9월 25일 결제']) {
   const rail = scope.locator('[data-money-rail="card-payment"]')
   await expect(rail).toHaveCount(1)
   await expect(rail.locator('dl')).toHaveCount(2)
   await expect(scope.locator('[data-money-supporting="card-payment"]')).toHaveCount(0)
   await expect(scope).not.toContainText('부채')
-  await expectDomOrder(scope, '이번 달 결제 금액', '다음 달 결제 예정 금액')
+  await expectDomOrder(scope, labels[0], labels[1])
 
   const [currentGeometry, nextGeometry] = await Promise.all([
     rail.locator('dl').nth(0),
@@ -597,7 +602,7 @@ async function expectCardPaymentColumns(scope: Locator, viewport: typeof RESPONS
     }
   })))
   expect(Math.abs(currentGeometry.top - nextGeometry.top), `${viewport.label} 카드 결제 금액 두 열은 같은 가로줄이어야 합니다`).toBeLessThanOrEqual(1)
-  expect(currentGeometry.right, `${viewport.label} 이번 달 결제 금액은 다음 달보다 왼쪽 열이어야 합니다`).toBeLessThan(nextGeometry.right)
+  expect(currentGeometry.right, `${viewport.label} 가까운 결제 금액은 그다음 결제보다 왼쪽 열이어야 합니다`).toBeLessThan(nextGeometry.right)
   expect(currentGeometry.valueFits && nextGeometry.valueFits, `${viewport.label} 카드 결제 금액은 줄바꿈되거나 넘치면 안 됩니다`).toBe(true)
 
   const placement = await rail.evaluate((element) => {
@@ -703,6 +708,7 @@ async function expectAssetRow(
     type: string
     owner: string
     institution?: string
+    issuer?: string
     visibleType?: string
     visibleOwner?: string
   },
@@ -721,7 +727,8 @@ async function expectAssetRow(
   const row = link.locator('..')
   await expect(row).toBeVisible()
   await expect(row.getByText(name, { exact: true })).toBeVisible()
-  await expect(link).toHaveAttribute('title', `${name} · ${identity.institution ? `${identity.institution} · ` : ''}${identity.type} · ${identity.owner}`)
+  const brand = identity.institution ?? identity.issuer
+  await expect(link).toHaveAttribute('title', `${name} · ${brand ? `${brand} · ` : ''}${identity.type} · ${identity.owner}`)
 
   const identityLine = link.locator('[data-asset-identity]')
   const nameNode = identityLine.locator('[data-asset-name]')
@@ -730,7 +737,8 @@ async function expectAssetRow(
   await expect(identityLine).toHaveCount(1)
   await expect(nameNode).toHaveAttribute('title', name)
   await expect(identityLine.locator('[data-financial-institution-avatar]')).toHaveCount(identity.institution ? 1 : 0)
-  if (identity.institution) await expect(identityLine.locator('[data-asset-metadata]')).toContainText(identity.institution)
+  await expect(identityLine.locator('[data-card-issuer-avatar]')).toHaveCount(identity.issuer ? 1 : 0)
+  if (brand) await expect(identityLine.locator('[data-asset-metadata]')).toContainText(brand)
   if (identity.visibleType) await expect(typeMetadata).toHaveText(identity.visibleType)
   else await expect(typeMetadata, `${name} 기본 이름에는 종류를 반복하지 않아야 합니다`).toHaveCount(0)
   if (identity.visibleOwner) await expect(ownerMetadata).toHaveText(identity.visibleOwner)
@@ -800,19 +808,19 @@ async function expectAssetRow(
   if (expected.asset) lines.assets.push(await expectLabeledAmount(row, '현재 자산', expected.asset))
   if (expected.signed) lines.assets.push(await expectLabeledAmount(row, '현재 자산', expected.signed))
   if (!expected.asset && !expected.signed) await expect(row).not.toContainText('현재 자산')
-  if (expected.cardCurrent) await expectLabeledAmount(row, '이번 달 결제 금액', expected.cardCurrent)
-  if (expected.cardNext) await expectLabeledAmount(row, '다음 달 결제 예정 금액', expected.cardNext)
+  if (expected.cardCurrent) await expectLabeledAmount(row, '8월 25일 결제', expected.cardCurrent)
+  if (expected.cardNext) await expectLabeledAmount(row, '9월 25일 결제', expected.cardNext)
   if (expected.zero) lines.zeros.push(await expectLabeledAmount(row, '잔액', '0원'))
 
   const accessibleParts = [name, identity.type, identity.owner]
   if (expected.debt) accessibleParts.push(`현재 부채 ${expected.debt}`)
   if (expected.asset) accessibleParts.push(`현재 자산 ${expected.asset}`)
   if (expected.signed) accessibleParts.push(`현재 자산 ${expected.signed}`)
-  if (expected.cardCurrent) accessibleParts.push(`이번 달 결제 금액 ${expected.cardCurrent}`)
-  if (expected.cardNext) accessibleParts.push(`다음 달 결제 예정 금액 ${expected.cardNext}`)
+  if (expected.cardCurrent) accessibleParts.push(`8월 25일 결제 금액 ${expected.cardCurrent}`)
+  if (expected.cardNext) accessibleParts.push(`9월 25일 결제 예정 금액 ${expected.cardNext}`)
   if (expected.zero) accessibleParts.push('잔액 0원')
   await expect(link).toHaveAccessibleName(new RegExp(accessibleParts.map(escapeRegExp).join('.*')))
-  if (expected.cardCurrent && expected.cardNext) await expectDomOrder(row, '이번 달 결제 금액', '다음 달 결제 예정 금액')
+  if (expected.cardCurrent && expected.cardNext) await expectDomOrder(row, '8월 25일 결제', '9월 25일 결제')
   return lines
 }
 
@@ -884,6 +892,7 @@ function mockAsset(input: {
   cardCurrent?: number
   cardNext?: number
   financialInstitutionCode?: MockAsset['financialInstitutionCode']
+  cardIssuerCode?: MockAsset['cardIssuerCode']
 }): MockAsset {
   return {
     assetId: `qc-${input.id}`,
@@ -895,6 +904,7 @@ function mockAsset(input: {
     ownershipScope: input.ownershipScope ?? 'PERSONAL',
     ownerMemberId: input.ownershipScope === 'JOINT' ? null : input.ownerMemberId ?? null,
     financialInstitutionCode: input.financialInstitutionCode ?? null,
+    cardIssuerCode: input.cardIssuerCode ?? null,
     name: input.name ?? input.type,
     openedOn: '2026-07-01',
     memo: null,
@@ -902,6 +912,10 @@ function mockAsset(input: {
     currentBalanceWon: input.balance,
     currentMonthCardPaymentDueWon: input.cardCurrent ?? 0,
     nextMonthCardPaymentDueWon: input.cardNext ?? 0,
+    nearestCardPaymentDueOn: input.behavior === 'CREDIT_CARD' ? '2026-08-25' : null,
+    nearestCardPaymentDueWon: input.cardCurrent ?? 0,
+    followingCardPaymentDueOn: input.behavior === 'CREDIT_CARD' ? '2026-09-25' : null,
+    followingCardPaymentDueWon: input.cardNext ?? 0,
     status: 'ACTIVE',
     archivedAt: null,
     version: 0,

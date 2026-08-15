@@ -37,6 +37,7 @@ public class AssetRemovalRepository {
                 select transaction.id
                   from ledger_transaction transaction
                  where transaction.book_id = ?
+                   and transaction.source_type <> 'OPENING_BALANCE'
                    and (
                        transaction.primary_asset_id = ?
                        or exists (
@@ -85,6 +86,7 @@ public class AssetRemovalRepository {
                     on posting.book_id = transaction.book_id
                    and posting.transaction_id = transaction.id
                  where transaction.book_id = ?
+                   and transaction.source_type <> 'OPENING_BALANCE'
                    and (
                        transaction.primary_asset_id = ?
                        or exists (

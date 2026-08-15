@@ -23,10 +23,19 @@ export function cardAssetRow(page: Page, name: string) {
 
 export async function expectCardPaymentAmounts(
   row: Locator,
-  expected: { currentMonth: string; nextMonth: string } = { currentMonth: '0원', nextMonth: '0원' },
+  expected: { nearest?: string; following?: string } = {},
 ) {
-  await expectCardPaymentAmount(row, '이번 달 결제 금액', expected.currentMonth)
-  await expectCardPaymentAmount(row, '다음 달 결제 예정 금액', expected.nextMonth)
+  const rail = row.locator('[data-money-rail="card-payment"]')
+  if (!expected.nearest && !expected.following) {
+    await expect(rail).toHaveCount(0)
+    await expect(row).toContainText('결제 예정 없음')
+  } else {
+    await expect(rail).toHaveCount(1)
+    const amounts = rail.locator('dd')
+    if (expected.nearest) await expect(amounts.nth(0)).toHaveText(expected.nearest)
+    if (expected.following) await expect(amounts.nth(1)).toHaveText(expected.following)
+    await expect(rail.locator('dt').nth(0)).toHaveText(/\d+월 \d+일 결제/)
+  }
   await expect(row).not.toContainText('부채')
   await expect(row.getByTitle(/^현재 잔액 /)).toHaveCount(0)
 }

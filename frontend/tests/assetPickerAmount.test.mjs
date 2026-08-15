@@ -6,25 +6,22 @@ function asset(overrides = {}) {
   return {
     behavior: 'STANDARD',
     currentBalanceWon: 350_000,
-    currentMonthCardPaymentDueWon: 0,
-    nextMonthCardPaymentDueWon: 0,
+    nearestCardPaymentDueWon: 0,
     ...overrides,
   }
 }
 
-test('이번 달 카드 결제액이 없으면 다음 달의 가장 가까운 결제 예정액을 보여준다', () => {
+test('카드는 가장 가까운 결제 예정액을 보여준다', () => {
   assert.equal(assetPickerAmountLabel(asset({
     behavior: 'CREDIT_CARD',
-    currentMonthCardPaymentDueWon: 0,
-    nextMonthCardPaymentDueWon: 210_000,
+    nearestCardPaymentDueWon: 210_000,
   })), '결제 예정 210,000원')
 })
 
-test('이번 달 미결제 금액이 있으면 다음 달보다 먼저 보여준다', () => {
+test('카드의 가장 가까운 결제 예정액이 바뀌면 그대로 반영한다', () => {
   assert.equal(assetPickerAmountLabel(asset({
     behavior: 'CREDIT_CARD',
-    currentMonthCardPaymentDueWon: 85_000,
-    nextMonthCardPaymentDueWon: 210_000,
+    nearestCardPaymentDueWon: 85_000,
   })), '결제 예정 85,000원')
 })
 

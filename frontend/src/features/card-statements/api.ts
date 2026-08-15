@@ -82,6 +82,12 @@ export type CardStatementPaymentResult = {
   settlementTransaction: Transaction
 }
 
+export type CardPrepaymentCancellationResult = {
+  statement: CardStatementDetail
+  cancelledPaymentId: string
+  cancelledTransactionId: string
+}
+
 export type CorrectCardStatementPaymentAccountInput = {
   settlementAssetId: string
   expectedVersion: number
@@ -115,4 +121,8 @@ export const cardStatementApi = {
     method: 'PUT',
     body: jsonBody(input),
   }),
+  cancelPrepayment: (statementId: string, paymentId: string, expectedVersion: number) => {
+    const params = new URLSearchParams({ expectedVersion: String(expectedVersion) })
+    return api<CardPrepaymentCancellationResult>(`/api/card-statements/${statementId}/payments/${paymentId}?${params}`, { method: 'DELETE' })
+  },
 }

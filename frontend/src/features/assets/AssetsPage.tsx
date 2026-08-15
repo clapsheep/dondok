@@ -9,9 +9,11 @@ import { cn } from '../../lib/cn'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import type { LedgerBook } from '../membership/api'
 import { assetApi, assetKeys, type Asset } from './api'
-import { formatWon } from './format'
+import { formatPaymentDueDate, formatWon } from './format'
 import { FinancialInstitutionAvatar } from './FinancialInstitutionPicker'
-import { financialInstitution } from './financialInstitutions'
+import { financialInstitution, financialInstitutionName, financialInstitutionUsageFor } from './financialInstitutions'
+import { CardIssuerAvatar } from './CardIssuerPicker'
+import { cardIssuer } from './cardIssuers'
 import { shouldStackMoneyRail } from './moneyRail'
 import { ALL_ASSET_OWNER_VIEW, JOINT_ASSET_OWNER_VIEW, buildAssetOwnerViews, defaultAssetOwnerViewKey, filterAssetsByOwner, resolveAssetOwnerView, type AssetOwnerView } from './ownerView'
 import { buildAssetStatusOverview, type AssetGroupSummary, type AssetOverview } from './overview'
@@ -79,9 +81,9 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
         </div>
 
         {assetCreated ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">자산을 등록했어요.{createdAssetId ? <> <Link className="font-semibold underline underline-offset-4" to={`/assets/${createdAssetId}`}>거래 내역 보기</Link></> : null}</p> : null}
-        {navigationState?.assetRemoved ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">{navigationState.assetRemoved.disposition === 'DELETED' ? `‘${navigationState.assetRemoved.name}’ 자산을 완전히 삭제했어요.` : `‘${navigationState.assetRemoved.name}’ 자산을 보관했어요. 과거 거래와 잔액은 유지돼요.`}</p> : null}
+        {navigationState?.assetRemoved ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">{navigationState.assetRemoved.disposition === 'DELETED' ? `‘${navigationState.assetRemoved.name}’ 자산을 완전히 삭제했어요.` : `‘${navigationState.assetRemoved.name}’ 자산의 사용을 종료했어요. 새 거래에서는 숨겨지고 필요하면 다시 사용할 수 있어요.`}</p> : null}
         {!online ? <p className="mt-4 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">오프라인 상태예요. 마지막으로 불러온 자산은 볼 수 있지만 최신값 확인과 등록은 연결 후 가능해요.</p> : null}
-        {limitReached ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">활성 자산은 50개까지 등록할 수 있어요. 보관한 자산은 이 개수에서 제외돼요.</p> : null}
+        {limitReached ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">활성 자산은 50개까지 등록할 수 있어요. 사용 종료한 자산은 이 개수에서 제외돼요.</p> : null}
 
         {assets.data?.length ? (
           <AssetOwnerSubmenu
@@ -204,16 +206,16 @@ function AssetOverviewContent({ summaryOverview, activeOverview, archivedAssets,
 function AssetFinancialSnapshot({ overview }: { overview: AssetOverview }) {
   const debt = formatWon(overview.liabilitiesWon)
   const assets = formatWon(overview.assetsWon)
-  const currentMonthPayment = formatWon(overview.currentMonthCardPaymentDueWon)
-  const nextMonthPayment = formatWon(overview.nextMonthCardPaymentDueWon)
-  const stacked = shouldStackMoneyRail([debt, assets, currentMonthPayment, nextMonthPayment])
-  const currentMonthTone = overview.currentMonthCardPaymentDueWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]'
-  const nextMonthTone = overview.nextMonthCardPaymentDueWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]'
+  const nearestPayment = formatWon(overview.nearestCardPaymentDueWon)
+  const followingPayment = formatWon(overview.followingCardPaymentDueWon)
+  const stacked = shouldStackMoneyRail([debt, assets, nearestPayment, followingPayment])
+  const nearestTone = overview.nearestCardPaymentDueWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]'
+  const followingTone = overview.followingCardPaymentDueWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]'
   return (
     <section className="border-y border-[var(--line)] py-4 xl:border-y-0 xl:border-l xl:py-0 xl:pl-6" aria-labelledby="asset-summary-title">
       <h2 id="asset-summary-title" className="sr-only">자산 요약</h2>
       <dl>
-        <dt className="text-xs font-medium text-[var(--muted)]">순자산 <span>· 보관 자산 포함</span></dt>
+        <dt className="text-xs font-medium text-[var(--muted)]">순자산 <span>· 사용 종료 자산 포함</span></dt>
         <dd className={`mt-1 whitespace-nowrap text-[2rem] font-semibold leading-none tracking-[-.04em] tabular-nums md:text-4xl ${overview.netWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`} title={formatWon(overview.netWon)}>{formatWon(overview.netWon)}</dd>
       </dl>
       <div className={cn('mt-4 grid min-w-0 gap-x-3 border-t border-[var(--line-subtle)] pt-3', stacked ? 'grid-cols-1 gap-y-2' : 'grid-cols-2')}>
@@ -228,10 +230,10 @@ function AssetFinancialSnapshot({ overview }: { overview: AssetOverview }) {
         <p className="text-xs font-semibold text-[var(--muted)]">카드 결제 예정</p>
         <div className={cn('mt-2 grid min-w-0 gap-x-3', stacked ? 'grid-cols-1 gap-y-2' : 'grid-cols-2')}>
           <dl className="min-w-0">
-            <RailLine line={{ label: '이번 달 카드 결제 금액', shortLabel: '이번 달', value: currentMonthPayment, tone: currentMonthTone, valueClassName: 'text-base' }} />
+            <RailLine line={{ label: '각 카드의 가장 가까운 결제 합계', shortLabel: '가까운 결제', value: nearestPayment, tone: nearestTone, valueClassName: 'text-base' }} />
           </dl>
           <dl className={cn('min-w-0', !stacked && 'border-l border-[var(--line-subtle)] pl-3')}>
-            <RailLine line={{ label: '다음 달 카드 결제 예정 금액', shortLabel: '다음 달', value: nextMonthPayment, tone: nextMonthTone, valueClassName: 'text-base' }} />
+            <RailLine line={{ label: '각 카드의 그다음 결제 합계', shortLabel: '그다음 결제', value: followingPayment, tone: followingTone, valueClassName: 'text-base' }} />
           </dl>
         </div>
       </div>
@@ -242,7 +244,7 @@ function AssetFinancialSnapshot({ overview }: { overview: AssetOverview }) {
 function ArchivedAssetList({ assets, ledger, showOwnerMetadata }: { assets: Asset[]; ledger: LedgerBook; showOwnerMetadata: boolean }) {
   return (
     <details className="mt-6 border-y border-[var(--line)] md:mt-8">
-      <summary className="flex min-h-11 cursor-pointer items-center py-3 text-sm font-semibold">보관 자산 {assets.length}개</summary>
+      <summary className="flex min-h-11 cursor-pointer items-center py-3 text-sm font-semibold">사용 종료 자산 {assets.length}개</summary>
       <p className="border-t border-[var(--line)] py-3 text-xs leading-5 text-[var(--muted)]">과거 거래와 잔액을 유지하며 새 거래와 연결 계좌 선택에서는 제외돼요.</p>
       <ul className="divide-y divide-[var(--line-subtle)] border-t border-[var(--line-subtle)]">
         {assets.map((asset) => <ArchivedAssetRow key={asset.assetId} asset={asset} ledger={ledger} showOwnerMetadata={showOwnerMetadata} />)}
@@ -255,12 +257,14 @@ function ArchivedAssetRow({ asset, ledger, showOwnerMetadata }: { asset: Asset; 
   const ownerMember = ledger.members.find((member) => member.memberId === asset.ownerMemberId)
   const owner = asset.ownershipScope === 'JOINT' ? '공동 소유' : ownerMember?.displayName ?? '구성원'
   const visibleOwner = asset.ownershipScope === 'JOINT' ? '공동' : ownerMember?.currentUser ? '나' : owner
-  const institution = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' ? financialInstitution(asset.financialInstitutionCode) : undefined
-  const accessibleName = `${asset.name}, ${institution ? `${institution.name}, ` : ''}${asset.assetTypeName}, ${owner}, 보관됨, 현재 잔액 ${formatWon(asset.currentBalanceWon)}`
+  const institution = ['BANK', 'SAVINGS', 'LOAN', 'INVESTMENT'].includes(asset.systemCode) ? financialInstitution(asset.financialInstitutionCode) : undefined
+  const issuer = asset.systemCode === 'CREDIT_CARD' || asset.systemCode === 'DEBIT_CARD' ? cardIssuer(asset.cardIssuerCode) : undefined
+  const brandName = institution ? financialInstitutionName(asset.financialInstitutionCode, financialInstitutionUsageFor(asset.systemCode)) : issuer?.name
+  const accessibleName = `${asset.name}, ${brandName ? `${brandName}, ` : ''}${asset.assetTypeName}, ${owner}, 사용 종료, 현재 잔액 ${formatWon(asset.currentBalanceWon)}`
   return (
     <li>
       <Link className="grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2.5 transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100 sm:gap-3 sm:py-3" to={`/assets/${asset.assetId}`} aria-label={accessibleName}>
-        <span className="flex min-w-0 items-center gap-2">{institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : null}<span className="min-w-0"><strong className="block break-words text-sm sm:truncate">{asset.name}</strong><span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 break-words text-xs text-[var(--muted)] sm:flex-nowrap">{institution ? <><span className="sm:truncate">{institution.name}</span><span aria-hidden="true">·</span></> : null}<span className="sm:truncate">{asset.assetTypeName}</span>{showOwnerMetadata ? <><span aria-hidden="true">·</span><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span className="sm:truncate" data-asset-owner>{visibleOwner}</span></> : null}<span aria-hidden="true">·</span><span>보관됨</span></span></span></span>
+        <span className="flex min-w-0 items-center gap-2">{institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : issuer ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : null}<span className="min-w-0"><strong className="block break-words text-sm sm:truncate">{asset.name}</strong><span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 break-words text-xs text-[var(--muted)] sm:flex-nowrap">{brandName ? <><span className="sm:truncate">{brandName}</span><span aria-hidden="true">·</span></> : null}<span className="sm:truncate">{asset.assetTypeName}</span>{showOwnerMetadata ? <><span aria-hidden="true">·</span><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span className="sm:truncate" data-asset-owner>{visibleOwner}</span></> : null}<span aria-hidden="true">·</span><span>사용 종료</span></span></span></span>
         <span className={`whitespace-nowrap text-sm font-semibold tabular-nums ${asset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : ''}`}>{formatWon(asset.currentBalanceWon)}</span>
       </Link>
     </li>
@@ -295,9 +299,10 @@ function AssetGroup({ group, ledger, showOwnerMetadata }: { group: AssetGroupSum
           <SignedBalanceRail label="현재 합계" valueWon={group.netWon} />
         ) : isCardGroup ? (
           <CardPaymentRail
-            currentMonthWon={group.currentMonthCardPaymentDueWon}
-            nextMonthWon={group.nextMonthCardPaymentDueWon}
+            nearestWon={group.nearestCardPaymentDueWon}
+            followingWon={group.followingCardPaymentDueWon}
             valueClassName="text-base"
+            aggregate
           />
         ) : (
           <MoneyRail debtLines={debtLines} assetLines={assetLines} zeroLine={zeroLine} />
@@ -317,8 +322,10 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
   const showAssetType = !isDefaultAssetName(asset.name, asset.assetTypeName)
   const isLiquidAsset = groupKey === 'liquid'
   const isCardAsset = groupKey === 'cards'
-  const bankRelated = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS'
+  const bankRelated = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' || asset.systemCode === 'LOAN' || asset.systemCode === 'INVESTMENT'
   const institution = bankRelated ? financialInstitution(asset.financialInstitutionCode) : undefined
+  const issuer = isCardAsset ? cardIssuer(asset.cardIssuerCode) : undefined
+  const brandName = institution ? financialInstitutionName(asset.financialInstitutionCode, financialInstitutionUsageFor(asset.systemCode)) : issuer?.name
   const isDebt = asset.currentBalanceWon < 0
   const isAsset = asset.currentBalanceWon > 0
   const debtLines: MoneyRailLine[] = [
@@ -328,8 +335,12 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
   const zeroLine: MoneyRailLine | undefined = asset.currentBalanceWon === 0 ? { label: '잔액', value: '0원', title: '현재 잔액 0원', valueClassName: 'text-base' } : undefined
   const accessibleDetails = isCardAsset
     ? [
-        `이번 달 결제 금액 ${formatWon(asset.currentMonthCardPaymentDueWon)}`,
-        `다음 달 결제 예정 금액 ${formatWon(asset.nextMonthCardPaymentDueWon)}`,
+        asset.nearestCardPaymentDueOn
+          ? `${formatPaymentDueDate(asset.nearestCardPaymentDueOn)} 결제 금액 ${formatWon(asset.nearestCardPaymentDueWon)}`
+          : '결제 예정 없음',
+        ...(asset.followingCardPaymentDueOn
+          ? [`${formatPaymentDueDate(asset.followingCardPaymentDueOn)} 결제 예정 금액 ${formatWon(asset.followingCardPaymentDueWon)}`]
+          : []),
       ]
     : isLiquidAsset
       ? [`현재 자산 ${formatWon(asset.currentBalanceWon)}`]
@@ -338,23 +349,23 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
           ...(isAsset ? [`현재 자산 ${formatWon(asset.currentBalanceWon)}`] : []),
           ...(asset.currentBalanceWon === 0 ? ['잔액 0원'] : []),
         ]
-  const accessibleName = `${asset.name}, ${institution ? `${institution.name}, ` : ''}${asset.assetTypeName}, ${owner}, ${accessibleDetails.join(', ')}`
-  const fullIdentity = `${asset.name} · ${institution ? `${institution.name} · ` : ''}${asset.assetTypeName} · ${owner}`
+  const accessibleName = `${asset.name}, ${brandName ? `${brandName}, ` : ''}${asset.assetTypeName}, ${owner}, ${accessibleDetails.join(', ')}`
+  const fullIdentity = `${asset.name} · ${brandName ? `${brandName} · ` : ''}${asset.assetTypeName} · ${owner}`
   const layoutClassName = isCardAsset ? cardInfoMoneyLayoutClassName : infoMoneyLayoutClassName
 
   return (
     <li>
       <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-12 py-2.5 transition-colors hover:bg-forest-50 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800 md:px-1`}>
         <span className="flex min-w-0 items-center gap-2.5 leading-5" data-asset-identity>
-          {institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : null}
+          {institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : issuer ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : null}
           <span className="min-w-0 flex-1">
           <strong className="block min-w-0 break-words text-[0.9375rem] font-semibold leading-5 group-hover:text-forest-700 dark:group-hover:text-forest-100 md:truncate" title={asset.name} data-asset-name>{asset.name}</strong>
-          {institution || showAssetType || showOwnerMetadata ? (
+          {brandName || showAssetType || showOwnerMetadata ? (
             <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-4 text-[var(--muted)] md:flex-nowrap md:truncate" data-asset-metadata>
-              {institution ? <span>{institution.name}</span> : null}
-              {institution && showAssetType ? <span aria-hidden="true"> · </span> : null}
+              {brandName ? <span>{brandName}</span> : null}
+              {brandName && showAssetType ? <span aria-hidden="true"> · </span> : null}
               {showAssetType ? <span data-asset-type>{asset.assetTypeName}</span> : null}
-              {(institution || showAssetType) && showOwnerMetadata ? <span aria-hidden="true"> · </span> : null}
+              {(brandName || showAssetType) && showOwnerMetadata ? <span aria-hidden="true"> · </span> : null}
               {showOwnerMetadata ? <span className="inline-flex items-center gap-1 align-middle"><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span data-asset-owner>{visibleOwner}</span></span> : null}
             </span>
           ) : null}
@@ -370,8 +381,10 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
           />
         ) : isCardAsset ? (
           <CardPaymentRail
-            currentMonthWon={asset.currentMonthCardPaymentDueWon}
-            nextMonthWon={asset.nextMonthCardPaymentDueWon}
+            nearestDueOn={asset.nearestCardPaymentDueOn}
+            nearestWon={asset.nearestCardPaymentDueWon}
+            followingDueOn={asset.followingCardPaymentDueOn}
+            followingWon={asset.followingCardPaymentDueWon}
           />
         ) : (
           <MoneyRail debtLines={debtLines} assetLines={assetLines} zeroLine={zeroLine} />
@@ -433,30 +446,36 @@ function SignedBalanceRail({ label, valueWon, title, valueClassName = 'text-base
   )
 }
 
-function CardPaymentRail({ currentMonthWon, nextMonthWon, valueClassName = 'text-sm' }: {
-  currentMonthWon: number
-  nextMonthWon: number
+function CardPaymentRail({ nearestDueOn = null, nearestWon, followingDueOn = null, followingWon, valueClassName = 'text-sm', aggregate = false }: {
+  nearestDueOn?: string | null
+  nearestWon: number
+  followingDueOn?: string | null
+  followingWon: number
   valueClassName?: string
+  aggregate?: boolean
 }) {
+  if (!aggregate && !nearestDueOn && !followingDueOn) {
+    return <p className={cn('text-right text-xs text-[var(--muted)]', cardMoneyRailWidthClassName)}>결제 예정 없음</p>
+  }
+  const nearestLabel = aggregate ? '가까운 결제 합계' : nearestDueOn ? `${formatPaymentDueDate(nearestDueOn)} 결제` : '가까운 결제 없음'
+  const followingLabel = aggregate ? '그다음 결제 합계' : followingDueOn ? `${formatPaymentDueDate(followingDueOn)} 결제` : '그다음 결제 없음'
   return (
     <div className={cn('grid min-w-0 grid-cols-2 gap-x-3', cardMoneyRailWidthClassName)} data-money-rail="card-payment">
       <dl className="col-start-1 min-w-0">
         <RailLine line={{
-          label: '이번 달 결제 금액',
-          shortLabel: '이번 달',
-          value: formatWon(currentMonthWon),
-          title: `이번 달 결제 금액 ${formatWon(currentMonthWon)}`,
-          tone: currentMonthWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]',
+          label: nearestLabel,
+          value: formatWon(nearestWon),
+          title: `${nearestLabel} ${formatWon(nearestWon)}`,
+          tone: nearestWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]',
           valueClassName,
         }} />
       </dl>
       <dl className="col-start-2 min-w-0 border-l border-[var(--line-subtle)] pl-3">
         <RailLine line={{
-          label: '다음 달 결제 예정 금액',
-          shortLabel: '다음 달',
-          value: formatWon(nextMonthWon),
-          title: `다음 달 결제 예정 금액 ${formatWon(nextMonthWon)}`,
-          tone: nextMonthWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]',
+          label: followingLabel,
+          value: formatWon(followingWon),
+          title: `${followingLabel} ${formatWon(followingWon)}`,
+          tone: followingWon > 0 ? 'text-brass-500' : 'text-[var(--muted)]',
           valueClassName,
         }} />
       </dl>

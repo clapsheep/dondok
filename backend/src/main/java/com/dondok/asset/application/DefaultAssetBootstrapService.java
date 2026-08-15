@@ -1,6 +1,7 @@
 package com.dondok.asset.application;
 
 import com.dondok.asset.domain.AssetOwnershipScope;
+import com.dondok.asset.domain.CardIssuerCode;
 import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.asset.infrastructure.persistence.AssetEntity;
 import com.dondok.asset.infrastructure.persistence.AssetRepository;
@@ -84,6 +85,8 @@ public class DefaultAssetBootstrapService {
                 AssetOwnershipScope.PERSONAL,
                 creatorMemberId,
                 "BANK".equals(assetType.getSystemCode()) ? FinancialInstitutionCode.OTHER : null,
+                "CREDIT_CARD".equals(assetType.getSystemCode()) || "DEBIT_CARD".equals(assetType.getSystemCode())
+                        ? CardIssuerCode.OTHER : null,
                 name,
                 openedOn,
                 null,

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dondok.asset.domain.AssetBehavior;
 import com.dondok.asset.domain.AssetOwnershipScope;
+import com.dondok.asset.domain.CardIssuerCode;
 import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.common.error.ApiException;
 import com.dondok.membership.application.MembershipService;
@@ -93,7 +94,7 @@ class AssetServiceIntegrationTest {
     }
 
     @Test
-    void bankAndSavingsAssetsExposeFinancialInstitutionAndLegacyInputDefaultsToOther() {
+    void financialInstitutionsAndCardIssuersAreStoredOnlyForTheirAssetFamilies() {
         TestLedger ledger = createLedger("금융기관 사용자");
 
         AssetService.AssetView defaultAccount = assetService.assets(ledger.userId()).stream()
@@ -114,10 +115,58 @@ class AssetServiceIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select financial_institution_code from asset where id = ?", String.class, savings.assetId()))
                 .isEqualTo("KAKAO_BANK");
+
+        AssetService.AssetView loan = assetService.create(
+                ledger.userId(), "kb-capital-loan",
+                new AssetService.AssetCommand(
+                        typeId(ledger.userId(), "LOAN"), AssetOwnershipScope.PERSONAL,
+                        ledger.memberId(), FinancialInstitutionCode.KB_CAPITAL,
+                        "자동차 대출", LocalDate.of(2026, 7, 1), null, -20_000_000,
+                        null, null, null));
+        AssetService.AssetView investment = assetService.create(
+                ledger.userId(), "kiwoom-investment",
+                new AssetService.AssetCommand(
+                        typeId(ledger.userId(), "INVESTMENT"), AssetOwnershipScope.PERSONAL,
+                        ledger.memberId(), FinancialInstitutionCode.KIWOOM_SEC,
+                        "주식 계좌", LocalDate.of(2026, 7, 1), null, 3_000_000,
+                        null, null, null));
+
+        assertThat(loan.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.KB_CAPITAL);
+        assertThat(investment.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.KIWOOM_SEC);
+        assertThatThrownBy(() -> assetService.create(
+                ledger.userId(), "wrong-investment-institution",
+                new AssetService.AssetCommand(
+                        typeId(ledger.userId(), "INVESTMENT"), AssetOwnershipScope.PERSONAL,
+                        ledger.memberId(), FinancialInstitutionCode.KB_CAPITAL,
+                        "잘못된 투자 기관", LocalDate.of(2026, 7, 1), null, 0,
+                        null, null, null)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo("FINANCIAL_INSTITUTION_INVALID"));
+
+        AssetService.AssetView defaultCard = assetService.assets(ledger.userId()).stream()
+                .filter(asset -> "CREDIT_CARD".equals(asset.systemCode()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(defaultCard.cardIssuerCode()).isEqualTo(CardIssuerCode.OTHER);
+
+        AssetService.AssetView shinhanCard = assetService.create(
+                ledger.userId(), "shinhan-card",
+                new AssetService.AssetCommand(
+                        typeId(ledger.userId(), "CREDIT_CARD"), AssetOwnershipScope.PERSONAL,
+                        ledger.memberId(), null, CardIssuerCode.SHINHAN,
+                        "신한카드", LocalDate.of(2026, 7, 1), null, 0,
+                        new AssetService.CardSettingsCommand(14, 25, 1, defaultAccount.assetId(), false),
+                        null, null));
+
+        assertThat(shinhanCard.cardIssuerCode()).isEqualTo(CardIssuerCode.SHINHAN);
+        assertThat(shinhanCard.financialInstitutionCode()).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "select card_issuer_code from asset where id = ?", String.class, shinhanCard.assetId()))
+                .isEqualTo("SHINHAN");
     }
 
     @Test
-    void assetViewsBatchCurrentAndNextSeoulMonthCardPaymentDues() {
+    void assetViewsBatchMonthlyTotalsAndTwoNearestCardPaymentDues() {
         TestLedger ledger = createLedger("두 달 카드 예정액 사용자");
         List<AssetService.AssetView> initialAssets = assetService.assets(ledger.userId());
         AssetService.AssetView account = initialAssets.stream()
@@ -140,6 +189,9 @@ class AssetServiceIntegrationTest {
         insertStatement(ledger, defaultCard.assetId(),
                 LocalDate.of(2026, 7, 16), LocalDate.of(2026, 7, 20),
                 LocalDate.of(2026, 8, 1), "FINALIZED", 10_000);
+        insertStatement(ledger, defaultCard.assetId(),
+                LocalDate.of(2026, 7, 21), LocalDate.of(2026, 7, 22),
+                LocalDate.of(2026, 8, 1), "FINALIZED", 5_000);
         insertStatement(ledger, defaultCard.assetId(),
                 LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 15),
                 LocalDate.of(2026, 8, 31), "FINALIZED", 20_000);
@@ -168,20 +220,36 @@ class AssetServiceIntegrationTest {
         AssetService.AssetView accountView = asset(assets, account.assetId());
 
         assertThat(defaultCardView.systemCode()).isEqualTo("CREDIT_CARD");
-        assertThat(defaultCardView.currentMonthCardPaymentDueWon()).isEqualTo(30_000);
+        assertThat(defaultCardView.currentMonthCardPaymentDueWon()).isEqualTo(35_000);
         assertThat(defaultCardView.nextMonthCardPaymentDueWon()).isEqualTo(100_000);
+        assertThat(defaultCardView.nearestCardPaymentDueOn()).isEqualTo(LocalDate.of(2026, 7, 31));
+        assertThat(defaultCardView.nearestCardPaymentDueWon()).isEqualTo(40_000);
+        assertThat(defaultCardView.followingCardPaymentDueOn()).isEqualTo(LocalDate.of(2026, 8, 1));
+        assertThat(defaultCardView.followingCardPaymentDueWon()).isEqualTo(15_000);
         assertThat(secondCardView.systemCode()).isEqualTo("CREDIT_CARD");
         assertThat(secondCardView.currentMonthCardPaymentDueWon()).isEqualTo(50_000);
         assertThat(secondCardView.nextMonthCardPaymentDueWon()).isEqualTo(60_000);
+        assertThat(secondCardView.nearestCardPaymentDueOn()).isEqualTo(LocalDate.of(2026, 8, 5));
+        assertThat(secondCardView.nearestCardPaymentDueWon()).isEqualTo(50_000);
+        assertThat(secondCardView.followingCardPaymentDueOn()).isEqualTo(LocalDate.of(2026, 9, 5));
+        assertThat(secondCardView.followingCardPaymentDueWon()).isEqualTo(60_000);
         assertThat(accountView.systemCode()).isEqualTo("BANK");
         assertThat(accountView.currentMonthCardPaymentDueWon()).isZero();
         assertThat(accountView.nextMonthCardPaymentDueWon()).isZero();
+        assertThat(accountView.nearestCardPaymentDueOn()).isNull();
+        assertThat(accountView.nearestCardPaymentDueWon()).isZero();
+        assertThat(accountView.followingCardPaymentDueOn()).isNull();
+        assertThat(accountView.followingCardPaymentDueWon()).isZero();
         AssetService.AssetView defaultCardDetail = assetService.asset(ledger.userId(), defaultCard.assetId());
-        assertThat(defaultCardDetail.currentMonthCardPaymentDueWon()).isEqualTo(30_000);
+        assertThat(defaultCardDetail.currentMonthCardPaymentDueWon()).isEqualTo(35_000);
         assertThat(defaultCardDetail.nextMonthCardPaymentDueWon()).isEqualTo(100_000);
+        assertThat(defaultCardDetail.nearestCardPaymentDueOn()).isEqualTo(LocalDate.of(2026, 7, 31));
+        assertThat(defaultCardDetail.followingCardPaymentDueOn()).isEqualTo(LocalDate.of(2026, 8, 1));
         AssetService.AssetView accountDetail = assetService.asset(ledger.userId(), account.assetId());
         assertThat(accountDetail.currentMonthCardPaymentDueWon()).isZero();
         assertThat(accountDetail.nextMonthCardPaymentDueWon()).isZero();
+        assertThat(accountDetail.nearestCardPaymentDueOn()).isNull();
+        assertThat(accountDetail.followingCardPaymentDueOn()).isNull();
     }
 
     @Test
@@ -449,12 +517,53 @@ class AssetServiceIntegrationTest {
     }
 
     @Test
+    void assetWithOnlyDeclaredOpeningBalanceIsPhysicallyDeleted() {
+        TestLedger ledger = createLedger("기준 잔액만 있는 자산 삭제 사용자");
+        AssetService.AssetView loan = assetService.create(
+                ledger.userId(), "remove-opening-only-loan",
+                command(typeId(ledger.userId(), "LOAN"), AssetOwnershipScope.PERSONAL,
+                        ledger.memberId(), "신한마이너스통장", -7_000_000, null));
+
+        AssetService.AssetRemovalPreview preview = assetService.removalPreview(
+                ledger.userId(), loan.assetId());
+
+        assertThat(preview.disposition()).isEqualTo(AssetService.AssetRemovalDisposition.DELETE);
+        assertThat(preview.historyTransactionCount()).isZero();
+        AssetService.AssetRemovalResult result = assetService.remove(
+                ledger.userId(), loan.assetId(), preview.expectedVersion(), preview.previewToken());
+        assertThat(result.disposition()).isEqualTo(AssetService.AssetRemovalResultDisposition.DELETED);
+        assertThat(count("select count(*) from asset where id = ?", loan.assetId())).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from ledger_transaction
+                 where book_id = ? and source_type = 'OPENING_BALANCE' and source_id = ?
+                """, Long.class, ledger.bookId(), loan.assetId())).isZero();
+    }
+
+    @Test
     void assetWithHistoryIsArchivedAndRemainsAvailableInHistoryFilters() {
         TestLedger ledger = createLedger("이력 자산 보관 사용자");
         AssetService.AssetView cash = assetService.create(
                 ledger.userId(), "archive-cash",
                 command(typeId(ledger.userId(), "CASH"), AssetOwnershipScope.PERSONAL,
-                        ledger.memberId(), "비상금", 120_000, null));
+                        ledger.memberId(), "비상금", 0, null));
+        UUID transactionId = UUID.randomUUID();
+        UUID categoryId = jdbcTemplate.queryForObject("""
+                select id from category
+                 where book_id = ? and kind = 'INCOME' and system_code = 'OTHER'
+                """, UUID.class, ledger.bookId());
+        Timestamp now = Timestamp.from(FIXED_NOW);
+        jdbcTemplate.update("""
+                insert into ledger_transaction (
+                    id, book_id, transaction_type, occurred_on, amount_won, category_id,
+                    performed_by_member_id, primary_asset_id, source_type,
+                    created_by_member_id, updated_by_member_id, created_at, updated_at, version
+                ) values (?, ?, 'INCOME', '2026-07-10', 120000, ?, ?, ?, 'MANUAL', ?, ?, ?, ?, 0)
+                """, transactionId, ledger.bookId(), categoryId, ledger.memberId(), cash.assetId(),
+                ledger.memberId(), ledger.memberId(), now, now);
+        jdbcTemplate.update("""
+                insert into transaction_posting (transaction_id, line_no, book_id, asset_id, delta_won)
+                values (?, 1, ?, ?, 120000)
+                """, transactionId, ledger.bookId(), cash.assetId());
 
         AssetService.AssetRemovalPreview preview = assetService.removalPreview(
                 ledger.userId(), cash.assetId());
@@ -476,6 +585,22 @@ class AssetServiceIntegrationTest {
                 .extracting(AssetService.AssetView::assetId).containsExactly(cash.assetId());
         assertThat(assetService.assets(ledger.userId(), AssetService.AssetListStatus.ALL))
                 .extracting(AssetService.AssetView::assetId).contains(cash.assetId());
+
+        AssetService.AssetView restored = assetService.restore(
+                ledger.userId(), cash.assetId(), detail.version());
+        assertThat(restored.status()).isEqualTo(AssetService.AssetStatus.ACTIVE);
+        assertThat(restored.archivedAt()).isNull();
+        assertThat(restored.currentBalanceWon()).isEqualTo(120_000);
+        assertThat(restored.version()).isEqualTo(detail.version() + 1);
+        assertThat(assetService.assets(ledger.userId(), AssetService.AssetListStatus.ACTIVE))
+                .extracting(AssetService.AssetView::assetId).contains(cash.assetId());
+        assertThat(assetService.assets(ledger.userId(), AssetService.AssetListStatus.ARCHIVED))
+                .extracting(AssetService.AssetView::assetId).doesNotContain(cash.assetId());
+        assertThatThrownBy(() -> assetService.restore(
+                ledger.userId(), cash.assetId(), restored.version()))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo("ASSET_ALREADY_ACTIVE"));
     }
 
     @Test
@@ -526,13 +651,18 @@ class AssetServiceIntegrationTest {
                 ledger.userId(), cash.assetId());
         UUID transactionId = UUID.randomUUID();
         Timestamp now = Timestamp.from(FIXED_NOW);
+        UUID categoryId = jdbcTemplate.queryForObject("""
+                select id from category
+                 where book_id = ? and kind = 'INCOME' and system_code = 'OTHER'
+                """, UUID.class, ledger.bookId());
         jdbcTemplate.update("""
                 insert into ledger_transaction (
-                    id, book_id, transaction_type, occurred_on, amount_won,
-                    source_type, source_id, created_by_member_id, updated_by_member_id,
-                    created_at, updated_at, version
-                ) values (?, ?, 'ADJUSTMENT', '2026-07-01', 1, 'OPENING_BALANCE', ?, ?, ?, ?, ?, 0)
-                """, transactionId, ledger.bookId(), cash.assetId(), ledger.memberId(), ledger.memberId(), now, now);
+                    id, book_id, transaction_type, occurred_on, amount_won, category_id,
+                    performed_by_member_id, primary_asset_id, source_type,
+                    created_by_member_id, updated_by_member_id, created_at, updated_at, version
+                ) values (?, ?, 'INCOME', '2026-07-01', 1, ?, ?, ?, 'MANUAL', ?, ?, ?, ?, 0)
+                """, transactionId, ledger.bookId(), categoryId, ledger.memberId(), cash.assetId(),
+                ledger.memberId(), ledger.memberId(), now, now);
         jdbcTemplate.update("""
                 insert into transaction_posting (transaction_id, line_no, book_id, asset_id, delta_won)
                 values (?, 1, ?, ?, 1)

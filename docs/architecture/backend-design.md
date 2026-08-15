@@ -89,7 +89,7 @@ public sealed interface AssetBehavior
 
 초대 발급은 `DirectInvitationCodeGenerator`가 `SecureRandom`으로 숫자 6자리를 만들고 `SecretTokenService`가 URL용 고강도 token과 두 digest를 만든다. repository의 단일 native insert가 DB unique 충돌이면 0을 반환하고 application service가 새 값으로 제한 재시도하므로 중복 사전 조회 경쟁을 만들지 않는다. 입력이 정확히 6자리면 `direct_code_digest`, 긴 URL token이면 `link_token_digest`로 조회한다. 짧은 코드의 열거 공격은 단일 Mac mini 인스턴스에서 로그인 사용자별 10분 20회 in-memory window로 제한하고, 다중 인스턴스로 확장할 때 Redis 같은 공유 limiter로 교체한다.
 
-자산 목록 query model은 영속 entity를 화면 그룹 DTO로 바꾸지 않는다. `AssetView`가 고정 종류의 `systemCode`, `ACTIVE/ARCHIVED` 상태, signed `currentBalanceWon`, `currentMonthCardPaymentDueWon`, `nextMonthCardPaymentDueWon`을 함께 반환한다. 기본 `GET /api/assets`는 활성 자산만, `status=ARCHIVED/ALL`은 보관 또는 전체를 반환한다. 프론트는 전체 결과로 순자산을 계산하되 활성 결과만 자금·카드·투자·대출·보험 그룹과 신규 선택기에 사용한다. 기준 월은 주입된 `Clock`을 `Asia/Seoul`로 해석하며, 카드 결제 금액은 목록에 포함된 카드 ID를 대상으로 현재 월 시작부터 다다음 월 시작 전까지 `card_statement_forecast.payment_amount_won`을 한 번의 조건부 집계 query로 현재·다음 달에 나눈다. 비카드와 해당 월 명세가 없는 카드는 0을 반환하며, 자산별 추가 조회나 별도 집계 cache를 만들지 않는다.
+자산 목록 query model은 영속 entity를 화면 그룹 DTO로 바꾸지 않는다. `AssetView`가 고정 종류의 `systemCode`, `ACTIVE/ARCHIVED` 상태, signed `currentBalanceWon`과 가장 가까운 두 카드 결제일·금액을 함께 반환한다. 기본 `GET /api/assets`는 활성 자산만, `status=ARCHIVED/ALL`은 보관 또는 전체를 반환한다. 프론트는 전체 결과로 순자산을 계산하되 활성 결과만 자금·카드·투자·대출·보험 그룹과 신규 선택기에 사용한다. 카드 결제 query는 목록의 카드 ID를 대상으로 `card_statement_forecast`의 양수 `OPEN/FINALIZED` 금액을 카드·결제일별로 합친 뒤 window rank 첫 두 날짜를 가져온다. 같은 query에서 구버전 PWA 호환용 현재·다음 달 합계도 조건부 집계하며, 비카드와 미결제 명세가 없는 카드는 null 날짜와 0원을 반환한다. 자산별 추가 조회나 별도 집계 cache를 만들지 않는다.
 
 ## 4. 거래 다형성
 

@@ -75,7 +75,7 @@ test.afterEach(async ({ page }, testInfo) => {
   expect(unexpectedConsoleErrors, '선언하지 않은 console error가 없어야 합니다').toEqual([])
 })
 
-test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통계·선택 범위를 유지한다', async ({ page, request }, testInfo) => {
+test('무이력 자산은 삭제하고 이력 자산은 사용 종료해 순자산·통계·선택 범위를 유지한다', async ({ page, request }, testInfo) => {
   const account = await registerAndLogin(page, request, `자산 정리 QC ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
@@ -141,14 +141,14 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await page.goto(`/assets/${seed.archiveAssetId}/edit`)
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await page.getByRole('button', { name: '처리 방법 확인' }).click()
-  dialog = page.getByRole('dialog', { name: '자산 보관' })
+  dialog = page.getByRole('dialog', { name: '자산 사용 종료' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByText('연결된 거래 이력', { exact: true }).locator('..')).toContainText('2건')
+  await expect(dialog.getByText('연결된 거래 이력', { exact: true }).locator('..')).toContainText('1건')
   await expect(dialog.getByText('현재 잔액', { exact: true }).locator('..')).toContainText(formatWon(seed.netWorthWon))
-  await expect(dialog.getByRole('list', { name: '자산 삭제 또는 보관 주의사항' })).toContainText('순자산에 계속 포함')
+  await expect(dialog.getByRole('list', { name: '자산 삭제 또는 사용 종료 주의사항' })).toContainText('순자산에 계속 포함')
   const archiveResponse = page.waitForResponse((response) => response.request().method() === 'DELETE'
     && new URL(response.url()).pathname === `/api/assets/${seed.archiveAssetId}`)
-  await dialog.getByRole('button', { name: '자산 보관', exact: true }).click()
+  await dialog.getByRole('button', { name: '자산 사용 종료', exact: true }).click()
   const archiveResultResponse = await archiveResponse
   expect(archiveResultResponse.status()).toBe(200)
   expect(await archiveResultResponse.json()).toEqual(expect.objectContaining({
@@ -158,25 +158,25 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
     currentBalanceWon: seed.netWorthWon,
   }))
 
-  await expect(page.getByRole('status')).toContainText(`‘${seed.archiveAssetName}’ 자산을 보관했어요.`)
+  await expect(page.getByRole('status')).toContainText(`‘${seed.archiveAssetName}’ 자산의 사용을 종료했어요.`)
   await expectAssetSummary(page, '순자산', formatWon(seed.netWorthWon))
   const archivedState = await readAssetState(page, seed.archiveAssetId)
   expect(archivedState).toEqual({ detailStatus: 200, active: false, archived: true, all: true })
   await attachStateEvidence(testInfo, 'archive-state', archivedState)
 
-  const archivedDisclosure = page.getByText('보관 자산 1개', { exact: true })
+  const archivedDisclosure = page.getByText('사용 종료 자산 1개', { exact: true })
   await archivedDisclosure.click()
   const archivedLink = page.getByRole('link').filter({ hasText: seed.archiveAssetName })
   await expect(archivedLink).toBeVisible()
   await expect(archivedLink).toContainText(formatWon(seed.netWorthWon))
   await archivedLink.click()
   await expect(page.getByRole('heading', { name: seed.archiveAssetName, exact: true })).toBeVisible()
-  await expect(page.getByText(/계좌 · 보관됨$/, { exact: true }).first()).toBeVisible()
+  await expect(page.getByText(/계좌 · 사용 종료$/, { exact: true }).first()).toBeVisible()
   await expect(page.getByText('현재 잔액', { exact: true }).locator('..')).toContainText(formatWon(seed.netWorthWon))
   await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toBeVisible()
   await expect(page.locator('form')).toHaveCount(0)
   await expect(page.getByRole('link', { name: '자산 편집' })).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: '자산 삭제 또는 보관' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '자산 삭제 또는 사용 종료' })).toHaveCount(0)
 
   await page.goto('/transactions/new')
   await expect(page.getByRole('heading', { name: '거래 기록' })).toBeVisible()
@@ -188,6 +188,16 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await expectStatisticsValue(page, '수입', `+${formatWon(seed.incomeWon)}`)
   await expectStatisticsValue(page, '순액', `+${formatWon(seed.incomeWon)}`)
 
+  await page.goto(`/assets/${seed.archiveAssetId}`)
+  await page.getByRole('link', { name: '사용 종료 자산 관리' }).click()
+  await page.getByRole('button', { name: '다시 사용', exact: true }).click()
+  const restoreDialog = page.getByRole('dialog', { name: '이 자산을 다시 사용할까요?' })
+  await expect(restoreDialog).toContainText('기존 거래와 잔액은 그대로 유지됩니다.')
+  await restoreDialog.getByRole('button', { name: '다시 사용', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('자산을 다시 사용할 수 있게 복원했어요.')
+  const restoredState = await readAssetState(page, seed.archiveAssetId)
+  expect(restoredState).toEqual({ detailStatus: 200, active: true, archived: false, all: true })
+
   await page.goto(`/assets/${seed.defaultAccountId}/edit`)
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   const blockerTrigger = page.getByRole('button', { name: '처리 방법 확인' })
@@ -197,7 +207,7 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await expect(dialog.getByText('신용카드 결제 계좌 · 설정 열기', { exact: true })).toBeVisible()
   await expect(dialog.getByText('체크카드 결제 계좌 · 설정 열기', { exact: true })).toBeVisible()
   await expect(dialog.getByRole('button', { name: '자산 완전 삭제', exact: true })).toHaveCount(0)
-  await expect(dialog.getByRole('button', { name: '자산 보관', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: '자산 사용 종료', exact: true })).toHaveCount(0)
   await expectTouchTarget(dialog.getByRole('button', { name: '취소' }), 'blocker 취소')
   await page.goBack()
   await expect(dialog).toHaveCount(0)
@@ -254,7 +264,7 @@ test('다른 세션이 preview 뒤 이력을 만들면 412로 거부하고 draft
     await expect(staleAlert).toBeFocused()
     await expect(page.getByLabel('메모 (선택)', { exact: true })).toHaveValue(memoDraft)
     await expect(dialog.getByRole('button', { name: '자산 완전 삭제', exact: true })).toHaveCount(0)
-    await expect(dialog.getByRole('button', { name: '자산 보관', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: '자산 사용 종료', exact: true })).toHaveCount(0)
     const refresh = staleAlert.getByRole('button', { name: '최신 내용 다시 확인' })
     await expectTouchTarget(refresh, '최신 내용 다시 확인')
 
@@ -262,19 +272,19 @@ test('다른 세션이 preview 뒤 이력을 만들면 412로 거부하고 draft
       && new URL(response.url()).pathname === `/api/assets/${seed.assetId}/removal-preview`)
     await refresh.click()
     expect((await previewResponsePromise).status()).toBe(200)
-    dialog = page.getByRole('dialog', { name: '자산 보관' })
+    dialog = page.getByRole('dialog', { name: '자산 사용 종료' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('연결된 거래 이력', { exact: true }).locator('..')).toContainText('1건')
     await expect(dialog.getByText('현재 잔액', { exact: true }).locator('..')).toContainText('130,000원')
     await expect(page.getByLabel('메모 (선택)', { exact: true })).toHaveValue(memoDraft)
-    await expect(dialog.getByRole('button', { name: '자산 보관', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '자산 사용 종료', exact: true })).toBeVisible()
 
-    await expectRemovalDialogAcrossViewports(page, dialog, '자산 보관')
+    await expectRemovalDialogAcrossViewports(page, dialog, '자산 사용 종료')
     const archiveResponsePromise = page.waitForResponse((response) => response.request().method() === 'DELETE'
       && new URL(response.url()).pathname === `/api/assets/${seed.assetId}`)
-    await dialog.getByRole('button', { name: '자산 보관', exact: true }).click()
+    await dialog.getByRole('button', { name: '자산 사용 종료', exact: true }).click()
     expect((await archiveResponsePromise).status()).toBe(200)
-    await expect(page.getByRole('status')).toContainText(`‘${seed.assetName}’ 자산을 보관했어요.`)
+    await expect(page.getByRole('status')).toContainText(`‘${seed.assetName}’ 자산의 사용을 종료했어요.`)
     expect(await readAssetState(page, seed.assetId)).toEqual({ detailStatus: 200, active: false, archived: true, all: true })
   } finally {
     await other.context.close().catch(() => undefined)
@@ -456,10 +466,10 @@ async function readAssetState(page: Page, assetId: string) {
   }, assetId)
 }
 
-async function expectRemovalDialogAcrossViewports(page: Page, dialog: Locator, finalAction: '자산 완전 삭제' | '자산 보관') {
+async function expectRemovalDialogAcrossViewports(page: Page, dialog: Locator, finalAction: '자산 완전 삭제' | '자산 사용 종료') {
   const marker = `qc-${Date.now()}-${Math.floor(Math.random() * 10_000)}`
   await dialog.evaluate((node, value) => { node.setAttribute('data-qc-removal-dialog', value) }, marker)
-  const close = dialog.getByRole('button', { name: '자산 삭제 또는 보관 창 닫기' })
+  const close = dialog.getByRole('button', { name: '자산 삭제 또는 사용 종료 창 닫기' })
   await close.focus()
   for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.setViewportSize(viewport)

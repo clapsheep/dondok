@@ -147,7 +147,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   await expect(page.getByRole('status')).toContainText('자산을 등록했어요.')
   const cardRow = cardAssetRow(page, 'QC 생활비 신용카드')
   await expect(cardRow).toBeVisible()
-  await expectCardPaymentAmounts(cardRow, { currentMonth: '0원', nextMonth: '180,000원' })
+  await expectCardPaymentAmounts(cardRow, { nearest: '180,000원' })
 })
 
 for (const scenario of LINKED_ASSET_SCENARIOS) {

@@ -72,6 +72,10 @@ public class CardSettlementService {
             repository.cancelSchedule(scheduleId, now);
             return SettlementOutcome.CANCELLED;
         }
+        if (!repository.isActiveAsset(statement.bookId(), statement.cardAssetId())) {
+            repository.cancelSchedule(scheduleId, now);
+            return SettlementOutcome.CANCELLED;
+        }
         if (!statement.autoSettlementEnabled() || statement.settlementAssetId() == null) {
             repository.cancelSchedule(scheduleId, now);
             return SettlementOutcome.CANCELLED;

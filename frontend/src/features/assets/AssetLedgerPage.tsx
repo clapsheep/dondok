@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ArrowLeft, LoaderCircle, Plus, Settings, X } from 'lucide-react'
+import { ArrowLeft, LoaderCircle, Plus, RotateCcw, Settings, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
@@ -13,12 +13,18 @@ import { AssetTransactionEditor } from '../transactions/TransactionFormPage'
 import { transactionRowDestination, transactionTypeLabel } from '../transactions/transactionRow'
 import { assetApi, assetKeys, type Asset } from './api'
 import { buildAssetLedgerTimeline, type AssetLedgerEntry } from './assetLedgerTimeline'
-import { formatDate, formatWon } from './format'
+import { formatDate, formatPaymentDueDate, formatWon } from './format'
 import { FinancialInstitutionAvatar } from './FinancialInstitutionPicker'
-import { financialInstitution } from './financialInstitutions'
+import { financialInstitutionName, financialInstitutionUsageFor } from './financialInstitutions'
+import { CardIssuerAvatar } from './CardIssuerPicker'
+import { cardIssuer } from './cardIssuers'
 
-function isBankRelated(asset: Asset) {
-  return asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS'
+function hasFinancialInstitution(asset: Asset) {
+  return asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' || asset.systemCode === 'LOAN' || asset.systemCode === 'INVESTMENT'
+}
+
+function isCardRelated(asset: Asset) {
+  return asset.systemCode === 'CREDIT_CARD' || asset.systemCode === 'DEBIT_CARD'
 }
 
 export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
@@ -70,11 +76,24 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   }
 
   const currentAsset = asset.data
+  const brandName = hasFinancialInstitution(currentAsset)
+    ? financialInstitutionName(currentAsset.financialInstitutionCode, financialInstitutionUsageFor(currentAsset.systemCode))
+    : isCardRelated(currentAsset)
+      ? cardIssuer(currentAsset.cardIssuerCode).name
+      : undefined
+  const brandAvatar = (size?: 'sm') => hasFinancialInstitution(currentAsset)
+    ? <FinancialInstitutionAvatar code={currentAsset.financialInstitutionCode} size={size} />
+    : isCardRelated(currentAsset)
+      ? <CardIssuerAvatar code={currentAsset.cardIssuerCode} size={size} />
+      : null
   const owner = ownerPresentation(currentAsset, ledger)
-  const editAction = currentAsset.status === 'ACTIVE' ? <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="자산 편집"><Settings size={20} /></Link></Button> : null
-  const navigationState = location.state as { transactionDeleted?: boolean; assetUpdated?: boolean } | null
+  const editAction = currentAsset.status === 'ACTIVE'
+    ? <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="자산 편집"><Settings size={20} /></Link></Button>
+    : <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="사용 종료 자산 관리"><RotateCcw size={20} /></Link></Button>
+  const navigationState = location.state as { transactionDeleted?: boolean; assetUpdated?: boolean; assetRestored?: boolean } | null
   const deleted = Boolean(navigationState?.transactionDeleted)
   const updated = Boolean(navigationState?.assetUpdated)
+  const restored = Boolean(navigationState?.assetRestored)
 
   function openRecord() {
     setRecordSaved(false)
@@ -105,19 +124,20 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
         <Button asChild className="mb-3 hidden md:inline-flex" variant="ghost"><Link to="/assets"><ArrowLeft size={17} />자산 현황으로</Link></Button>
         <header className="border-b border-[var(--line)] pb-5">
           <div className="hidden items-start justify-between gap-4 md:flex">
-            <div className="flex min-w-0 items-center gap-3">{isBankRelated(currentAsset) ? <FinancialInstitutionAvatar code={currentAsset.financialInstitutionCode} /> : null}<div className="min-w-0"><p className="text-sm text-[var(--muted)]">{isBankRelated(currentAsset) ? `${financialInstitution(currentAsset.financialInstitutionCode).name} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 보관됨' : ''}</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-[-.025em]">{currentAsset.name}</h1></div></div>
+            <div className="flex min-w-0 items-center gap-3">{brandAvatar()}<div className="min-w-0"><p className="text-sm text-[var(--muted)]">{brandName ? `${brandName} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-[-.025em]">{currentAsset.name}</h1></div></div>
             {editAction}
           </div>
           <div className="flex items-end justify-between gap-4 md:mt-5">
-            <div className="flex min-w-0 items-center gap-2 md:hidden">{isBankRelated(currentAsset) ? <FinancialInstitutionAvatar code={currentAsset.financialInstitutionCode} size="sm" /> : null}<p className="text-xs text-[var(--muted)]">{isBankRelated(currentAsset) ? `${financialInstitution(currentAsset.financialInstitutionCode).name} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 보관됨' : ''}</p></div>
+            <div className="flex min-w-0 items-center gap-2 md:hidden">{brandAvatar('sm')}<p className="text-xs text-[var(--muted)]">{brandName ? `${brandName} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p></div>
             <dl className="ml-auto text-right"><dt className="text-xs text-[var(--muted)]">현재 잔액</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.035em] tabular-nums md:text-3xl ${currentAsset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`}>{formatWon(currentAsset.currentBalanceWon)}</dd></dl>
           </div>
           <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted)]">{owner.avatar}<span>{owner.label}</span><span aria-hidden="true">·</span><span>잔액 기준일 {formatDate(currentAsset.openedOn)}</span></div>
-          {currentAsset.behavior === 'CREDIT_CARD' ? <dl className="mt-4 grid grid-cols-2 divide-x divide-[var(--line-subtle)] border-t border-[var(--line-subtle)] pt-3 text-sm"><div className="pr-4"><dt className="text-xs text-[var(--muted)]">이번 달 결제 예정</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(currentAsset.currentMonthCardPaymentDueWon)}</dd></div><div className="pl-4 text-right"><dt className="text-xs text-[var(--muted)]">다음 달 결제 예정</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(currentAsset.nextMonthCardPaymentDueWon)}</dd></div></dl> : null}
+          {currentAsset.behavior === 'CREDIT_CARD' ? currentAsset.nearestCardPaymentDueOn ? <dl className="mt-4 grid grid-cols-2 divide-x divide-[var(--line-subtle)] border-t border-[var(--line-subtle)] pt-3 text-sm"><div className="pr-4"><dt className="text-xs text-[var(--muted)]">{formatPaymentDueDate(currentAsset.nearestCardPaymentDueOn)} 결제 예정</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(currentAsset.nearestCardPaymentDueWon)}</dd></div><div className="pl-4 text-right"><dt className="text-xs text-[var(--muted)]">{currentAsset.followingCardPaymentDueOn ? `${formatPaymentDueDate(currentAsset.followingCardPaymentDueOn)} 결제 예정` : '그다음 결제'}</dt><dd className="mt-1 font-semibold tabular-nums">{currentAsset.followingCardPaymentDueOn ? formatWon(currentAsset.followingCardPaymentDueWon) : '없음'}</dd></div></dl> : <p className="mt-4 border-t border-[var(--line-subtle)] pt-3 text-right text-xs text-[var(--muted)]">결제 예정 없음</p> : null}
         </header>
 
         {deleted ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 삭제했어요.</p> : null}
         {updated ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산 정보를 변경했어요. 현재 잔액과 설정에 반영했습니다.</p> : null}
+        {restored ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산을 다시 사용할 수 있게 복원했어요.</p> : null}
         {recordSaved ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 기록했어요. 현재 잔액과 거래 내역을 새로 반영했습니다.</p> : null}
 
         <div className="mt-5">

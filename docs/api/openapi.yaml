@@ -386,7 +386,7 @@ paths:
         required: true
         schema: { type: string, format: uuid }
     get:
-      summary: 현재 가계부의 활성 또는 보관 자산 상세
+      summary: 현재 가계부의 사용 중 또는 사용 종료 자산 상세
       operationId: getAsset
       tags: [Asset]
       security: [{ cookieAuth: [] }]
@@ -421,8 +421,8 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "412": { $ref: "#/components/responses/PreconditionFailed" }
     delete:
-      summary: 최신 정리 미리보기 기준 자산 완전 삭제 또는 보관
-      description: 거래 이력과 보존해야 할 비활성 설정 참조가 모두 없으면 완전 삭제하고, 하나라도 있으면 보관한다. 활성 연결 계좌로 사용 중이면 409로 거부한다.
+      summary: 최신 정리 미리보기 기준 자산 완전 삭제 또는 사용 종료
+      description: 최초 금액 내부 기록을 제외한 실제 거래 이력과 보존해야 할 비활성 설정 참조가 모두 없으면 완전 삭제하고, 하나라도 있으면 사용 종료 상태로 전환한다. 사용 종료한 카드는 미처리 예약 결제를 취소하고 새 선결제를 거부한다. 활성 연결 계좌로 사용 중이면 409로 거부한다.
       operationId: removeAsset
       tags: [Asset]
       security: [{ cookieAuth: [] }]
@@ -439,7 +439,7 @@ paths:
           schema: { type: string, minLength: 64, maxLength: 64 }
       responses:
         "200":
-          description: 서버가 실제 적용한 완전 삭제 또는 보관 결과
+          description: 서버가 실제 적용한 완전 삭제 또는 사용 종료 결과
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AssetRemovalResult" }
@@ -466,6 +466,39 @@ paths:
               schema: { $ref: "#/components/schemas/AssetRemovalPreview" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/assets/{assetId}/restore:
+    parameters:
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: 사용 종료 자산을 다시 사용
+      description: 가계부와 자산 행을 잠그고 활성 자산 50개 제한과 연결 계좌 유효성을 다시 확인한다.
+      operationId: restoreAsset
+      tags: [Asset]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion]
+              properties:
+                expectedVersion: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "200":
+          description: 복원된 authoritative 자산
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Asset" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
   /api/assets/{assetId}/transactions:
     parameters:
       - name: assetId
@@ -474,7 +507,7 @@ paths:
         schema: { type: string, format: uuid }
     get:
       summary: 자산과 연결된 거래 cursor 목록
-      description: 자산을 직접 선택한 거래와 해당 자산 잔액을 바꾼 posting을 최신 날짜 우선으로 한 번씩 반환한다. 보관 자산의 과거 거래도 조회할 수 있다.
+      description: 자산을 직접 선택한 거래와 해당 자산 잔액을 바꾼 posting을 최신 날짜 우선으로 한 번씩 반환한다. 사용 종료 자산의 과거 거래도 조회할 수 있다.
       operationId: getAssetTransactions
       tags: [Transaction]
       security: [{ cookieAuth: [] }]
@@ -505,7 +538,7 @@ paths:
         schema: { type: string, format: uuid }
     get:
       summary: 카드 자산의 미결제 중심 명세 cursor 목록
-      description: 같은 가계부의 보관된 카드도 과거 명세 조회를 허용한다. 기본값은 OPEN·FINALIZED만 반환하며 includePaid=true이면 최근 PAID도 포함한다.
+      description: 같은 가계부의 사용 종료 카드도 과거 명세 조회를 허용하되 새 선결제는 거부한다. 기본값은 OPEN·FINALIZED만 반환하며 includePaid=true이면 최근 PAID도 포함한다.
       operationId: getCardStatements
       tags: [CardStatement]
       security: [{ cookieAuth: [] }]
@@ -639,6 +672,29 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CardStatementPaymentResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+    delete:
+      summary: 사용자가 기록한 카드 선결제 취소
+      description: PREPAYMENT 결제만 취소하며 결제 계좌·카드 posting, 명세 상태와 자동 정산 일정을 한 트랜잭션에서 복원한다. 환불 반환에 사용됐거나 이후 정규 결제가 생긴 선결제는 취소하지 않는다.
+      operationId: cancelCardStatementPrepayment
+      tags: [CardStatement]
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/CsrfHeader" }
+        - name: expectedVersion
+          in: query
+          required: true
+          schema: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "200":
+          description: 선결제 취소 후 authoritative 명세
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CardPrepaymentCancellationResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -1244,6 +1300,39 @@ components:
         - GWANGJU
         - JEONBUK
         - JEJU
+        - HYUNDAI_CAPITAL
+        - KB_CAPITAL
+        - SHINHAN_CAPITAL
+        - HANA_CAPITAL
+        - WOORI_FINANCIAL_CAPITAL
+        - NH_CAPITAL
+        - LOTTE_CAPITAL
+        - BNK_CAPITAL
+        - JB_WOORI_CAPITAL
+        - MIRAE_ASSET_SEC
+        - KOREA_INVESTMENT_SEC
+        - NH_INVESTMENT_SEC
+        - SAMSUNG_SEC
+        - KB_SEC
+        - KIWOOM_SEC
+        - SHINHAN_SEC
+        - HANA_SEC
+        - MERITZ_SEC
+        - DAISHIN_SEC
+        - HANWHA_SEC
+        - HYUNDAI_MOTOR_SEC
+        - DB_SEC
+        - YUANTA_SEC
+        - EUGENE_SEC
+        - SK_SEC
+        - IBK_SEC
+        - KAKAO_PAY_SEC
+        - TOSS_SEC
+        - LS_SEC
+        - SHINYOUNG_SEC
+    CardIssuerCode:
+      type: string
+      enum: [OTHER, KB_KOOKMIN, SHINHAN, SAMSUNG, HYUNDAI, LOTTE, WOORI, HANA, BC, NH]
     AssetType:
       type: object
       description: 사용자가 추가하거나 이름을 바꿀 수 없는 고정 시스템 자산 종류
@@ -1293,9 +1382,14 @@ components:
             - { type: string, format: uuid }
             - { type: "null" }
         financialInstitutionCode:
-          description: BANK·SAVINGS 자산의 금융기관 코드다. 생략하면 OTHER로 저장되며 다른 자산 종류에서는 null로 정규화한다.
+          description: BANK·SAVINGS는 은행·상호금융, LOAN은 은행·캐피탈, INVESTMENT는 증권사 정적 코드를 저장한다. 생략하면 OTHER로 저장되며 다른 자산 종류에서는 null로 정규화한다.
           oneOf:
             - { $ref: "#/components/schemas/FinancialInstitutionCode" }
+            - { type: "null" }
+        cardIssuerCode:
+          description: CREDIT_CARD·DEBIT_CARD 자산의 카드사 코드다. 생략하면 OTHER로 저장되며 다른 자산 종류에서는 null로 정규화한다.
+          oneOf:
+            - { $ref: "#/components/schemas/CardIssuerCode" }
             - { type: "null" }
         name: { type: string, minLength: 1, maxLength: 100 }
         openedOn: { type: string, format: date }
@@ -1362,6 +1456,7 @@ components:
         - ownershipScope
         - ownerMemberId
         - financialInstitutionCode
+        - cardIssuerCode
         - name
         - openedOn
         - memo
@@ -1369,6 +1464,10 @@ components:
         - currentBalanceWon
         - currentMonthCardPaymentDueWon
         - nextMonthCardPaymentDueWon
+        - nearestCardPaymentDueOn
+        - nearestCardPaymentDueWon
+        - followingCardPaymentDueOn
+        - followingCardPaymentDueWon
         - status
         - archivedAt
         - version
@@ -1393,6 +1492,10 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/FinancialInstitutionCode" }
             - { type: "null" }
+        cardIssuerCode:
+          oneOf:
+            - { $ref: "#/components/schemas/CardIssuerCode" }
+            - { type: "null" }
         name: { type: string }
         openedOn: { type: string, format: date }
         memo:
@@ -1405,12 +1508,34 @@ components:
           type: integer
           format: int64
           minimum: 0
+          deprecated: true
           description: Asia/Seoul 기준 현재 달에 결제 예정인 이 자산의 미결제 카드 명세 합계이며 카드가 아니면 0이다.
         nextMonthCardPaymentDueWon:
           type: integer
           format: int64
           minimum: 0
+          deprecated: true
           description: Asia/Seoul 기준 다음 달에 결제 예정인 이 자산의 미결제 카드 명세 합계이며 카드가 아니면 0이다.
+        nearestCardPaymentDueOn:
+          description: 아직 결제되지 않은 카드 명세 중 가장 이른 결제일이며, 없거나 카드가 아니면 null이다. 결제일이 지난 미결제 명세도 누락하지 않는다.
+          oneOf:
+            - { type: string, format: date }
+            - { type: "null" }
+        nearestCardPaymentDueWon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: nearestCardPaymentDueOn에 결제할 미결제 명세 합계이며, 없거나 카드가 아니면 0이다.
+        followingCardPaymentDueOn:
+          description: nearestCardPaymentDueOn 다음으로 이른 미결제 카드 명세의 결제일이며, 없거나 카드가 아니면 null이다.
+          oneOf:
+            - { type: string, format: date }
+            - { type: "null" }
+        followingCardPaymentDueWon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: followingCardPaymentDueOn에 결제할 미결제 명세 합계이며, 없거나 카드가 아니면 0이다.
         status:
           type: string
           enum: [ACTIVE, ARCHIVED]
@@ -1862,6 +1987,13 @@ components:
         statement: { $ref: "#/components/schemas/CardStatementDetail" }
         payment: { $ref: "#/components/schemas/CardStatementPayment" }
         settlementTransaction: { $ref: "#/components/schemas/Transaction" }
+    CardPrepaymentCancellationResult:
+      type: object
+      required: [statement, cancelledPaymentId, cancelledTransactionId]
+      properties:
+        statement: { $ref: "#/components/schemas/CardStatementDetail" }
+        cancelledPaymentId: { type: string, format: uuid }
+        cancelledTransactionId: { type: string, format: uuid }
     CardPurchaseStatement:
       type: object
       required: [statementId, dueOn, status, grossAmountWon, paidAmountWon, paymentAmountWon, version, payments]

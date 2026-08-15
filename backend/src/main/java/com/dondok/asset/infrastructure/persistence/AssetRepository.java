@@ -23,6 +23,10 @@ public interface AssetRepository extends JpaRepository<AssetEntity, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select asset from AssetEntity asset where asset.id = :id and asset.bookId = :bookId and asset.archivedAt is null")
     Optional<AssetEntity> findActiveForUpdate(@Param("id") UUID id, @Param("bookId") UUID bookId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select asset from AssetEntity asset where asset.id = :id and asset.bookId = :bookId")
+    Optional<AssetEntity> findAnyForUpdate(@Param("id") UUID id, @Param("bookId") UUID bookId);
     long countByBookIdAndArchivedAtIsNull(UUID bookId);
     boolean existsByBookIdAndNameIgnoreCaseAndArchivedAtIsNull(UUID bookId, String name);
     boolean existsByBookIdAndNameIgnoreCaseAndArchivedAtIsNullAndIdNot(UUID bookId, String name, UUID id);

@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -84,6 +85,18 @@ public class CardStatementController {
     ) {
         return service.correctPaymentAccount(
                 principal.userId(), statementId, paymentId, request.toCommand());
+    }
+
+    @DeleteMapping("/card-statements/{statementId}/payments/{paymentId}")
+    CardStatementService.CardPrepaymentCancellationResult cancelPrepayment(
+            @AuthenticationPrincipal DondokPrincipal principal,
+            @PathVariable UUID statementId,
+            @PathVariable UUID paymentId,
+            @RequestParam @Min(0) long expectedVersion
+    ) {
+        return service.cancelPrepayment(
+                principal.userId(), statementId, paymentId,
+                new CardStatementService.CancelPrepaymentCommand(expectedVersion));
     }
 
     public record PrepaymentPreviewRequest(

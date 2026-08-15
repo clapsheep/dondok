@@ -1,5 +1,6 @@
 import { api, jsonBody } from '../../lib/api'
 import type { FinancialInstitutionCode } from './financialInstitutions'
+import type { CardIssuerCode } from './cardIssuers'
 
 export type AssetBehavior = 'STANDARD' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'SAVINGS'
 export type OwnershipScope = 'PERSONAL' | 'JOINT'
@@ -50,6 +51,7 @@ export type Asset = {
   ownershipScope: OwnershipScope
   ownerMemberId: string | null
   financialInstitutionCode: FinancialInstitutionCode | null
+  cardIssuerCode: CardIssuerCode | null
   name: string
   openedOn: string
   memo: string | null
@@ -57,6 +59,10 @@ export type Asset = {
   currentBalanceWon: number
   currentMonthCardPaymentDueWon: number
   nextMonthCardPaymentDueWon: number
+  nearestCardPaymentDueOn: string | null
+  nearestCardPaymentDueWon: number
+  followingCardPaymentDueOn: string | null
+  followingCardPaymentDueWon: number
   status: AssetStatus
   archivedAt: string | null
   version: number
@@ -70,6 +76,7 @@ export type CreateAssetInput = {
   ownershipScope: OwnershipScope
   ownerMemberId: string | null
   financialInstitutionCode: FinancialInstitutionCode | null
+  cardIssuerCode: CardIssuerCode | null
   name: string
   openedOn: string
   memo: string | null
@@ -136,6 +143,10 @@ export const assetApi = {
   update: (assetId: string, input: UpdateAssetInput) => api<Asset>(`/api/assets/${assetId}`, {
     method: 'PUT',
     body: jsonBody(input),
+  }),
+  restore: (assetId: string, expectedVersion: number) => api<Asset>(`/api/assets/${assetId}/restore`, {
+    method: 'POST',
+    body: jsonBody({ expectedVersion }),
   }),
   remove: (assetId: string, expectedVersion: number, previewToken: string) => {
     const params = new URLSearchParams({ expectedVersion: String(expectedVersion), previewToken })
