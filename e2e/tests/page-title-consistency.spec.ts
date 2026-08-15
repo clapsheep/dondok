@@ -7,8 +7,15 @@ test('주요 메뉴의 대제목은 같은 크기와 굵기를 유지한다', as
   await expect(page.getByRole('heading', { name: '가계부', level: 1, exact: true })).toBeVisible()
 
   const titleStyles = []
+  const viewport = page.viewportSize()
+  const mobile = Boolean(viewport && viewport.width < 768)
+  if (mobile) {
+    const homeHeading = page.getByRole('heading', { name: '가계부', level: 1, exact: true })
+    await expect(homeHeading).toHaveClass(/sr-only/)
+  }
+
   for (const [path, title] of [
-    ['/', '가계부'],
+    ...(!mobile ? [['/', '가계부'] as const] : []),
     ['/assets', '자산 현황'],
     ['/statistics', '월간 통계'],
     ['/settings', '가계부 설정'],

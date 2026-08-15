@@ -1,5 +1,4 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
-import { cardAssetRow, expectCardPaymentAmounts } from './support/assets'
 import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 import { selectDate } from './support/date-picker'
@@ -78,17 +77,18 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   })
   const originalRow = transactionRow(page, purchaseDescription)
   await expect(originalRow.getByText('-80,000원', { exact: true })).toBeVisible()
-  await originalRow.getByRole('link', { name: new RegExp(`${purchaseDescription}.*지출.*원 카드 구매 상세`) }).click()
+  await originalRow.getByRole('link', { name: new RegExp(`${purchaseDescription}.*거래 상세.*지출.*-80,000원`) }).click()
 
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
   await expect(page.getByText('구매 금액', { exact: true }).locator('..')).toContainText('80,000원')
+  await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('80,000원')
   await expect(page.getByRole('link', { name: '기록 정정', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: '환불 처리', exact: true })).toBeVisible()
   const detailUrl = page.url()
 
   await page.goto('/assets')
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
-  await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), { currentMonth: '0원', nextMonth: '80,000원' })
+  await expectAssetDebt(page, '80,000원')
   await page.goto(detailUrl)
   await page.getByRole('link', { name: '환불 처리', exact: true }).click()
 
@@ -123,6 +123,7 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await expect(page.getByText('구매 금액', { exact: true }).locator('..')).toContainText('80,000원')
   await expect(page.getByText('내용', { exact: true }).locator('..')).toContainText(purchaseDescription)
   await expect(page.getByText('환불 가능 50,000원', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('50,000원')
   await expect(page.getByRole('heading', { name: '환불 처리 내역' }).locator('..')).toContainText('+30,000원')
   await expect(page.getByRole('heading', { name: '환불 처리 내역' }).locator('..')).toContainText('집계 제외')
 
@@ -133,10 +134,12 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await expect(refundRow.getByText('+30,000원', { exact: true })).toBeVisible()
   await expect(refundRow.getByText('환불', { exact: true })).toBeVisible()
   await expect(refundRow.getByText('집계 제외', { exact: true })).toBeVisible()
-  await refundRow.getByRole('link', { name: new RegExp(`${refundDescription}.*환불.*원 카드 구매 상세`) }).click()
-  await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
+  await refundRow.getByRole('link', { name: new RegExp(`${refundDescription}.*거래 상세.*환불.*\\+30,000원`) }).click()
+  await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
+  await expect(page.getByText('카드 환불은 원 구매와 결제 계좌 반환 내역을 함께 관리해요.')).toBeVisible()
+  await expect(page.getByRole('link', { name: '원 카드 구매 보기' })).toBeVisible()
 
-  await page.getByRole('link', { name: '가계부로 돌아가기' }).click()
+  await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
   await page.getByRole('button', { name: '월간 달력' }).click()
   await expect(page.getByTitle('-80,000원', { exact: true }).first()).toBeVisible()
   await expect(page.getByTitle('지출 -80,000원', { exact: true })).toBeVisible()
@@ -145,7 +148,7 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
 
   await page.goto('/assets')
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
-  await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), { currentMonth: '0원', nextMonth: '50,000원' })
+  await expectAssetDebt(page, '50,000원')
 })
 
 test('카드 구매 기록 정정은 preview 뒤 변경된 구매와 명세를 원 구매 대신 반영한다', async ({ page, request }, testInfo) => {
@@ -167,7 +170,7 @@ test('카드 구매 기록 정정은 preview 뒤 변경된 구매와 명세를 �
     description: originalDescription,
   })
   await transactionRow(page, originalDescription)
-    .getByRole('link', { name: new RegExp(`${originalDescription}.*지출.*원 카드 구매 상세`) })
+    .getByRole('link', { name: new RegExp(`${originalDescription}.*거래 상세.*지출.*-90,000원`) })
     .click()
   await page.getByRole('link', { name: '기록 정정', exact: true }).click()
 
@@ -202,6 +205,7 @@ test('카드 구매 기록 정정은 preview 뒤 변경된 구매와 명세를 �
   await expect(page.getByRole('status')).toContainText('카드 구매 기록을 정정했어요.')
   await expect(page.getByText('구매 날짜', { exact: true }).locator('..')).toContainText(correctedDate)
   await expect(page.getByText('구매 금액', { exact: true }).locator('..')).toContainText('65,000원')
+  await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('65,000원')
   await expect(page.getByText('내용', { exact: true }).locator('..')).toContainText(correctedDescription)
   await expect(page.getByText('달력·통계', { exact: true }).locator('..')).toContainText('집계 제외')
 
@@ -217,7 +221,7 @@ test('카드 구매 기록 정정은 preview 뒤 변경된 구매와 명세를 �
 
   await page.goto('/assets')
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
-  await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), { currentMonth: '0원', nextMonth: '65,000원' })
+  await expectAssetDebt(page, '65,000원')
 })
 
 async function createCardPurchase(page: Page, purchase: { amount: string; occurredOn: string; description: string }) {
@@ -329,6 +333,10 @@ function todayInSeoul() {
 
 async function hasPageOverflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+}
+
+async function expectAssetDebt(page: Page, amount: string) {
+  await expect(page.getByText('총부채', { exact: true }).locator('..')).toContainText(amount)
 }
 
 async function delayNextRequest(page: Page, url: string) {
