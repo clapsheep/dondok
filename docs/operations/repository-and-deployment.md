@@ -31,6 +31,10 @@
 
 프론트엔드가 백엔드 소스에 의존하거나 그 반대가 되지 않게 한다. 두 애플리케이션의 유일한 결합점은 OpenAPI 계약, HTTP 프로토콜과 공유 문서다. Flyway migration의 실행 원본은 프로젝트 생성 시 `backend/src/main/resources/db/migration`으로 이동하며 같은 migration을 두 위치에서 복제 관리하지 않는다.
 
+## Node.js 실행 버전
+
+프론트엔드와 Playwright의 개발·검증·CI·Docker build는 Node.js `24.18.0`을 단일 기준으로 사용한다. 저장소 루트에서 `nvm use`가 [`.nvmrc`](../../.nvmrc)를 읽고, 각 npm 프로젝트는 `engines.node`와 `engine-strict=true`로 다른 버전의 의존성 설치를 즉시 거부한다. GitHub Actions와 frontend build image도 같은 정확한 버전을 사용하며, 버전을 올릴 때는 이 선언들을 한 변경에서 함께 갱신한다.
+
 ## 환경변수와 비밀정보
 
 - 실제 값은 저장소 루트 `.env`, 앱별 `.env.local` 또는 Mac mini의 Docker secret 파일에만 둔다.

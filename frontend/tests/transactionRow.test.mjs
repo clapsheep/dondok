@@ -41,3 +41,10 @@ test('카드 환불 행은 수입이 아닌 환불로 표시하고 해당 환불
 test('시스템 행도 읽기 전용 거래 상세로 이동한다', () => {
   assert.equal(transactionRowDestination({ ...purchase, managementType: 'SYSTEM' }), '/transactions/purchase-1')
 })
+
+test('수입·지출 행의 접근 가능한 이름에는 분류를 포함한다', () => {
+  assert.equal(
+    transactionRowAccessibleName({ ...purchase, category: { categoryId: 'food', name: '식비' } }, '점심', '-12,000원'),
+    '점심 거래 상세, 지출 -12,000원, 분류 식비',
+  )
+})

@@ -10,6 +10,7 @@ import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { transactionKeys } from '../transactions/api'
 import { categoryApi, categoryKeys, type Category, type CategoryKind, type DeleteCategoryResult } from './api'
 import { insertCategoryBeforeFallback } from './categoryList'
+import { SortableCategoryGrid } from './SortableCategoryGrid'
 
 type EditDraft = { categoryId: string; name: string; expectedVersion: number }
 type Conflict = { action: 'rename' | 'delete'; latest: Category; draftName: string }
@@ -29,6 +30,7 @@ export function CategorySettingsPage() {
   const [deletedElsewhere, setDeletedElsewhere] = useState('')
   const [result, setResult] = useState<DeleteCategoryResult>()
   const [copied, setCopied] = useState(false)
+  const [orderNotice, setOrderNotice] = useState<{ kind: CategoryKind; result: 'saved' | 'conflict' }>()
   const categories = useQuery({
     queryKey: categoryKeys.list(kind),
     queryFn: () => categoryApi.list(kind),
@@ -72,6 +74,36 @@ export function CategorySettingsPage() {
     },
     onError: (error) => void handleMutationError(error, 'delete', ''),
   })
+  const reorder = useMutation({
+    mutationFn: ({ kind: requestedKind, categories: next }: { kind: CategoryKind; categories: Category[] }) => categoryApi.reorder({
+      kind: requestedKind,
+      categories: next.map((category) => ({
+        categoryId: category.categoryId,
+        expectedVersion: category.version,
+      })),
+    }),
+    onMutate: async ({ kind: requestedKind, categories: next }) => {
+      setOrderNotice(undefined)
+      await queryClient.cancelQueries({ queryKey: categoryKeys.list(requestedKind) })
+      const previous = queryClient.getQueryData<Category[]>(categoryKeys.list(requestedKind))
+      queryClient.setQueryData<Category[]>(categoryKeys.list(requestedKind), next)
+      return { previous }
+    },
+    onSuccess: (ordered, { kind: requestedKind }) => {
+      queryClient.setQueryData<Category[]>(categoryKeys.list(requestedKind), ordered)
+      setOrderNotice({ kind: requestedKind, result: 'saved' })
+    },
+    onError: async (error, { kind: requestedKind }, context) => {
+      if (context?.previous) queryClient.setQueryData<Category[]>(categoryKeys.list(requestedKind), context.previous)
+      if (!(error instanceof ApiError) || error.status !== 412) return
+      await queryClient.fetchQuery({
+        queryKey: categoryKeys.list(requestedKind),
+        queryFn: () => categoryApi.list(requestedKind),
+        staleTime: 0,
+      })
+      setOrderNotice({ kind: requestedKind, result: 'conflict' })
+    },
+  })
 
   async function handleMutationError(error: unknown, action: Conflict['action'], draftName: string) {
     if (!(error instanceof ApiError)) return
@@ -101,9 +133,11 @@ export function CategorySettingsPage() {
     setMissingDraft(undefined)
     setResult(undefined)
     setDeletedElsewhere('')
+    setOrderNotice(undefined)
     create.reset()
     rename.reset()
     remove.reset()
+    reorder.reset()
   }
 
   function add(event: FormEvent<HTMLFormElement>) {
@@ -170,6 +204,8 @@ export function CategorySettingsPage() {
         {!online ? <Notice tone="warning">오프라인 상태예요. 입력은 유지되며 연결된 뒤 추가·수정·삭제할 수 있어요.</Notice> : null}
         {result ? <Notice tone="success">‘{result.fallbackCategoryName}’ 분류로 {result.remappedTransactionCount}건을 옮기고 삭제했어요.{result.firstOccurredOn && result.lastOccurredOn ? ` (${formatPeriod(result.firstOccurredOn, result.lastOccurredOn)})` : ''}</Notice> : null}
         {deletedElsewhere ? <Notice tone="warning">‘{deletedElsewhere}’ 분류는 다른 구성원이 먼저 삭제했어요. 최신 목록을 불러왔습니다.</Notice> : null}
+        {orderNotice?.kind === kind && orderNotice.result === 'saved' ? <Notice tone="success">분류 순서를 변경했어요.</Notice> : null}
+        {orderNotice?.kind === kind && orderNotice.result === 'conflict' ? <Notice tone="warning">다른 구성원이 분류를 변경해 최신 순서를 불러왔어요. 다시 이동해 주세요.</Notice> : null}
 
         <form className="mt-6 grid gap-3 border-y border-[var(--line)] py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" onSubmit={add}>
           <Field id="newCategoryName" label={`${kind === 'EXPENSE' ? '지출' : '수입'} 분류 추가`} value={addName} onChange={(event) => { setAddName(event.target.value); create.reset() }} maxLength={100} placeholder="예: 반려동물" required error={create.error instanceof ApiError && create.error.status === 409 ? '이미 같은 이름의 분류가 있어요.' : undefined} />
@@ -197,25 +233,14 @@ export function CategorySettingsPage() {
           <div className="flex items-baseline justify-between gap-3"><h2 id="category-list-title" className="text-xl font-semibold">{kind === 'EXPENSE' ? '지출' : '수입'} 분류</h2><span className="text-sm text-[var(--muted)]">{categories.data?.length ?? 0}개</span></div>
           {categories.isPending ? <Loading /> : categories.isError ? <LoadError onRetry={() => categories.refetch()} /> : (
             <div className="mt-3 grid items-start gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(18rem,.7fr)] lg:gap-8">
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(7rem,100%),1fr))] gap-2" role="group" aria-label={`${kind === 'EXPENSE' ? '지출' : '수입'} 분류 선택`}>
-                {categories.data?.map((category) => {
-                  const selected = category.categoryId === selectedCategoryId
-                  return (
-                    <Button
-                      key={category.categoryId}
-                      type="button"
-                      variant="secondary"
-                      className={`min-h-11 min-w-0 rounded-md border px-2.5 py-2 text-sm leading-5 transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 ${selected ? 'border-forest-700 bg-forest-50 font-semibold text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'border-[var(--line)] bg-transparent font-medium text-ink-900 hover:border-forest-600 hover:bg-forest-50 dark:text-white dark:hover:bg-forest-950'}`}
-                      aria-pressed={selected}
-                      aria-controls="selected-category-panel"
-                      title={category.name}
-                      onClick={() => selectCategory(category)}
-                    >
-                      <span className="line-clamp-2 break-words">{category.name}</span>
-                    </Button>
-                  )
-                })}
-              </div>
+              <SortableCategoryGrid
+                categories={categories.data ?? []}
+                kindLabel={kind === 'EXPENSE' ? '지출' : '수입'}
+                selectedCategoryId={selectedCategoryId}
+                disabled={!online || reorder.isPending}
+                onSelect={selectCategory}
+                onReorder={(ordered) => reorder.mutate({ kind, categories: ordered })}
+              />
 
               <div id="selected-category-panel" className="border-t border-[var(--line)] pt-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
                 {selectedCategory ? (
@@ -240,6 +265,8 @@ export function CategorySettingsPage() {
             </div>
           )}
         </section>
+
+        {reorder.error && !(reorder.error instanceof ApiError && reorder.error.status === 412) ? <ErrorNotice error={reorder.error} /> : null}
 
         {pendingDelete ? (
           <section className="mt-5 border-y border-[var(--line)] py-5" aria-labelledby="delete-category-title">

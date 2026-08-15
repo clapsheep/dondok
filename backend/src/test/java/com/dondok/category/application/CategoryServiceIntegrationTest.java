@@ -22,6 +22,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -144,6 +145,35 @@ class CategoryServiceIntegrationTest {
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo("CATEGORY_FALLBACK_DELETE_FORBIDDEN"));
+    }
+
+    @Test
+    void reorderPersistsTheWholeDirectionAtomicallyAndRejectsAStaleOrder() {
+        Fixture fixture = fixture();
+        List<CategoryService.CategoryView> original = categoryService.categories(
+                fixture.userId(), CategoryKind.EXPENSE);
+        List<CategoryService.CategoryOrderItem> reversed = IntStream.range(0, original.size())
+                .mapToObj(index -> original.get(original.size() - index - 1))
+                .map(category -> new CategoryService.CategoryOrderItem(
+                        category.categoryId(), category.version()))
+                .toList();
+
+        List<CategoryService.CategoryView> reordered = categoryService.reorder(
+                fixture.userId(), new CategoryService.ReorderCategoriesCommand(
+                        CategoryKind.EXPENSE, reversed));
+
+        assertThat(reordered).extracting(CategoryService.CategoryView::categoryId)
+                .containsExactlyElementsOf(reversed.stream()
+                        .map(CategoryService.CategoryOrderItem::categoryId).toList());
+        assertThat(categoryService.categories(fixture.userId(), CategoryKind.EXPENSE))
+                .extracting(CategoryService.CategoryView::categoryId)
+                .containsExactlyElementsOf(reordered.stream()
+                        .map(CategoryService.CategoryView::categoryId).toList());
+        assertThatThrownBy(() -> categoryService.reorder(
+                fixture.userId(), new CategoryService.ReorderCategoriesCommand(
+                        CategoryKind.EXPENSE, reversed)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo("VERSION_CONFLICT"));
     }
 
     @Test

@@ -611,6 +611,39 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "412": { $ref: "#/components/responses/PreconditionFailed" }
+  /api/card-statements/{statementId}/payments/{paymentId}:
+    parameters:
+      - name: statementId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: paymentId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      summary: 카드 결제 기록의 출금 계좌 정정
+      description: 금액·결제일·명세는 유지하고 결제 거래의 출금 posting과 결제 기록의 계좌를 한 트랜잭션에서 변경한다. 환불 반환에 사용된 결제는 정정할 수 없다.
+      operationId: correctCardStatementPaymentAccount
+      tags: [CardStatement]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CorrectCardStatementPaymentAccountRequest" }
+      responses:
+        "200":
+          description: 정정 후 명세·결제·이체 거래 authoritative 상태
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CardStatementPaymentResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
   /api/categories:
     get:
       summary: 현재 가계부의 활성 분류 목록
@@ -701,6 +734,30 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+  /api/categories/order:
+    put:
+      summary: expected version 기준 공동 분류 순서 전체 변경
+      operationId: reorderCategories
+      tags: [Category]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReorderCategoriesRequest" }
+      responses:
+        "200":
+          description: 변경된 방향의 authoritative 분류 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Category" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "412": { $ref: "#/components/responses/PreconditionFailed" }
   /api/statistics/monthly:
     get:
@@ -1160,6 +1217,33 @@ components:
     AssetOwnershipScope:
       type: string
       enum: [PERSONAL, JOINT]
+    FinancialInstitutionCode:
+      type: string
+      enum:
+        - OTHER
+        - KB_KOOKMIN
+        - SHINHAN
+        - HANA
+        - WOORI
+        - NH
+        - IBK
+        - KAKAO_BANK
+        - K_BANK
+        - TOSS_BANK
+        - SC
+        - CITI
+        - KDB
+        - SUHYUP
+        - POST_OFFICE
+        - MG
+        - CREDIT_UNION
+        - SAVINGS_BANK
+        - BNK_BUSAN
+        - BNK_GYEONGNAM
+        - IM_BANK
+        - GWANGJU
+        - JEONBUK
+        - JEJU
     AssetType:
       type: object
       description: 사용자가 추가하거나 이름을 바꿀 수 없는 고정 시스템 자산 종류
@@ -1207,6 +1291,11 @@ components:
         ownerMemberId:
           oneOf:
             - { type: string, format: uuid }
+            - { type: "null" }
+        financialInstitutionCode:
+          description: BANK·SAVINGS 자산의 금융기관 코드다. 생략하면 OTHER로 저장되며 다른 자산 종류에서는 null로 정규화한다.
+          oneOf:
+            - { $ref: "#/components/schemas/FinancialInstitutionCode" }
             - { type: "null" }
         name: { type: string, minLength: 1, maxLength: 100 }
         openedOn: { type: string, format: date }
@@ -1272,6 +1361,7 @@ components:
         - paymentSourceCapable
         - ownershipScope
         - ownerMemberId
+        - financialInstitutionCode
         - name
         - openedOn
         - memo
@@ -1298,6 +1388,10 @@ components:
         ownerMemberId:
           oneOf:
             - { type: string, format: uuid }
+            - { type: "null" }
+        financialInstitutionCode:
+          oneOf:
+            - { $ref: "#/components/schemas/FinancialInstitutionCode" }
             - { type: "null" }
         name: { type: string }
         openedOn: { type: string, format: date }
@@ -1412,6 +1506,22 @@ components:
       required: [name, expectedVersion]
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+    ReorderCategoriesRequest:
+      type: object
+      required: [kind, categories]
+      properties:
+        kind: { $ref: "#/components/schemas/CategoryKind" }
+        categories:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CategoryOrderItem" }
+    CategoryOrderItem:
+      type: object
+      required: [categoryId, expectedVersion]
+      properties:
+        categoryId: { type: string, format: uuid }
         expectedVersion: { type: integer, format: int64, minimum: 0 }
     ArchiveCategoryResult:
       type: object
@@ -1648,6 +1758,12 @@ components:
           oneOf:
             - { type: string, format: uuid }
             - { type: "null" }
+    CorrectCardStatementPaymentAccountRequest:
+      type: object
+      required: [settlementAssetId, expectedVersion]
+      properties:
+        settlementAssetId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
     CardStatementSummary:
       type: object
       required: [statementId, cardAsset, dueOn, status, grossAmountWon, paidAmountWon, remainingAmountWon, version, automaticSettlement]

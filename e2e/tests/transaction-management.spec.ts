@@ -4,12 +4,13 @@ import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 import { selectTransactionCategory } from './support/transactions'
 
-test('모바일 자산 상세는 최신순 거래를 월별로 나누고 거래 상세와 자산 편집으로 이어진다', async ({ page, request }) => {
-  test.skip(test.info().project.name !== 'mobile-chrome', '모바일 자산 원장 스크롤 계약은 대표 모바일 브라우저에서 검증합니다.')
+test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보여주고 거래 상세와 자산 편집으로 이어진다', async ({ page, request }) => {
+  const mobile = (page.viewportSize()?.width ?? 1280) < 768
   const suffix = `${test.info().workerIndex}-${Date.now().toString().slice(-6)}`
   const assetName = `모바일 원장 계좌 ${suffix}`
   const latestDescription = `QC 자산 최신 ${suffix}`
   const olderDescription = `QC 자산 이전 ${suffix}`
+  const quickDescription = `QC 원장 바로 기록 ${suffix}`
 
   await registerAndLogin(page, request, `자산 원장 사용자 ${suffix}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
@@ -31,24 +32,52 @@ test('모바일 자산 상세는 최신순 거래를 월별로 나누고 거래 
   await page.getByRole('link', { name: new RegExp(`^${escapeRegExp(assetName)},`) }).click()
   await expect(page).toHaveURL(new RegExp(`/assets/${seeded.assetId}$`))
   await expect(page.getByRole('heading', { name: assetName, exact: true })).toBeVisible()
+  const backToAssets = page.getByRole('link', { name: mobile ? '자산 목록으로' : '자산 현황으로', exact: true })
+  await expect(backToAssets).toBeVisible()
+  await expect(backToAssets).toHaveAttribute('href', '/assets')
   await expect(page.getByRole('heading', { name: '2026년 8월', exact: true })).toHaveCount(1)
   await expect(page.getByRole('heading', { name: '2026년 7월', exact: true })).toHaveCount(1)
-  const rows = page.getByRole('listitem')
-  await expect(rows.nth(0)).toContainText(latestDescription)
-  await expect(rows.nth(1)).toContainText(olderDescription)
+  const openingBalance = page.locator('[data-opening-balance]')
+  await expect(openingBalance).toContainText('기준일 잔액')
+  await expect(openingBalance).toContainText('300,000원')
+  await expect(transactionRow(page, latestDescription)).toContainText('잔액 300,000원')
+  await expect(transactionRow(page, olderDescription)).toContainText('잔액 318,000원')
   const editAsset = page.getByRole('link', { name: '자산 편집' })
   await expectTouchTarget(editAsset, '자산 편집')
   expect(await hasPageOverflow(page)).toBe(false)
+
+  const ledgerUrl = page.url()
+  await page.getByRole('button', { name: '기록 추가', exact: true }).click()
+  const recordDialog = page.getByRole('dialog', { name: '거래 기록' })
+  await expect(recordDialog).toBeVisible()
+  await expect(page).toHaveURL(ledgerUrl)
+  await expect(recordDialog.getByRole('button', { name: '결제 자산' })).toContainText(assetName)
+  await recordDialog.getByLabel('금액').fill('9000')
+  await recordDialog.getByRole('button', { name: /^분류 선택, 현재 / }).click()
+  const categoryDialog = page.getByRole('dialog', { name: /분류 선택$/ })
+  await categoryDialog.getByRole('button', { name: '식비', exact: true }).click()
+  await recordDialog.getByLabel('내용 (선택)').fill(quickDescription)
+  await recordDialog.getByRole('button', { name: '거래 기록 닫기' }).click()
+  const discardDialog = page.getByRole('dialog', { name: '작성 중인 기록을 닫을까요?' })
+  await expect(discardDialog).toBeVisible()
+  await discardDialog.getByRole('button', { name: '계속 작성' }).click()
+  await expect(recordDialog.getByLabel('내용 (선택)')).toHaveValue(quickDescription)
+  await recordDialog.getByRole('button', { name: '기록 저장' }).click()
+  await expect(recordDialog).toHaveCount(0)
+  await expect(page).toHaveURL(ledgerUrl)
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
+  await expect(transactionRow(page, quickDescription)).toContainText('-9,000원')
+  await expect(page.getByText('현재 잔액', { exact: true }).locator('..')).toContainText('291,000원')
 
   await page.getByRole('link', { name: `${latestDescription} 거래 상세` }).click()
   await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
   await expect(page.getByText('-18,000원', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: '기록 편집' })).toBeVisible()
   await expect(page.getByRole('button', { name: '기록 삭제' })).toBeVisible()
-  await page.getByRole('link', { name: '거래 목록으로' }).click()
+  await page.getByRole('link', { name: mobile ? '거래 목록으로' : '목록으로 돌아가기', exact: true }).click()
   await editAsset.click()
   await expect(page).toHaveURL(new RegExp(`/assets/${seeded.assetId}/edit$`))
-  await expect(page.getByRole('heading', { name: '자산 편집' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: mobile ? '자산 편집' : '자산 정보 수정', exact: true })).toBeVisible()
 })
 
 test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계에서 삭제할 수 있다', async ({ page, request }) => {

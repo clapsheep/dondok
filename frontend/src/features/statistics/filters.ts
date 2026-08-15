@@ -15,6 +15,7 @@ export type StatisticsUrlState = {
 
 type ParseOptions = {
   currentMonth: string
+  currentMemberId: string
   validMemberIds: ReadonlySet<string>
 }
 
@@ -23,7 +24,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 export function parseStatisticsUrl(params: URLSearchParams, options: ParseOptions): StatisticsUrlState {
   const month = isMonth(params.get('month')) ? params.get('month')! : options.currentMonth
   const memberCandidate = params.get('member')
-  const memberId = memberCandidate && options.validMemberIds.has(memberCandidate) ? memberCandidate : null
+  const memberId = memberCandidate === 'all'
+    ? null
+    : memberCandidate && options.validMemberIds.has(memberCandidate)
+      ? memberCandidate
+      : options.currentMemberId
   const owner = parseOwner(params.get('owner'), options.validMemberIds)
   const categoryCandidate = params.get('category')
   const categoryId = categoryCandidate && UUID_PATTERN.test(categoryCandidate) ? categoryCandidate : null
@@ -59,9 +64,10 @@ export function statisticsFiltersFromUrl(state: StatisticsUrlState): StatisticsF
   }
 }
 
-export function statisticsSearchParams(state: StatisticsUrlState) {
+export function statisticsSearchParams(state: StatisticsUrlState, currentMemberId: string) {
   const params = new URLSearchParams({ month: state.month })
-  if (state.memberId) params.set('member', state.memberId)
+  if (state.memberId === null) params.set('member', 'all')
+  else if (state.memberId !== currentMemberId) params.set('member', state.memberId)
   if (state.owner !== 'all') params.set('owner', state.owner)
   if (state.categoryId) params.set('category', state.categoryId)
   if (state.direction !== 'expense') params.set('direction', state.direction)
@@ -69,7 +75,7 @@ export function statisticsSearchParams(state: StatisticsUrlState) {
 }
 
 export function activeStatisticsFilterCount(state: StatisticsUrlState) {
-  return Number(Boolean(state.memberId)) + Number(state.owner !== 'all') + Number(Boolean(state.categoryId))
+  return Number(state.owner !== 'all') + Number(Boolean(state.categoryId))
 }
 
 function parseOwner(value: string | null, validMemberIds: ReadonlySet<string>): StatisticsOwnerFilter {

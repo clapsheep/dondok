@@ -58,6 +58,14 @@ public class CategoryController {
         return categoryService.update(principal.userId(), categoryId, request.toCommand());
     }
 
+    @PutMapping("/order")
+    List<CategoryService.CategoryView> reorder(
+            @AuthenticationPrincipal DondokPrincipal principal,
+            @Valid @RequestBody ReorderCategoriesRequest request
+    ) {
+        return categoryService.reorder(principal.userId(), request.toCommand());
+    }
+
     @DeleteMapping("/{categoryId}")
     CategoryService.ArchiveCategoryResult archive(
             @AuthenticationPrincipal DondokPrincipal principal,
@@ -82,6 +90,25 @@ public class CategoryController {
     ) {
         CategoryService.UpdateCategoryCommand toCommand() {
             return new CategoryService.UpdateCategoryCommand(name, expectedVersion);
+        }
+    }
+
+    public record ReorderCategoriesRequest(
+            @NotNull CategoryKind kind,
+            @NotNull @Size(min = 1, max = 100) List<@Valid CategoryOrderRequest> categories
+    ) {
+        CategoryService.ReorderCategoriesCommand toCommand() {
+            return new CategoryService.ReorderCategoriesCommand(kind, categories.stream()
+                    .map(CategoryOrderRequest::toCommand).toList());
+        }
+    }
+
+    public record CategoryOrderRequest(
+            @NotNull UUID categoryId,
+            @NotNull @Min(0) Long expectedVersion
+    ) {
+        CategoryService.CategoryOrderItem toCommand() {
+            return new CategoryService.CategoryOrderItem(categoryId, expectedVersion);
         }
     }
 }

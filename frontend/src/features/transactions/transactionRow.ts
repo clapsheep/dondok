@@ -20,8 +20,9 @@ export function transactionRowTone(transaction: Transaction) {
 
 export function transactionRowAccessibleName(transaction: Transaction, label: string, amount: string) {
   const type = transactionTypeLabel(transaction)
+  const category = transaction.category ? `, 분류 ${transaction.category.name}` : ''
   const statistics = transaction.excludedFromStatistics ? ', 집계 제외' : ''
-  return `${label} 거래 상세, ${type} ${amount}${statistics}`
+  return `${label} 거래 상세, ${type} ${amount}${category}${statistics}`
 }
 
 export function transactionTypeLabel(transaction: Transaction) {

@@ -13,7 +13,6 @@ import { AssetsPage } from './features/assets/AssetsPage'
 import { TransactionFormPage } from './features/transactions/TransactionFormPage'
 import { TransactionDetailPage } from './features/transactions/TransactionDetailPage'
 import { CardPurchaseManagementPage, type CardPurchaseAction } from './features/transactions/CardPurchaseManagementPage'
-import { CategorySettingsPage } from './features/categories/CategorySettingsPage'
 import { ledgerExitReasonAfterCurrentRead, replaceLedgerClientState, type LedgerNavigationState } from './features/membership/ledgerLifecycle'
 import { MobileLedgerNavigation } from './components/AppShell'
 
@@ -21,6 +20,7 @@ const CardStatementPage = lazy(() => import('./features/card-statements/CardStat
 const StatisticsPage = lazy(() => import('./features/statistics/StatisticsPage').then((module) => ({ default: module.StatisticsPage })))
 const AssetFormPage = lazy(() => import('./features/assets/AssetFormPage').then((module) => ({ default: module.AssetFormPage })))
 const AssetLedgerPage = lazy(() => import('./features/assets/AssetLedgerPage').then((module) => ({ default: module.AssetLedgerPage })))
+const CategorySettingsPage = lazy(() => import('./features/categories/CategorySettingsPage').then((module) => ({ default: module.CategorySettingsPage })))
 
 function LedgerLifecycleBoundary({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
@@ -127,14 +127,14 @@ function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 
   const currentLedger = current.data as CurrentLedgerBook
   if (page === 'join') return currentLedger.ledger ? <Navigate to="/" replace /> : <JoinPage />
   if (page === 'settings') return currentLedger.ledger ? <SettingsPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
-  if (page === 'categories') return currentLedger.ledger ? <CategorySettingsPage /> : <Navigate to="/" replace />
+  if (page === 'categories') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">분류 설정을 여는 중…</main>}><CategorySettingsPage /></Suspense> : <Navigate to="/" replace />
   if (page === 'assets') return currentLedger.ledger ? <AssetsPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
   if (page === 'asset-ledger') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">자산 거래를 여는 중…</main>}><AssetLedgerPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   if (page === 'asset-form') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">자산 화면을 여는 중…</main>}><AssetFormPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   if (page === 'transaction-detail') return currentLedger.ledger ? <TransactionDetailPage /> : <Navigate to="/" replace />
   if (page === 'transaction-form') return currentLedger.ledger ? <TransactionFormPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
   if (page === 'card-purchase') return currentLedger.ledger ? <CardPurchaseManagementPage ledger={currentLedger.ledger} action={cardPurchaseAction} /> : <Navigate to="/" replace />
-  if (page === 'card-statement') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">카드 명세 화면을 여는 중…</main>}><CardStatementPage /></Suspense> : <Navigate to="/" replace />
+  if (page === 'card-statement') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">카드 명세 화면을 여는 중…</main>}><CardStatementPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   if (page === 'statistics') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">통계 화면을 여는 중…</main>}><StatisticsPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   return <HomePage current={currentLedger} />
 }

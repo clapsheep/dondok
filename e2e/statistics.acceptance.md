@@ -7,7 +7,7 @@
 | 규칙 | 최소 증명 계층 | Playwright에서 확인할 결과 |
 |---|---|---|
 | 한 달 반개구간과 해당 연도 12개월 zero-fill | Backend integration | 선택 월 label과 12개월 grouped bar·exact 목록 |
-| 공동 전체 기본값 | API integration + E2E | 필터 없는 이번 달 URL·수입·지출·순액 |
+| 현재 구성원 기본값과 구성원 전환 | API integration + E2E | query가 없으면 내 통계, 각 구성원 UUID와 `member=all` 전환 시 월·분류·연간 합계가 함께 변경 |
 | 거래 주체·현재 자산 소유자·분류 AND | Backend integration + E2E | 세 필터를 함께 적용한 query와 결과 범위 |
 | `primary_asset_id` 기준 소유자 | Backend integration | 필터 설명과 적용 결과가 posting 출금 계좌를 소유자로 오해하지 않음 |
 | 카드 구매 포함 | Transaction/Statistics integration + E2E | 구매 월 지출과 선택 월 분류 순금액에 한 번 포함 |

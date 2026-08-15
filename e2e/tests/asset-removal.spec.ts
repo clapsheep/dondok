@@ -171,7 +171,7 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await expect(archivedLink).toContainText(formatWon(seed.netWorthWon))
   await archivedLink.click()
   await expect(page.getByRole('heading', { name: seed.archiveAssetName, exact: true })).toBeVisible()
-  await expect(page.getByText('계좌 · 보관됨', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText(/계좌 · 보관됨$/, { exact: true }).first()).toBeVisible()
   await expect(page.getByText('현재 잔액', { exact: true }).locator('..')).toContainText(formatWon(seed.netWorthWon))
   await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toBeVisible()
   await expect(page.locator('form')).toHaveCount(0)

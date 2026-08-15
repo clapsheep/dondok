@@ -36,6 +36,10 @@ export const categoryApi = {
     method: 'PUT',
     body: jsonBody(input),
   }),
+  reorder: (input: { kind: CategoryKind; categories: Array<{ categoryId: string; expectedVersion: number }> }) => api<Category[]>('/api/categories/order', {
+    method: 'PUT',
+    body: jsonBody(input),
+  }),
   remove: (categoryId: string, expectedVersion: number) => api<DeleteCategoryResult>(`/api/categories/${categoryId}?expectedVersion=${expectedVersion}`, {
     method: 'DELETE',
   }),

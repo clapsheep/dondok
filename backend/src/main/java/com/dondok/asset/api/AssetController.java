@@ -2,6 +2,7 @@ package com.dondok.asset.api;
 
 import com.dondok.asset.application.AssetService;
 import com.dondok.asset.domain.AssetOwnershipScope;
+import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.auth.application.DondokPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -106,6 +107,8 @@ public class AssetController {
 
         UUID ownerMemberId();
 
+        FinancialInstitutionCode financialInstitutionCode();
+
         String name();
 
         LocalDate openedOn();
@@ -122,7 +125,7 @@ public class AssetController {
 
         default AssetService.AssetCommand toCommand() {
             return new AssetService.AssetCommand(
-                    assetTypeId(), ownershipScope(), ownerMemberId(), name(),
+                    assetTypeId(), ownershipScope(), ownerMemberId(), financialInstitutionCode(), name(),
                     openedOn(), memo(), openingBalanceWon(),
                     cardSettings() == null ? null : cardSettings().toCommand(),
                     debitCardSettings() == null ? null : debitCardSettings().toCommand(),
@@ -134,6 +137,7 @@ public class AssetController {
             @NotNull UUID assetTypeId,
             @NotNull AssetOwnershipScope ownershipScope,
             UUID ownerMemberId,
+            FinancialInstitutionCode financialInstitutionCode,
             @NotBlank @Size(max = 100) String name,
             @NotNull LocalDate openedOn,
             @Size(max = 1000) String memo,
@@ -148,6 +152,7 @@ public class AssetController {
             @NotNull UUID assetTypeId,
             @NotNull AssetOwnershipScope ownershipScope,
             UUID ownerMemberId,
+            FinancialInstitutionCode financialInstitutionCode,
             @NotBlank @Size(max = 100) String name,
             @NotNull LocalDate openedOn,
             @Size(max = 1000) String memo,

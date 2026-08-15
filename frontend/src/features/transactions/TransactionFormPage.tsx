@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Check, Copy, LoaderCircle, RotateCcw, Save, Trash2 } from 'lucide-react'
-import { useRef, useState, type FormEvent } from 'react'
-import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link, Navigate, useBeforeUnload, useBlocker, useLocation, useNavigate, useParams, type BlockerFunction } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { DatePickerField } from '../../components/ui/DatePickerField'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
 import { TextareaField } from '../../components/ui/TextareaField'
@@ -28,6 +29,7 @@ import {
 import { performerPersonLabel, performerQuestionLabel, performerSelectionError } from './performerLabels'
 import { transferAssetLabel, transferEligibleAssets } from './transferAssets'
 import { CategoryPicker } from './CategoryPicker'
+import { readLastExpenseAssetId, rememberLastExpenseAsset } from './lastExpenseAsset'
 import { PerformerPicker } from './PerformerPicker'
 import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
 
@@ -80,6 +82,14 @@ export function TransactionFormPage({ ledger }: { ledger: LedgerBook }) {
   if (!assets.data?.length) return <AppShell ledgerNavigation><NoAssets /></AppShell>
 
   const state = location.state as NavigationState | null
+  const currentMemberId = ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? ''
+  const lastExpenseAssetId = !transactionId && !state?.transactionDraft
+    ? readLastExpenseAssetId(window.localStorage, {
+        ledgerId: ledger.ledgerId,
+        memberId: currentMemberId,
+        activeAssetIds: assets.data.map((asset) => asset.assetId),
+      })
+    : ''
   return (
     <TransactionEditor
       key={transactionId ?? 'new-transaction'}
@@ -88,18 +98,50 @@ export function TransactionFormPage({ ledger }: { ledger: LedgerBook }) {
       transaction={transaction.data}
       initialDraft={!transactionId ? state?.transactionDraft : undefined}
       initialDate={!transactionId ? state?.transactionDate : undefined}
+      initialAssetId={lastExpenseAssetId}
       returnTo={safeReturnTo(location.state, transaction.data?.occurredOn)}
     />
   )
 }
 
-function TransactionEditor({ ledger, assets, transaction, initialDraft, initialDate, returnTo }: { ledger: LedgerBook; assets: Asset[]; transaction?: Transaction; initialDraft?: Draft; initialDate?: string; returnTo: string }) {
+export function AssetTransactionEditor({ ledger, initialAssetId, onSaved, onDirtyChange }: { ledger: LedgerBook; initialAssetId: string; onSaved: (transaction: Transaction) => void; onDirtyChange: (dirty: boolean) => void }) {
+  const assets = useQuery({
+    queryKey: assetKeys.list,
+    queryFn: assetApi.list,
+    staleTime: 0,
+    refetchOnWindowFocus: 'always',
+  })
+
+  if (assets.isPending) return <LoadingState label="거래 입력을 준비하는 중…" />
+  if (assets.isError && !assets.data) return <LoadError message="거래에 사용할 자산을 불러오지 못했어요." onRetry={() => assets.refetch()} />
+  if (!assets.data?.length) return <NoAssets />
+
+  return (
+    <TransactionEditor
+      ledger={ledger}
+      assets={assets.data}
+      initialAssetId={initialAssetId}
+      initialSourceAssetId={initialAssetId}
+      returnTo={`/assets/${initialAssetId}`}
+      embedded
+      treatInitialDraftAsPristine
+      onSaved={onSaved}
+      onDirtyChange={onDirtyChange}
+    />
+  )
+}
+
+function TransactionEditor({ ledger, assets, transaction, initialDraft, initialDate, initialAssetId, initialSourceAssetId, returnTo, embedded = false, treatInitialDraftAsPristine = false, onSaved, onDirtyChange }: { ledger: LedgerBook; assets: Asset[]; transaction?: Transaction; initialDraft?: Draft; initialDate?: string; initialAssetId?: string; initialSourceAssetId?: string; returnTo: string; embedded?: boolean; treatInitialDraftAsPristine?: boolean; onSaved?: (transaction: Transaction) => void; onDirtyChange?: (dirty: boolean) => void }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
   const editing = Boolean(transaction)
   const currentMemberId = ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? ''
-  const [draft, setDraft] = useState<Draft>(() => transaction ? draftFromTransaction(transaction) : validNavigationDraft(initialDraft, currentMemberId, initialDate))
+  const [pristineDraft, setPristineDraft] = useState<Draft>(() => transaction
+    ? draftFromTransaction(transaction)
+    : validNavigationDraft(treatInitialDraftAsPristine ? initialDraft : undefined, currentMemberId, initialDate, initialAssetId, initialSourceAssetId))
+  const [draft, setDraft] = useState<Draft>(() => transaction ? draftFromTransaction(transaction) : validNavigationDraft(initialDraft, currentMemberId, initialDate, initialAssetId, initialSourceAssetId))
+  const allowNavigation = useRef(false)
   const [baseVersion, setBaseVersion] = useState(transaction?.version ?? 0)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [conflict, setConflict] = useState<Conflict>()
@@ -130,6 +172,17 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   const unavailableTransferSelection = draft.type === 'TRANSFER'
     && ((!sourceAssetId && Boolean(draft.sourceAssetId))
       || (!destinationAssetId && Boolean(draft.destinationAssetId)))
+  const hasUnsavedChanges = !sameDraft(draft, pristineDraft)
+  useEffect(() => onDirtyChange?.(hasUnsavedChanges), [hasUnsavedChanges, onDirtyChange])
+  const blocker = useBlocker(useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
+    if (allowNavigation.current || !hasUnsavedChanges) return false
+    return currentLocation.pathname !== nextLocation.pathname || currentLocation.search !== nextLocation.search
+  }, [hasUnsavedChanges]))
+  useBeforeUnload(useCallback((event) => {
+    if (allowNavigation.current || !hasUnsavedChanges) return
+    event.preventDefault()
+    event.returnValue = ''
+  }, [hasUnsavedChanges]))
 
   const create = useMutation({
     mutationFn: ({ input, key }: { input: CreateTransactionInput; key: string }) => transactionApi.create(input, key),
@@ -146,12 +199,13 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
       queryClient.removeQueries({ queryKey: transactionKeys.detail(transaction!.transactionId) })
       void queryClient.invalidateQueries({ queryKey: transactionKeys.all })
       void queryClient.invalidateQueries({ queryKey: assetKeys.all })
+      allowNavigation.current = true
       navigate(returnTo, { replace: true, state: { transactionDeleted: true } })
     },
     onError: (error) => void handleMutationError(error, 'delete'),
   })
 
-  function finishMutation(saved: Transaction, status: 'transactionSaved' | 'transactionUpdated') {
+  async function finishMutation(saved: Transaction, status: 'transactionSaved' | 'transactionUpdated') {
     // 이 화면에서 활성화된 상세 query가 먼저 재조회되면 일반 거래를 카드 구매로
     // 바꾼 직후 전용 상세 redirect가 목록 복귀보다 앞설 수 있다. 이동할 화면에서
     // 최신 데이터를 읽도록 stale 처리만 하고 현재 route에서는 refetch하지 않는다.
@@ -161,10 +215,29 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
     if (saved.managementType === 'GENERAL') {
       queryClient.setQueryData(transactionKeys.detail(saved.transactionId), saved)
     }
-    void queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType: 'none' })
-    void queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType: 'none' })
-    void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType: 'none' })
+    if (saved.type === 'EXPENSE' && saved.asset?.assetId && saved.performedBy?.memberId === currentMemberId) {
+      rememberLastExpenseAsset(window.localStorage, {
+        ledgerId: ledger.ledgerId,
+        memberId: currentMemberId,
+        assetId: saved.asset.assetId,
+      })
+    }
+    const refetchType = embedded ? 'active' : 'none'
+    const invalidations = [
+      queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType }),
+      queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType }),
+      queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType }),
+    ]
+    if (embedded && onSaved) {
+      await Promise.all(invalidations)
+      allowNavigation.current = true
+      onDirtyChange?.(false)
+      onSaved(saved)
+      return
+    }
+    void Promise.all(invalidations)
     const fallback = `/?view=daily&month=${saved.occurredOn.slice(0, 7)}`
+    allowNavigation.current = true
     navigate(editing ? returnTo : fallback, { replace: true, state: { [status]: true } })
   }
 
@@ -234,7 +307,9 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
 
   function restoreLatest() {
     if (!conflict) return
-    setDraft(draftFromTransaction(conflict.latest))
+    const latestDraft = draftFromTransaction(conflict.latest)
+    setPristineDraft(latestDraft)
+    setDraft(latestDraft)
     setBaseVersion(conflict.latest.version)
     setConflict(undefined)
     setErrors({})
@@ -243,7 +318,16 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   }
 
   function convertToNew() {
+    allowNavigation.current = true
     navigate('/transactions/new', { replace: true, state: { transactionDraft: draft, returnTo } satisfies NavigationState })
+  }
+
+  function keepEditing() {
+    if (blocker.state === 'blocked') blocker.reset()
+  }
+
+  function leaveEditor() {
+    if (blocker.state === 'blocked') blocker.proceed()
   }
 
   async function copyDraft() {
@@ -260,10 +344,10 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   const mutationError = editing ? updateTransaction.error : create.error
   const resolvedDraft = { ...draft, assetId, sourceAssetId, destinationAssetId, categoryId }
 
-  return (
-    <AppShell ledgerNavigation mobileHeader={editing ? { title: '거래 수정', backTo: returnTo, backLabel: '거래 목록으로' } : undefined}>
-      <section className="mx-auto max-w-[48rem] py-3 sm:py-5 lg:max-w-[74rem] lg:py-8">
-        <header className={`${editing ? 'hidden md:block ' : ''}border-b border-[var(--line)] pb-4`}><h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '거래 수정' : '거래 기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">본인이 한 기록으로 시작해요. 필요하면 다른 구성원을 선택할 수 있어요.{editing ? ' 거래 종류는 기록 후 바꿀 수 없어요.' : ''}</p></header>
+  const editor = (
+    <>
+      <section className={embedded ? 'w-full' : 'mx-auto max-w-[48rem] py-3 sm:py-5 lg:max-w-[74rem] lg:py-8'}>
+        {!embedded ? <header className={`${editing ? 'hidden md:block ' : ''}border-b border-[var(--line)] pb-4`}><h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '거래 수정' : '거래 기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">본인이 한 기록으로 시작해요. 필요하면 다른 구성원을 선택할 수 있어요.{editing ? ' 거래 종류는 기록 후 바꿀 수 없어요.' : ''}</p></header> : null}
 
         {remoteDeleted ? (
           <section className="mt-5 border-l-4 border-amber-500 px-4 py-2" aria-labelledby="deleted-transaction-title">
@@ -282,7 +366,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
           </section>
         ) : null}
 
-        <form className="mt-1 lg:mt-6 lg:grid lg:grid-cols-[minmax(0,40rem)_18rem] lg:items-start lg:justify-between lg:gap-8 xl:grid-cols-[minmax(0,40rem)_20rem] xl:gap-10" onSubmit={submit} noValidate>
+        <form className={embedded ? 'mt-1' : 'mt-1 lg:mt-6 lg:grid lg:grid-cols-[minmax(0,40rem)_18rem] lg:items-start lg:justify-between lg:gap-8 xl:grid-cols-[minmax(0,40rem)_20rem] xl:gap-10'} onSubmit={submit} noValidate>
           <div className="min-w-0">
             {hasFieldErrors(errors) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
 
@@ -329,13 +413,12 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
             {mutationError && !(mutationError instanceof ApiError && [404, 412].includes(mutationError.status)) ? <p className="mt-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{mutationError instanceof Error ? mutationError.message : '거래를 저장하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
           </div>
 
-          <aside className="mt-5 border-t border-[var(--line)] pt-5 lg:sticky lg:top-8 lg:mt-0 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-7">
-            <div className="hidden lg:block" data-transaction-desktop-summary>
+          <aside className={embedded ? 'mt-5 border-t border-[var(--line)] pt-5' : 'mt-5 border-t border-[var(--line)] pt-5 lg:sticky lg:top-8 lg:mt-0 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-7'}>
+            <div className={embedded ? 'hidden' : 'hidden lg:block'} data-transaction-desktop-summary>
               <p className="text-xs font-semibold tracking-[.08em] text-[var(--muted)]">현재 입력</p>
               <TransactionDraftSummary draft={resolvedDraft} assets={assets} categories={categories.data ?? []} ledger={ledger} />
             </div>
-            <div className="flex flex-col-reverse gap-3 xs:flex-row xs:justify-end lg:mt-6 lg:grid">
-              <Button asChild variant="secondary" size="large"><Link to={returnTo}>취소</Link></Button>
+            <div className={embedded ? 'flex justify-end' : 'flex flex-col-reverse gap-3 xs:flex-row xs:justify-end lg:mt-6 lg:grid'}>
               <Button type="submit" size="large" disabled={pending || !online || remoteDeleted || (draft.type !== 'TRANSFER' && (categories.isPending || categories.isError)) || (draft.type === 'TRANSFER' && (transferAssets.length < 2 || !sourceAssetId || !destinationAssetId))}>{pending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}{editing ? '변경 저장' : '기록 저장'}</Button>
             </div>
           </aside>
@@ -348,8 +431,23 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
           </section>
         ) : null}
       </section>
-    </AppShell>
+      <Dialog open={blocker.state === 'blocked'} onOpenChange={(open) => { if (!open) keepEditing() }}>
+        <DialogContent className="p-5 sm:p-6">
+          <DialogHeader>
+            <DialogTitle>작성 중인 기록을 나갈까요?</DialogTitle>
+            <DialogDescription>입력한 내용은 저장되지 않고 모두 사라져요.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6">
+            <Button type="button" variant="secondary" onClick={keepEditing}>계속 작성</Button>
+            <Button type="button" variant="destructive" onClick={leaveEditor}>나가기</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
+
+  if (embedded) return editor
+  return <AppShell ledgerNavigation mobileHeader={editing ? { title: '거래 수정', backTo: returnTo, backLabel: '거래 목록으로' } : undefined}>{editor}</AppShell>
 }
 
 function ManagedTransaction({ transaction, returnTo }: { transaction: Transaction; returnTo: string }) {
@@ -397,7 +495,7 @@ function MemberValue({ member, fallback }: { member?: { memberId: string; displa
 }
 
 function TypeButton({ type, selected, onSelect, children }: { type: TransactionType; selected: TransactionType; onSelect: (type: TransactionType) => void; children: string }) { return <Button variant="ghost" className={`rounded-none border-r border-[var(--line)] px-3 last:border-r-0 ${selected === type ? 'bg-forest-100 text-forest-800 dark:bg-forest-800 dark:text-white' : 'bg-[var(--surface)] text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`} type="button" aria-pressed={selected === type} onClick={() => onSelect(type)}>{children}</Button> }
-function LoadingState() { return <div className="grid min-h-[70dvh] place-items-center text-sm text-[var(--muted)]"><span className="inline-flex items-center gap-2"><LoaderCircle className="animate-spin" size={18} />거래를 불러오는 중…</span></div> }
+function LoadingState({ label = '거래를 불러오는 중…' }: { label?: string }) { return <div className="grid min-h-56 place-items-center text-sm text-[var(--muted)]"><span className="inline-flex items-center gap-2"><LoaderCircle className="animate-spin" size={18} />{label}</span></div> }
 function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) { return <div className="mx-auto max-w-xl py-20 text-center"><p role="alert">{message}</p><Button className="mt-4" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div> }
 function NoAssets() { return <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold">먼저 자산을 등록해 주세요</h1><p className="mt-2 text-sm text-[var(--muted)]">거래 금액이 반영될 현금, 계좌 또는 카드를 먼저 준비해야 해요.</p><Button asChild className="mt-5"><Link to="/assets/new">자산 등록</Link></Button></div> }
 
@@ -437,10 +535,10 @@ function draftFromTransaction(transaction: Transaction): Draft {
   return { type: transaction.type, amountWon: String(transaction.amountWon), occurredOn: transaction.occurredOn, categoryId: transaction.category?.categoryId ?? '', assetId: transaction.asset?.assetId ?? transaction.postings[0]?.assetId ?? '', sourceAssetId: source, destinationAssetId: destination, performedByMemberId: transaction.performedBy?.memberId ?? '', description: transaction.description ?? '', installmentCount: String(transaction.installmentCount ?? 1), excludedFromStatistics: transaction.excludedFromStatistics }
 }
 
-function validNavigationDraft(draft: Draft | undefined, memberId: string, initialDate?: string): Draft {
+function validNavigationDraft(draft: Draft | undefined, memberId: string, initialDate?: string, initialAssetId?: string, initialSourceAssetId?: string): Draft {
   if (draft && ['INCOME', 'EXPENSE', 'TRANSFER'].includes(draft.type)) return { ...draft, performedByMemberId: draft.performedByMemberId || memberId, excludedFromStatistics: draft.excludedFromStatistics === true }
   const occurredOn = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : todayInSeoul()
-  return { type: 'EXPENSE', amountWon: '', occurredOn, categoryId: '', assetId: '', sourceAssetId: '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1', excludedFromStatistics: false }
+  return { type: 'EXPENSE', amountWon: '', occurredOn, categoryId: '', assetId: initialAssetId ?? '', sourceAssetId: initialSourceAssetId ?? '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1', excludedFromStatistics: false }
 }
 
 function apiFieldErrors(error: ApiError): FieldErrors { const mapped: FieldErrors = {}; for (const item of error.fieldErrors) if (item.field in defaultDraftKeys) mapped[item.field as keyof Draft] = item.code; for (const [field, message] of Object.entries(error.errors ?? {})) if (field in defaultDraftKeys) mapped[field as keyof Draft] = message; return mapped }
@@ -452,3 +550,7 @@ function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], le
 function typeLabel(type: TransactionType) { return type === 'INCOME' ? '수입' : type === 'EXPENSE' ? '지출' : '이체' }
 function formatWon(value: number) { return `${new Intl.NumberFormat('ko-KR').format(Math.abs(value))}원` }
 function todayInSeoul() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()) }
+
+function sameDraft(left: Draft, right: Draft) {
+  return (Object.keys(left) as Array<keyof Draft>).every((key) => left[key] === right[key])
+}

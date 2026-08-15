@@ -119,6 +119,62 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   expect(await hasPageOverflow(page)).toBe(false)
 })
 
+test('완료된 선결제의 출금 계좌를 바꾸면 명세는 유지하고 두 계좌 잔액만 바로잡는다', async ({ page, request }, testInfo) => {
+  const purchaseDate = todayInSeoul()
+  const correctedAccountName = `정정 계좌 ${Date.now().toString().slice(-6)}`
+  const account = await registerAndLogin(page, request, `결제 계좌 정정 QC ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  const correctedAccount = await createPaymentAccount(page, correctedAccountName, 100_000)
+
+  await createCardPurchase(page, {
+    amount: '100000',
+    occurredOn: purchaseDate,
+    description: `QC 결제 계좌 정정 ${Date.now().toString().slice(-6)}`,
+  })
+  const statement = await openDefaultCardStatement(page)
+  await page.getByLabel('선결제 금액').fill('60,000')
+  await page.getByRole('button', { name: '결제 영향 확인' }).click()
+  await page.getByRole('region', { name: '선결제 영향' }).getByRole('button', { name: '선결제 기록' }).click()
+  await expect(page.getByRole('status')).toContainText('60,000원을')
+  await expectStatementSummary(page, { gross: '100,000원', paid: '60,000원', remaining: '40,000원' })
+
+  const history = page.getByRole('region', { name: '결제 기록' })
+  const paymentRow = history.getByRole('listitem').filter({ hasText: '60,000원' })
+  await paymentRow.getByRole('button', { name: '출금 계좌 변경' }).click()
+  await selectAsset(page, '변경할 출금 계좌', correctedAccountName, paymentRow)
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'PUT'
+      && url.pathname.startsWith(`/api/card-statements/${statement.statementId}/payments/`)
+  })
+  await paymentRow.getByRole('button', { name: '계좌 변경', exact: true }).click()
+  const response = await responsePromise
+  expect(response.status()).toBe(200)
+  const requestBody = response.request().postDataJSON() as Record<string, unknown>
+  expect(requestBody).toEqual({
+    settlementAssetId: correctedAccount.assetId,
+    expectedVersion: expect.any(Number),
+  })
+
+  await expect(page.getByRole('status')).toContainText(`출금 계좌를 ${correctedAccountName}(으)로 변경했어요.`)
+  await expect(paymentRow).toContainText(correctedAccountName)
+  await expectStatementSummary(page, { gross: '100,000원', paid: '60,000원', remaining: '40,000원' })
+  const balances = await assetBalances(page, [statement.accountAssetId, correctedAccount.assetId])
+  expect(balances[statement.accountAssetId]).toBe(0)
+  expect(balances[correctedAccount.assetId]).toBe(40_000)
+  expect(await hasPageOverflow(page)).toBe(false)
+
+  await attachSeedManifest(testInfo, page, account.loginId, {
+    flow: 'correct-completed-payment-account',
+    purchaseDate,
+    statementId: statement.statementId,
+    cardAssetId: statement.cardAssetId,
+    accountAssetId: statement.accountAssetId,
+    correctedAccountAssetId: correctedAccount.assetId,
+  })
+})
+
 test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 최신 명세에 다시 계산한다', async ({ page, request, browser }, testInfo) => {
   const month = currentMonthInSeoul()
   const purchaseDate = todayInSeoul()
@@ -217,6 +273,57 @@ async function openDefaultCardStatement(page: Page) {
     cardAssetId: assetIdFromHref(cardHref),
     accountAssetId: assetIdFromHref(accountHref),
   }
+}
+
+async function createPaymentAccount(page: Page, name: string, openingBalanceWon: number) {
+  return page.evaluate(async ({ accountName, balance }) => {
+    type AssetType = { assetTypeId: string; systemCode: string }
+    type Member = { memberId: string; currentUser: boolean }
+    const read = async <T,>(path: string): Promise<T> => {
+      const response = await fetch(path, { credentials: 'include' })
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`)
+      return response.json() as Promise<T>
+    }
+    const csrf = await read<{ headerName: string; token: string }>('/api/auth/csrf')
+    const types = await read<AssetType[]>('/api/asset-types')
+    const current = await read<{ ledger: { members: Member[] } }>('/api/ledger-books/current')
+    const bankType = types.find((type) => type.systemCode === 'BANK')
+    const member = current.ledger.members.find((candidate) => candidate.currentUser)
+    if (!bankType || !member) throw new Error('payment account seed prerequisites were not found')
+    const response = await fetch('/api/assets', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        [csrf.headerName]: csrf.token,
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        assetTypeId: bankType.assetTypeId,
+        ownershipScope: 'PERSONAL',
+        ownerMemberId: member.memberId,
+        name: accountName,
+        openedOn: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()),
+        memo: null,
+        openingBalanceWon: balance,
+        cardSettings: null,
+        debitCardSettings: null,
+        savingsSettings: null,
+      }),
+    })
+    if (!response.ok) throw new Error(`/api/assets returned ${response.status}: ${await response.text()}`)
+    return response.json() as Promise<{ assetId: string; name: string }>
+  }, { accountName: name, balance: openingBalanceWon })
+}
+
+async function assetBalances(page: Page, assetIds: string[]) {
+  return page.evaluate(async (ids) => {
+    const response = await fetch('/api/assets', { credentials: 'include' })
+    if (!response.ok) throw new Error(`/api/assets returned ${response.status}`)
+    const assets = await response.json() as Array<{ assetId: string; currentBalanceWon: number }>
+    return Object.fromEntries(assets.filter((asset) => ids.includes(asset.assetId)).map((asset) => [asset.assetId, asset.currentBalanceWon]))
+  }, assetIds)
 }
 
 async function expectStatementSummary(page: Page, expected: { gross: string; paid: string; remaining: string }) {

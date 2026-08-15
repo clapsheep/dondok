@@ -65,6 +65,15 @@ public class CategoryEntity {
         this.updatedAt = now;
     }
 
+    public void reorder(int sortOrder, UUID memberId, Instant now) {
+        if (this.sortOrder == sortOrder) {
+            return;
+        }
+        this.sortOrder = sortOrder;
+        this.updatedByMemberId = memberId;
+        this.updatedAt = now;
+    }
+
     public void archive(UUID memberId, Instant now) {
         this.archivedAt = now;
         this.updatedByMemberId = memberId;

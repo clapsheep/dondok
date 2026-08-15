@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dondok.asset.domain.AssetBehavior;
 import com.dondok.asset.domain.AssetOwnershipScope;
+import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.common.error.ApiException;
 import com.dondok.membership.application.MembershipService;
 import java.sql.Timestamp;
@@ -89,6 +90,30 @@ class AssetServiceIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select delta_won from transaction_posting where asset_id = ?", Long.class, created.assetId()))
                 .isEqualTo(1_250_000L);
+    }
+
+    @Test
+    void bankAndSavingsAssetsExposeFinancialInstitutionAndLegacyInputDefaultsToOther() {
+        TestLedger ledger = createLedger("금융기관 사용자");
+
+        AssetService.AssetView defaultAccount = assetService.assets(ledger.userId()).stream()
+                .filter(asset -> "BANK".equals(asset.systemCode()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(defaultAccount.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.OTHER);
+
+        AssetService.AssetView savings = assetService.create(
+                ledger.userId(), "kakao-savings",
+                new AssetService.AssetCommand(
+                        typeId(ledger.userId(), "SAVINGS"), AssetOwnershipScope.PERSONAL,
+                        ledger.memberId(), FinancialInstitutionCode.KAKAO_BANK,
+                        "여행 적금", LocalDate.of(2026, 7, 1), null, 500_000,
+                        null, null, null));
+
+        assertThat(savings.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.KAKAO_BANK);
+        assertThat(jdbcTemplate.queryForObject(
+                "select financial_institution_code from asset where id = ?", String.class, savings.assetId()))
+                .isEqualTo("KAKAO_BANK");
     }
 
     @Test

@@ -10,6 +10,8 @@ import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import type { LedgerBook } from '../membership/api'
 import { assetApi, assetKeys, type Asset } from './api'
 import { formatWon } from './format'
+import { FinancialInstitutionAvatar } from './FinancialInstitutionPicker'
+import { financialInstitution } from './financialInstitutions'
 import { shouldStackMoneyRail } from './moneyRail'
 import { ALL_ASSET_OWNER_VIEW, JOINT_ASSET_OWNER_VIEW, buildAssetOwnerViews, defaultAssetOwnerViewKey, filterAssetsByOwner, resolveAssetOwnerView, type AssetOwnerView } from './ownerView'
 import { buildAssetStatusOverview, type AssetGroupSummary, type AssetOverview } from './overview'
@@ -253,11 +255,12 @@ function ArchivedAssetRow({ asset, ledger, showOwnerMetadata }: { asset: Asset; 
   const ownerMember = ledger.members.find((member) => member.memberId === asset.ownerMemberId)
   const owner = asset.ownershipScope === 'JOINT' ? '공동 소유' : ownerMember?.displayName ?? '구성원'
   const visibleOwner = asset.ownershipScope === 'JOINT' ? '공동' : ownerMember?.currentUser ? '나' : owner
-  const accessibleName = `${asset.name}, ${asset.assetTypeName}, ${owner}, 보관됨, 현재 잔액 ${formatWon(asset.currentBalanceWon)}`
+  const institution = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' ? financialInstitution(asset.financialInstitutionCode) : undefined
+  const accessibleName = `${asset.name}, ${institution ? `${institution.name}, ` : ''}${asset.assetTypeName}, ${owner}, 보관됨, 현재 잔액 ${formatWon(asset.currentBalanceWon)}`
   return (
     <li>
       <Link className="grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-2.5 transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100 sm:gap-3 sm:py-3" to={`/assets/${asset.assetId}`} aria-label={accessibleName}>
-        <span className="min-w-0"><strong className="block break-words text-sm sm:truncate">{asset.name}</strong><span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 break-words text-xs text-[var(--muted)] sm:flex-nowrap"><span className="sm:truncate">{asset.assetTypeName}</span>{showOwnerMetadata ? <><span aria-hidden="true">·</span><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span className="sm:truncate" data-asset-owner>{visibleOwner}</span></> : null}<span aria-hidden="true">·</span><span>보관됨</span></span></span>
+        <span className="flex min-w-0 items-center gap-2">{institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : null}<span className="min-w-0"><strong className="block break-words text-sm sm:truncate">{asset.name}</strong><span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 break-words text-xs text-[var(--muted)] sm:flex-nowrap">{institution ? <><span className="sm:truncate">{institution.name}</span><span aria-hidden="true">·</span></> : null}<span className="sm:truncate">{asset.assetTypeName}</span>{showOwnerMetadata ? <><span aria-hidden="true">·</span><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span className="sm:truncate" data-asset-owner>{visibleOwner}</span></> : null}<span aria-hidden="true">·</span><span>보관됨</span></span></span></span>
         <span className={`whitespace-nowrap text-sm font-semibold tabular-nums ${asset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : ''}`}>{formatWon(asset.currentBalanceWon)}</span>
       </Link>
     </li>
@@ -314,6 +317,8 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
   const showAssetType = !isDefaultAssetName(asset.name, asset.assetTypeName)
   const isLiquidAsset = groupKey === 'liquid'
   const isCardAsset = groupKey === 'cards'
+  const bankRelated = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS'
+  const institution = bankRelated ? financialInstitution(asset.financialInstitutionCode) : undefined
   const isDebt = asset.currentBalanceWon < 0
   const isAsset = asset.currentBalanceWon > 0
   const debtLines: MoneyRailLine[] = [
@@ -333,22 +338,27 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
           ...(isAsset ? [`현재 자산 ${formatWon(asset.currentBalanceWon)}`] : []),
           ...(asset.currentBalanceWon === 0 ? ['잔액 0원'] : []),
         ]
-  const accessibleName = `${asset.name}, ${asset.assetTypeName}, ${owner}, ${accessibleDetails.join(', ')}`
-  const fullIdentity = `${asset.name} · ${asset.assetTypeName} · ${owner}`
+  const accessibleName = `${asset.name}, ${institution ? `${institution.name}, ` : ''}${asset.assetTypeName}, ${owner}, ${accessibleDetails.join(', ')}`
+  const fullIdentity = `${asset.name} · ${institution ? `${institution.name} · ` : ''}${asset.assetTypeName} · ${owner}`
   const layoutClassName = isCardAsset ? cardInfoMoneyLayoutClassName : infoMoneyLayoutClassName
 
   return (
     <li>
       <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-12 py-2.5 transition-colors hover:bg-forest-50 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800 md:px-1`}>
-        <span className="min-w-0 leading-5" data-asset-identity>
+        <span className="flex min-w-0 items-center gap-2.5 leading-5" data-asset-identity>
+          {institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : null}
+          <span className="min-w-0 flex-1">
           <strong className="block min-w-0 break-words text-[0.9375rem] font-semibold leading-5 group-hover:text-forest-700 dark:group-hover:text-forest-100 md:truncate" title={asset.name} data-asset-name>{asset.name}</strong>
-          {showAssetType || showOwnerMetadata ? (
+          {institution || showAssetType || showOwnerMetadata ? (
             <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-4 text-[var(--muted)] md:flex-nowrap md:truncate" data-asset-metadata>
+              {institution ? <span>{institution.name}</span> : null}
+              {institution && showAssetType ? <span aria-hidden="true"> · </span> : null}
               {showAssetType ? <span data-asset-type>{asset.assetTypeName}</span> : null}
-              {showAssetType && showOwnerMetadata ? <span aria-hidden="true"> · </span> : null}
+              {(institution || showAssetType) && showOwnerMetadata ? <span aria-hidden="true"> · </span> : null}
               {showOwnerMetadata ? <span className="inline-flex items-center gap-1 align-middle"><AssetOwnerAvatar asset={asset} ownerMember={ownerMember} /><span data-asset-owner>{visibleOwner}</span></span> : null}
             </span>
           ) : null}
+          </span>
         </span>
         {isLiquidAsset ? (
           <SignedBalanceRail

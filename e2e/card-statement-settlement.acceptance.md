@@ -14,6 +14,7 @@
 | 선결제·정규 결제 통계 제외 | SQL/Backend integration + 대표 UI E2E | 월 수입·지출 합계는 원 구매 금액 그대로 |
 | due worker, catch-up, 중복 실행 | 고정 Clock Backend integration | 자동 결제 결과를 명세·홈·자산 UI에서 읽는 smoke |
 | 자동 정산 toggle·결제 계좌 변경 | Asset/Card Backend integration | 자산 상세 설정 저장 후 pending schedule의 실행 계좌가 일치 |
+| 완료 결제의 잘못된 출금 계좌 정정 | Backend integration + 대표 UI E2E | 명세 금액·날짜는 유지되고 기존 계좌 복원·새 계좌 차감·결제 내역 표시가 함께 바뀜 |
 | 반응형 draft·focus·접근성 | Playwright | 390px, iPad, desktop에서 같은 draft와 행동 유지 |
 
 ## 확정 API 결속
@@ -22,6 +23,7 @@
 - 상세: `GET /api/card-statements/{statementId}`는 남은 금액, signed 결제 계좌 잔액, 자동 정산 schedule과 결제 내역의 authoritative 상태다.
 - preview: `POST /api/card-statements/{statementId}/prepayments/preview`에 `amountWon`, `expectedVersion`을 보낸다.
 - apply: `POST /api/card-statements/{statementId}/prepayments`에 같은 값과 `previewToken`, `Idempotency-Key`를 보낸다.
+- 결제 계좌 정정: `PUT /api/card-statements/{statementId}/payments/{paymentId}`에 `settlementAssetId`, `expectedVersion`을 보내며 금액·결제일은 입력받지 않는다.
 - 적용일은 사용자가 입력하지 않는다. preview의 `appliedOn`을 `Asia/Seoul` 기준 서버 오늘로 읽기 전용 표시하고 apply 결과의 `payment.paidOn`과 일치하는지 검증한다.
 - 계좌 잔액은 정상적인 다른 거래와 공존하므로 preview token stale 기준에서 제외한다. apply 응답의 최신 signed 잔액을 authoritative 결과로 사용한다.
 - 412에서 보존할 사용자 draft는 선결제 금액 하나다.
@@ -74,6 +76,14 @@
 - 이미 성공한 payment의 `settlement_asset_id`와 과거 posting은 A로 보존한다.
 - 보관 또는 다른 가계부 계좌로 변경하려는 기존 Asset 검증은 유지한다.
 
+### B7. 완료된 선결제·자동 정산의 출금 계좌 정정
+
+- 선결제의 출금 계좌를 A에서 B로 바꾸면 payment와 시스템 이체의 음수 posting만 B로 옮기고 금액·결제일·명세 remaining·카드 posting·통계는 유지한다.
+- 완료된 자동 정산이면 완료 schedule의 실행 계좌도 B로 맞추며 미완료 schedule이나 카드의 향후 기본 결제 계좌 설정은 바꾸지 않는다.
+- A 잔액은 결제액만큼 복원되고 B 잔액은 같은 금액만큼 감소한다. 잔액 부족도 허용한다.
+- 같은 명세 version의 동시 정정만 성공하고 stale 요청은 `412`다. 다른 가계부·보관·결제 불가 자산은 거부한다.
+- 해당 결제를 기반으로 환불 반환 posting이 존재하면 부분 정정을 만들지 않고 `409 CARD_PAYMENT_ACCOUNT_CORRECTION_REFUND_EXISTS`로 거부한다.
+
 ## Playwright 실제 사용자 흐름
 
 ### E1. 두 번의 부분 선결제와 음수 계좌
@@ -104,6 +114,13 @@
 - 전체 페이지 가로 overflow가 없고 `결제 영향 확인`, `선결제 기록`, 충돌 재계산 행동은 44×44px 이상이다.
 - 320px은 레이아웃 smoke로 별도 확인하되 핵심 필수 범위는 390px·iPad·desktop이다.
 - loading 중 입력과 action이 중복 실행되지 않고, offline·404·412에서도 draft를 보존한다.
+
+### E4. 완료된 선결제의 출금 계좌 변경
+
+1. 결제 계좌 A와 B, 카드 구매와 완료된 선결제를 준비한다.
+2. 결제 기록의 `출금 계좌 변경`을 열고 공통 자산 선택기로 B를 고른다.
+3. 저장 응답 뒤 결제 기록에는 B가 보이고, 명세 금액·결제일·남은 결제는 그대로인지 확인한다.
+4. 자산 재조회에서 A는 복원되고 B가 결제액만큼 감소했는지 확인한다.
 
 ## Playwright spec 구조
 

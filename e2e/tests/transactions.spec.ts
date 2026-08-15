@@ -11,6 +11,65 @@ type SeedResult = {
   requestIds: string[]
 }
 
+test.use({ serviceWorkers: 'block' })
+
+test('카드 선택기는 이번 달 금액이 없어도 가장 가까운 다음 결제 예정액을 보여준다', async ({ page, request }) => {
+  await registerAndLogin(page, request, `카드 선택 금액 ${test.info().workerIndex}`)
+  await page.route('**/api/assets', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    const assets = await response.json() as Array<{
+      behavior: string
+      currentMonthCardPaymentDueWon: number
+      nextMonthCardPaymentDueWon: number
+    }>
+    await route.fulfill({ response, json: assets.map((asset) => asset.behavior === 'CREDIT_CARD' ? {
+      ...asset,
+      currentMonthCardPaymentDueWon: 0,
+      nextMonthCardPaymentDueWon: 210_000,
+    } : asset) })
+  })
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
+
+  await page.goto('/transactions/new')
+  const { trigger, picker } = await openAssetPicker(page, '결제 자산')
+  await picker.getByRole('button', { name: /^카드 \d+$/ }).click()
+  const creditCard = picker.getByRole('button', { name: /^신용카드, 신용카드, 나, 결제 예정 210,000원$/ })
+  await expect(creditCard).toBeVisible()
+  await creditCard.click()
+  await expect(trigger).toContainText('결제 예정 210,000원')
+})
+
+test('마지막으로 지출한 자산을 다음 지출의 기본값으로 기억한다', async ({ page, request }) => {
+  await registerAndLogin(page, request, `마지막 지출 자산 ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
+
+  await page.goto('/transactions/new')
+  await selectAsset(page, '결제 자산', '계좌')
+  await page.getByLabel('금액').fill('12000')
+  await page.getByLabel('내용 (선택)').fill('마지막 자산 기억 지출')
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  await page.goto('/transactions/new')
+  await expect(page.getByRole('button', { name: '결제 자산', exact: true })).toContainText('계좌')
+
+  await page.getByRole('button', { name: '수입', exact: true }).click()
+  await selectAsset(page, '입금 자산', '현금')
+  await page.getByLabel('금액').fill('5000')
+  await page.getByLabel('내용 (선택)').fill('지출 선호를 바꾸지 않는 수입')
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
+
+  await page.goto('/transactions/new')
+  await expect(page.getByRole('button', { name: '결제 자산', exact: true })).toContainText('계좌')
+})
+
 test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목록을 같은 의미로 확인한다', async ({ page, request }, testInfo) => {
   const displayName = `거래 사용자 ${test.info().workerIndex}`
   const account = await registerAndLogin(page, request, displayName)
@@ -19,14 +78,9 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(page.getByRole('heading', { name: '구성원', exact: true })).toHaveCount(0)
   await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
   const homeHeader = page.locator('[data-home-header]')
-  if ((page.viewportSize()?.width ?? 768) < 768) {
-    await expect(homeHeader, '모바일 홈은 가계부 제목과 기록·새로고침 header 공간을 차지하지 않아야 합니다').toBeHidden()
-    await pullHomeToRefresh(page)
-  } else {
-    await expect(homeHeader, '넓은 화면은 가계부 문맥과 명시적 새로고침을 유지해야 합니다').toBeVisible()
-    await expect(homeHeader.getByRole('button', { name: '최신 거래 확인' })).toBeVisible()
-    await expect(homeHeader.getByRole('link', { name: '기록', exact: true }), '기록은 화면 크기와 관계없이 날짜 상세에서 시작해야 합니다').toHaveCount(0)
-  }
+  await expect(homeHeader, '홈은 화면 크기와 관계없이 불필요한 가계부 대제목 header를 차지하지 않아야 합니다').toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '가계부', level: 1, exact: true })).toHaveClass(/sr-only/)
+  if ((page.viewportSize()?.width ?? 768) < 768) await pullHomeToRefresh(page)
   await page.getByRole('link', { name: '자산', exact: true }).click()
   await page.getByRole('link', { name: '자산 추가' }).click()
   await createBankAsset(page, '생활비 계좌', '1000000')
@@ -177,6 +231,7 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   const selectedExcludedExpense = selectedDayDetail.getByRole('listitem').filter({ hasText: 'QC 집계 제외 지출' })
   await expect(selectedIncome.getByText('+200,000원', { exact: true })).toBeVisible()
   await expect(selectedExpense.getByText('-50,000원', { exact: true })).toBeVisible()
+  await expect(selectedExpense.getByText(addedCategoryName, { exact: true })).toBeVisible()
   await expect(selectedExcludedExpense.getByText('-7,000원', { exact: true })).toBeVisible()
   await expect(selectedExcludedExpense.getByText('집계 제외', { exact: true })).toBeVisible()
 
@@ -239,6 +294,7 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(page.getByText('QC 적금 납입', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 수입').getByText('+200,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 지출').getByText('-50,000원', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 공동 지출').getByText(addedCategoryName, { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 집계 제외 지출').getByText('-7,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 집계 제외 지출').getByText('집계 제외', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 적금 납입').getByText('30,000원', { exact: true })).toBeVisible()

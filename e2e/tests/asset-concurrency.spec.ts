@@ -22,7 +22,7 @@ test('두 화면이 같은 자산을 수정하면 오래된 저장을 막고 입
 
   await page.getByLabel('메모 (선택)').fill('첫 번째 화면에서 저장')
   await page.getByRole('button', { name: '변경 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요')
+  await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요')
 
   await otherPage.getByLabel('자산 이름 (선택)', { exact: true }).fill('')
   await otherPage.getByRole('button', { name: '변경 저장' }).click()
@@ -35,8 +35,8 @@ test('두 화면이 같은 자산을 수정하면 오래된 저장을 막고 입
   await otherPage.getByRole('button', { name: '최신 버전으로 저장 준비' }).click()
   await expect(otherPage.getByRole('status')).toContainText('최신 버전에 내 입력을 적용할 준비가 됐어요')
   await otherPage.getByRole('button', { name: '변경 저장' }).click()
-  await expect(otherPage.getByRole('status')).toContainText('자산 정보를 저장했어요')
-  await expect(otherPage.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('계좌 2')
+  await expect(otherPage.getByRole('status')).toContainText('자산 정보를 변경했어요')
+  await expect(otherPage.getByRole('heading', { name: '계좌 2', exact: true })).toBeVisible()
 
   await otherPage.close()
 })

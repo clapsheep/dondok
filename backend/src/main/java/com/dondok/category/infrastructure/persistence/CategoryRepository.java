@@ -45,6 +45,12 @@ public interface CategoryRepository extends JpaRepository<CategoryEntity, UUID> 
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select category from CategoryEntity category where category.bookId = :bookId "
+            + "and category.kind = :kind and category.archivedAt is null order by category.id")
+    List<CategoryEntity> findAllActiveForUpdate(
+            @Param("bookId") UUID bookId, @Param("kind") CategoryKind kind);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select category from CategoryEntity category where category.bookId = :bookId "
             + "and category.kind = :kind and category.fallback = true and category.archivedAt is null")
     Optional<CategoryEntity> findFallbackForUpdate(
             @Param("bookId") UUID bookId, @Param("kind") CategoryKind kind);

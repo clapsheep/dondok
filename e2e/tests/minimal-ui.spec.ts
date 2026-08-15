@@ -22,7 +22,7 @@ async function expectMinimalSurface(page: Page, screen: string) {
       if (
         element.matches('button, input, select, textarea, a, label, [role="radio"], [role="switch"]')
         || element.closest('[role="switch"]')
-        || element.matches('[data-member-avatar], [data-joint-avatar]')
+        || element.matches('[data-member-avatar], [data-joint-avatar], [data-financial-institution-avatar]')
         || element.closest('[role="dialog"], [role="menu"], [role="listbox"], aside[aria-live="polite"]')
       ) return []
 

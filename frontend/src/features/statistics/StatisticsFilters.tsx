@@ -9,7 +9,6 @@ import type { LedgerMember } from '../membership/api'
 import { activeStatisticsFilterCount, type StatisticsOwnerFilter, type StatisticsUrlState } from './filters'
 
 type FilterDraft = {
-  memberId: string
   owner: StatisticsOwnerFilter
   categoryId: string
 }
@@ -69,7 +68,6 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
     const selectedCategory = categories.find((category) => category.categoryId === draft.categoryId)
     pendingApply.current = {
       ...state,
-      memberId: draft.memberId || null,
       owner: draft.owner,
       categoryId: draft.categoryId || null,
       direction: selectedCategory ? selectedCategory.kind.toLowerCase() as StatisticsUrlState['direction'] : state.direction,
@@ -101,16 +99,11 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
         >
         <form className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6" onSubmit={submit}>
           <header className="flex items-start justify-between gap-4 border-b border-[var(--line)] pb-4">
-            <div><DialogTitle id="statistics-filter-title">통계 필터</DialogTitle><DialogDescription className="mt-1">선택한 세 조건을 함께 적용해요.</DialogDescription></div>
+            <div><DialogTitle id="statistics-filter-title">세부 필터</DialogTitle><DialogDescription className="mt-1">자산 소유자와 분류 조건을 함께 적용해요.</DialogDescription></div>
             <Button type="button" size="icon" variant="ghost" aria-label="통계 필터 닫기" onClick={close}><X size={19} /></Button>
           </header>
 
           <div className="grid gap-6 py-5 md:grid-cols-2">
-            <FilterRadioGroup legend="구성원" description="실제로 돈을 받거나 쓴 구성원을 선택해요. 기록을 입력한 사람과는 달라요." value={draft.memberId} onValueChange={(memberId) => setDraft((current) => ({ ...current, memberId }))}>
-              <FilterRadioOption name="statistics-member" value="">전체</FilterRadioOption>
-              {members.map((member) => <FilterRadioOption key={member.memberId} name="statistics-member" value={member.memberId}><MemberAvatar displayName={member.displayName} memberId={member.memberId} /><span>{member.displayName}{member.currentUser ? ' (나)' : ''}</span></FilterRadioOption>)}
-            </FilterRadioGroup>
-
             <FilterRadioGroup legend="자산 소유자" description="거래의 주 자산에 현재 표시된 소유 marker를 기준으로 해요." value={draft.owner} onValueChange={(owner) => setDraft((current) => ({ ...current, owner: owner as StatisticsUrlState['owner'] }))}>
               <FilterRadioOption name="statistics-owner" value="all">전체</FilterRadioOption>
               <FilterRadioOption name="statistics-owner" value="joint"><JointAvatar /><span>공동 소유</span></FilterRadioOption>
@@ -128,7 +121,7 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
           </div>
 
           <div className="grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4 sm:flex sm:justify-between">
-            <Button type="button" variant="ghost" onClick={() => setDraft({ memberId: '', owner: 'all', categoryId: '' })}><RotateCcw size={17} />필터 초기화</Button>
+            <Button type="button" variant="ghost" onClick={() => setDraft({ owner: 'all', categoryId: '' })}><RotateCcw size={17} />필터 초기화</Button>
             <Button type="submit">필터 적용</Button>
           </div>
         </form>
@@ -159,14 +152,13 @@ function FilterRadioOption({ name, value, children }: { name: string; value: str
 }
 
 function draftFromState(state: StatisticsUrlState): FilterDraft {
-  return { memberId: state.memberId ?? '', owner: state.owner, categoryId: state.categoryId ?? '' }
+  return { owner: state.owner, categoryId: state.categoryId ?? '' }
 }
 
 function filterTriggerSummary(state: StatisticsUrlState, members: LedgerMember[], categories: Category[]) {
   const count = activeStatisticsFilterCount(state)
-  if (!count) return '공동 전체'
+  if (!count) return '세부 필터'
   const labels: string[] = []
-  if (state.memberId) labels.push(members.find((member) => member.memberId === state.memberId)?.displayName ?? '선택한 구성원')
   if (state.owner === 'joint') labels.push('공동 소유')
   else if (state.owner.startsWith('member:')) labels.push(`${members.find((member) => member.memberId === state.owner.slice(7))?.displayName ?? '선택한 구성원'} 소유`)
   if (state.categoryId) labels.push(categories.find((category) => category.categoryId === state.categoryId)?.name ?? '선택한 분류')

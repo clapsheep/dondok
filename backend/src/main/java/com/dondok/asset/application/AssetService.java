@@ -4,6 +4,7 @@ import com.dondok.asset.domain.AssetBehavior;
 import com.dondok.asset.domain.AssetOwnershipScope;
 import com.dondok.asset.domain.CardBillingCyclePolicy;
 import com.dondok.asset.domain.DefaultAssetType;
+import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.asset.infrastructure.persistence.AssetEntity;
 import com.dondok.asset.infrastructure.persistence.AssetIdempotencyRepository;
 import com.dondok.asset.infrastructure.persistence.AssetLedgerRepository;
@@ -209,11 +210,13 @@ public class AssetService {
                 member.getBookId(), null, type, command.debitCardSettings());
         SavingsSettingsCommand savingsCommand = validateSavingsSettings(
                 member.getBookId(), null, type, command.savingsSettings());
+        FinancialInstitutionCode financialInstitutionCode = financialInstitutionCode(type, command.financialInstitutionCode());
         requireOpeningMagnitude(command.openingBalanceWon());
 
         UUID assetId = UuidV7.next();
         AssetEntity asset = assets.save(new AssetEntity(
                 assetId, member.getBookId(), type.getId(), command.ownershipScope(), ownerMemberId,
+                financialInstitutionCode,
                 command.name().strip(), command.openedOn(), stripToNull(command.memo()),
                 command.openingBalanceWon(), 0, member.getId(), now));
         assets.flush();
@@ -256,9 +259,11 @@ public class AssetService {
                 member.getBookId(), assetId, type, input.debitCardSettings());
         SavingsSettingsCommand savingsCommand = validateSavingsSettings(
                 member.getBookId(), assetId, type, input.savingsSettings());
+        FinancialInstitutionCode financialInstitutionCode = financialInstitutionCode(type, input.financialInstitutionCode());
         requireOpeningMagnitude(input.openingBalanceWon());
 
-        asset.update(type.getId(), input.ownershipScope(), ownerMemberId, input.name().strip(),
+        asset.update(type.getId(), input.ownershipScope(), ownerMemberId, financialInstitutionCode,
+                input.name().strip(),
                 input.openedOn(), stripToNull(input.memo()), input.openingBalanceWon(),
                 member.getId(), now);
         assets.flush();
@@ -286,6 +291,16 @@ public class AssetService {
 
     private boolean isSystemAssetType(AssetTypeEntity type) {
         return SYSTEM_ASSET_TYPE_CODES.contains(type.getSystemCode());
+    }
+
+    private FinancialInstitutionCode financialInstitutionCode(
+            AssetTypeEntity type,
+            FinancialInstitutionCode requested
+    ) {
+        if ("BANK".equals(type.getSystemCode()) || "SAVINGS".equals(type.getSystemCode())) {
+            return requested == null ? FinancialInstitutionCode.OTHER : requested;
+        }
+        return null;
     }
 
     private UUID validateOwner(UUID bookId, AssetOwnershipScope scope, UUID ownerMemberId) {
@@ -528,7 +543,7 @@ public class AssetService {
                              CardPaymentDues cardPaymentDues) {
         return new AssetView(asset.getId(), type.getId(), type.getSystemCode(), type.getName(), type.getBehavior(),
                 type.isPaymentSourceCapable(), asset.getOwnershipScope(), asset.getOwnerMemberId(),
-                asset.getName(), asset.getOpenedOn(), asset.getMemo(), openingBalanceWon,
+                asset.getFinancialInstitutionCode(), asset.getName(), asset.getOpenedOn(), asset.getMemo(), openingBalanceWon,
                 currentBalanceWon, cardPaymentDues.currentMonthWon(), cardPaymentDues.nextMonthWon(),
                 asset.isArchived() ? AssetStatus.ARCHIVED : AssetStatus.ACTIVE, asset.getArchivedAt(),
                 asset.getVersion(),
@@ -627,6 +642,7 @@ public class AssetService {
         appendHashPart(canonical, command.assetTypeId());
         appendHashPart(canonical, command.ownershipScope());
         appendHashPart(canonical, command.ownerMemberId());
+        appendHashPart(canonical, command.financialInstitutionCode());
         appendHashPart(canonical, command.name().strip());
         appendHashPart(canonical, command.openedOn());
         appendHashPart(canonical, stripToNull(command.memo()));
@@ -700,7 +716,8 @@ public class AssetService {
     }
 
     public record AssetCommand(UUID assetTypeId, AssetOwnershipScope ownershipScope,
-                               UUID ownerMemberId, String name,
+                               UUID ownerMemberId, FinancialInstitutionCode financialInstitutionCode,
+                               String name,
                                LocalDate openedOn, String memo, long openingBalanceWon,
                                CardSettingsCommand cardSettings,
                                DebitCardSettingsCommand debitCardSettings,
@@ -710,8 +727,18 @@ public class AssetService {
                 String name, LocalDate openedOn, String memo, long openingBalanceWon,
                 CardSettingsCommand cardSettings
         ) {
-            this(assetTypeId, ownershipScope, ownerMemberId, name, openedOn, memo,
+            this(assetTypeId, ownershipScope, ownerMemberId, null, name, openedOn, memo,
                     openingBalanceWon, cardSettings, null, null);
+        }
+
+        public AssetCommand(
+                UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
+                String name, LocalDate openedOn, String memo, long openingBalanceWon,
+                CardSettingsCommand cardSettings, DebitCardSettingsCommand debitCardSettings,
+                SavingsSettingsCommand savingsSettings
+        ) {
+            this(assetTypeId, ownershipScope, ownerMemberId, null, name, openedOn, memo,
+                    openingBalanceWon, cardSettings, debitCardSettings, savingsSettings);
         }
     }
 
@@ -773,7 +800,8 @@ public class AssetService {
     public record AssetView(UUID assetId, UUID assetTypeId, String systemCode,
                             String assetTypeName, AssetBehavior behavior,
                             boolean paymentSourceCapable, AssetOwnershipScope ownershipScope,
-                            UUID ownerMemberId, String name, LocalDate openedOn, String memo,
+                            UUID ownerMemberId, FinancialInstitutionCode financialInstitutionCode,
+                            String name, LocalDate openedOn, String memo,
                             long openingBalanceWon, long currentBalanceWon,
                             long currentMonthCardPaymentDueWon, long nextMonthCardPaymentDueWon,
                             AssetStatus status, Instant archivedAt,

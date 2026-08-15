@@ -121,6 +121,33 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(seed.currentMonth)
   await expectCoreNavigation(page)
+  const myStatistics = page.getByRole('radio', { name: '내 통계 보기' })
+  const otherStatistics = page.getByRole('radio', { name: `${seed.otherMemberName} 통계 보기` })
+  const allStatistics = page.getByRole('radio', { name: '모든 구성원 통계 보기' })
+  await expect(myStatistics).toBeChecked()
+  expect(new URL(page.url()).searchParams.has('member')).toBe(false)
+  await expectStatisticsSummary(page, { income: '+500,000원', expense: '-10,000원', net: '+490,000원' })
+
+  const otherResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'GET'
+      && url.pathname === '/api/statistics/monthly'
+      && url.searchParams.get('performedByMemberId') === seed.otherMemberId
+  })
+  await selectStatisticsMember(otherStatistics)
+  expect((await otherResponse).status()).toBe(200)
+  await expect.poll(() => new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
+  await expectStatisticsSummary(page, { income: '+100,000원', expense: '+190,000원', net: '+290,000원' })
+
+  const allResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'GET'
+      && url.pathname === '/api/statistics/monthly'
+      && !url.searchParams.has('performedByMemberId')
+  })
+  await selectStatisticsMember(allStatistics)
+  expect((await allResponse).status()).toBe(200)
+  await expect.poll(() => new URL(page.url()).searchParams.get('member')).toBe('all')
   await expectStatisticsSummary(page, { income: '+600,000원', expense: '+180,000원', net: '+780,000원' })
 
   const expenseCategories = page.getByRole('list', { name: '지출 분류 비중' })
@@ -169,14 +196,14 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   expect(categoryPalette.every(Boolean), '분류 팔레트 토큰은 모두 정의되어야 합니다').toBe(true)
   await expectResponsiveStatisticsState(page, incomeDirection, seed.currentMonth)
 
-  await expect(page.getByRole('button', { name: '공동 전체, 통계 필터 열기' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '세부 필터, 통계 필터 열기' })).toBeVisible()
   // Base UI modal은 열린 동안 배경 trigger를 접근성 트리에서 숨긴다. aria-expanded와 focus 복원은 고정 id로 추적한다.
   const filterTrigger = page.locator('#statistics-filter-trigger')
   await expect(filterTrigger).toHaveAttribute('aria-expanded', 'false')
   await expectTouchTarget(filterTrigger, '통계 필터')
   await filterTrigger.click()
   await expect(filterTrigger).toHaveAttribute('aria-expanded', 'true')
-  let filterDialog = page.getByRole('dialog', { name: '통계 필터' })
+  let filterDialog = page.getByRole('dialog', { name: '세부 필터' })
   await expect(filterDialog).toBeVisible()
   await expectFilterContract(filterDialog)
   await page.goBack()
@@ -185,25 +212,24 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await expect.poll(() => new URL(page.url()).pathname).toBe('/statistics')
 
   await filterTrigger.click()
-  filterDialog = page.getByRole('dialog', { name: '통계 필터' })
+  filterDialog = page.getByRole('dialog', { name: '세부 필터' })
   await page.keyboard.press('Escape')
   await expect(filterDialog).toHaveCount(0)
   await expect(filterTrigger).toBeFocused()
 
+  await selectStatisticsMember(otherStatistics)
+  await expect.poll(() => new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
   await filterTrigger.click()
-  filterDialog = page.getByRole('dialog', { name: '통계 필터' })
-  const memberRadio = filterDialog.getByRole('group', { name: '구성원' }).getByRole('radio', { name: seed.otherMemberName, exact: true })
+  filterDialog = page.getByRole('dialog', { name: '세부 필터' })
   const jointRadio = filterDialog.getByRole('group', { name: '자산 소유자' }).getByRole('radio', { name: '공동 소유', exact: true })
   const foodRadio = filterDialog.getByRole('group', { name: '분류' }).getByRole('radio', { name: '식비 · 지출', exact: true })
-  await expect(memberRadio.locator('xpath=..').locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(seed.otherMemberName)[0])
   await expect(jointRadio.locator('xpath=..').locator('[data-joint-avatar]')).toHaveCount(1)
-  await memberRadio.check()
   await jointRadio.check()
   await foodRadio.check()
   await foodRadio.focus()
-  await expectFilterDraftAcrossRotation(page, { memberRadio, jointRadio, foodRadio })
-  expect(new URL(page.url()).searchParams.has('member')).toBe(false)
-  await expectStatisticsSummary(page, { income: '+600,000원', expense: '+180,000원', net: '+780,000원' })
+  await expectFilterDraftAcrossRotation(page, { jointRadio, foodRadio })
+  expect(new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
+  await expectStatisticsSummary(page, { income: '+100,000원', expense: '+190,000원', net: '+290,000원' })
 
   const filteredResponse = page.waitForResponse((response) => {
     const url = new URL(response.url())
@@ -215,13 +241,13 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   })
   await filterDialog.getByRole('button', { name: '필터 적용' }).click()
   expect((await filteredResponse).status()).toBe(200)
-  await expect(page.getByText(/필터 3개 적용됨$/)).toBeVisible()
+  await expect(page.getByText(/세부 필터 2개 적용됨$/)).toBeVisible()
   await expect.poll(() => new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
   expect(new URL(page.url()).searchParams.get('owner')).toBe('joint')
   expect(new URL(page.url()).searchParams.get('category')).toBe(seed.foodCategoryId)
   expect(new URL(page.url()).searchParams.has('direction')).toBe(false)
   await expectStatisticsSummary(page, { income: '0원', expense: '-30,000원', net: '-30,000원' })
-  await expect(page.getByRole('button', { name: /필터 3개, 통계 필터 열기$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /필터 2개, 통계 필터 열기$/ })).toBeVisible()
 
   await page.reload()
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
@@ -238,14 +264,15 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await page.getByRole('button', { name: '이번 달' }).click()
   await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(seed.currentMonth)
 
-  await page.getByRole('button', { name: /필터 3개, 통계 필터 열기$/ }).click()
-  filterDialog = page.getByRole('dialog', { name: '통계 필터' })
+  await page.getByRole('button', { name: /필터 2개, 통계 필터 열기$/ }).click()
+  filterDialog = page.getByRole('dialog', { name: '세부 필터' })
   await expectTouchTarget(filterDialog.getByRole('button', { name: '필터 초기화' }), '필터 초기화')
   await filterDialog.getByRole('button', { name: '필터 초기화' }).click()
-  await expect(filterDialog.getByRole('group', { name: '구성원' }).getByRole('radio', { name: '전체', exact: true })).toBeChecked()
   await expect(filterDialog.getByRole('group', { name: '자산 소유자' }).getByRole('radio', { name: '전체', exact: true })).toBeChecked()
   await expect(filterDialog.getByRole('group', { name: '분류' }).getByRole('radio', { name: '전체', exact: true })).toBeChecked()
   await filterDialog.getByRole('button', { name: '필터 적용' }).click()
+  await expectStatisticsSummary(page, { income: '+100,000원', expense: '+190,000원', net: '+290,000원' })
+  await selectStatisticsMember(allStatistics)
   await expectStatisticsSummary(page, { income: '+600,000원', expense: '+180,000원', net: '+780,000원' })
 
   const settings = page.getByRole('link', { name: '설정', exact: true })
@@ -565,6 +592,11 @@ async function expectStatisticsSummary(page: Page, expected: { income: string; e
   await expectSummaryValue(summary, '순액', expected.net)
 }
 
+async function selectStatisticsMember(radio: Locator) {
+  await radio.locator('xpath=ancestor::label').click()
+  await expect(radio).toBeChecked()
+}
+
 async function expectSummaryValue(summary: Locator, label: string, value: string) {
   const item = summary.getByText(label, { exact: true }).locator('..')
   await expect(item.getByText(value, { exact: true })).toBeVisible()
@@ -582,7 +614,7 @@ async function expectLabeledValue(scope: Locator, label: string, value: string) 
 }
 
 async function expectFilterContract(dialog: Locator) {
-  for (const name of ['구성원', '자산 소유자', '분류']) {
+  for (const name of ['자산 소유자', '분류']) {
     const group = dialog.getByRole('group', { name })
     await expect(group).toBeVisible()
     const allRadio = group.getByRole('radio', { name: '전체', exact: true })
@@ -594,10 +626,9 @@ async function expectFilterContract(dialog: Locator) {
   await expectTouchTarget(dialog.getByRole('button', { name: '통계 필터 닫기' }), '통계 필터 닫기')
 }
 
-async function expectFilterDraftAcrossRotation(page: Page, controls: { memberRadio: Locator; jointRadio: Locator; foodRadio: Locator }) {
+async function expectFilterDraftAcrossRotation(page: Page, controls: { jointRadio: Locator; foodRadio: Locator }) {
   for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.setViewportSize(viewport)
-    await expect(controls.memberRadio, `${viewport.label} 구성원 draft`).toBeChecked()
     await expect(controls.jointRadio, `${viewport.label} 자산 소유자 draft`).toBeChecked()
     await expect(controls.foodRadio, `${viewport.label} 분류 draft`).toBeChecked()
     await expect(controls.foodRadio, `${viewport.label} focus`).toBeFocused()
@@ -609,6 +640,9 @@ async function expectResponsiveStatisticsState(page: Page, focused: Locator, mon
   await focused.focus()
   for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.setViewportSize(viewport)
+    const monthHeading = page.locator('[data-month-title]')
+    await expect(monthHeading, `${viewport.label} 홈과 같은 월 제목 크기`).toHaveCSS('font-size', '14px')
+    await expect(monthHeading, `${viewport.label} 홈과 같은 월 제목 굵기`).toHaveCSS('font-weight', '500')
     await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(month)
     await expect.poll(() => new URL(page.url()).searchParams.get('direction')).toBe('income')
     await expect(focused, `${viewport.label} 분류 방향 focus`).toBeFocused()

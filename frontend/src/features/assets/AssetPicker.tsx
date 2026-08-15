@@ -28,8 +28,10 @@ import {
 import { Switch } from '../../components/ui/Switch'
 import type { LedgerMember } from '../membership/api'
 import type { Asset, AssetTypeSystemCode } from './api'
-import { formatWon } from './format'
+import { assetPickerAmountLabel } from './assetPickerAmount'
 import { buildAssetOverview, type AssetGroupKey } from './overview'
+import { FinancialInstitutionAvatar } from './FinancialInstitutionPicker'
+import { financialInstitution } from './financialInstitutions'
 
 type MissingAssetSelection = {
   assetId: string
@@ -104,7 +106,7 @@ export function AssetPicker({
   const showAllAssetsId = `${id}-${generatedId}-show-all-assets`
   const selectionSummaryId = `${id}-${generatedId}-selection`
   const describedBy = [selectionSummaryId, hint ? `${id}-hint` : undefined, error ? `${id}-error` : undefined].filter(Boolean).join(' ')
-  const selectedLabel = selected ? `${selected.name}, ${selected.assetTypeName}, ${ownerLabel(selected, members)}, ${assetAmountLabel(selected)}` : missingSelected ? `${missingSelected.name}, 현재 목록에 없음` : placeholder
+  const selectedLabel = selected ? `${selected.name}, ${selected.assetTypeName}, ${ownerLabel(selected, members)}, ${assetPickerAmountLabel(selected)}` : missingSelected ? `${missingSelected.name}, 현재 목록에 없음` : placeholder
 
   function selectAsset(assetId: string) {
     onChange(assetId)
@@ -234,14 +236,15 @@ export function AssetPicker({
 function AssetTriggerValue({ asset, members }: { asset: Asset; members: LedgerMember[] }) {
   const Icon = assetIcons[asset.systemCode]
   const owner = resolveOwner(asset, members)
+  const bankRelated = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS'
   return (
     <>
-      <span className="grid size-7 shrink-0 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>
+      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : <span className="grid size-7 shrink-0 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold leading-4" title={asset.name}>{asset.name}</span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{asset.assetTypeName} · {owner.label}</span></span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{bankRelated ? `${financialInstitution(asset.financialInstitutionCode).name} · ` : ''}{asset.assetTypeName} · {owner.label}</span></span>
       </span>
-      <span className="shrink-0 text-right text-xs font-semibold tabular-nums text-[var(--muted)] max-[22rem]:hidden">{assetAmountLabel(asset)}</span>
+      <span className="shrink-0 text-right text-xs font-semibold tabular-nums text-[var(--muted)] max-[22rem]:hidden">{assetPickerAmountLabel(asset)}</span>
     </>
   )
 }
@@ -253,7 +256,8 @@ function MissingTriggerValue({ asset }: { asset: MissingAssetSelection }) {
 function AssetOption({ asset, members, active, onSelect }: { asset: Asset; members: LedgerMember[]; active: boolean; onSelect: (assetId: string) => void }) {
   const Icon = assetIcons[asset.systemCode]
   const owner = resolveOwner(asset, members)
-  const accessibleName = `${asset.name}, ${asset.assetTypeName}, ${owner.label}, ${assetAmountLabel(asset)}`
+  const bankRelated = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS'
+  const accessibleName = `${asset.name}, ${asset.assetTypeName}, ${owner.label}, ${assetPickerAmountLabel(asset)}`
   return (
     <PopoverClose
       render={<button
@@ -267,10 +271,10 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
       />}
       onClick={() => onSelect(asset.assetId)}
     >
-      <span className="grid size-7 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>
+      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : <span className="grid size-7 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
       <span className="min-w-0">
-        <span className="flex min-w-0 items-baseline gap-2 leading-4"><span className="min-w-0 flex-1 truncate text-sm font-semibold" title={asset.name}>{asset.name}</span><span className="shrink-0 text-[0.6875rem] font-semibold tabular-nums text-[var(--muted)]">{assetAmountLabel(asset)}</span></span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{asset.assetTypeName} · {owner.label}</span></span>
+        <span className="flex min-w-0 items-baseline gap-2 leading-4"><span className="min-w-0 flex-1 truncate text-sm font-semibold" title={asset.name}>{asset.name}</span><span className="shrink-0 text-[0.6875rem] font-semibold tabular-nums text-[var(--muted)]">{assetPickerAmountLabel(asset)}</span></span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{bankRelated ? `${financialInstitution(asset.financialInstitutionCode).name} · ` : ''}{asset.assetTypeName} · {owner.label}</span></span>
       </span>
       {active ? <Check className="mt-0.5 shrink-0 text-forest-700 dark:text-forest-100" size={17} aria-hidden="true" /> : null}
     </PopoverClose>
@@ -287,10 +291,6 @@ function pickerGroups(assets: Asset[]): PickerGroup[] {
   if (groups.length === 1 && assets.some((asset) => asset.systemCode === 'SAVINGS') && assets.every((asset) => asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS')) groups[0].label = '계좌·적금'
   if (groups.length === 1 && assets.every((asset) => asset.systemCode === 'CREDIT_CARD')) groups[0].label = '신용카드'
   return groups
-}
-
-function assetAmountLabel(asset: Asset) {
-  return asset.behavior === 'CREDIT_CARD' ? `이번 달 ${formatWon(asset.currentMonthCardPaymentDueWon)}` : `잔액 ${formatWon(asset.currentBalanceWon)}`
 }
 
 function ownerLabel(asset: Asset, members: LedgerMember[]) {

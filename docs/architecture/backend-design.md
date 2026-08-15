@@ -224,6 +224,8 @@ audit에는 영향 건수와 날짜 범위를 한 건으로 남긴다. command�
 
 분류 생성·이름 변경은 같은 거래 방향에서 대소문자 무시 이름 중복을 막고, 응답에 `version`과 연결 거래 수를 포함한다. 거래 생성·수정은 분류를 read lock으로 확인하고 분류 삭제는 write lock으로 이동·archive하여, 삭제가 끝난 분류를 새 거래가 다시 참조하는 경쟁 상태를 만들지 않는다.
 
+`PUT /api/categories/order`는 수입 또는 지출 방향의 전체 활성 분류 ID와 expected version을 받아 가계부 root와 해당 분류 행을 고정 순서로 잠근다. ID 집합이나 version이 하나라도 다르면 `VERSION_CONFLICT`로 전체를 거부하고, 성공하면 정렬된 authoritative `Category[]`를 반환한다. 프론트는 드롭 직후 같은 query key를 낙관적으로 재배치하되 실패하면 이전 순서를 복구하고, `412`면 서버 최신 목록을 다시 읽는다.
+
 일반 거래 수정·삭제는 `UpdateGeneralTransactionUseCase`와 `DeleteGeneralTransactionUseCase` 경계에서 처리한다. 원 거래 행을 잠그고 `expectedVersion`이 다르면 `412`로 전체 저장을 거부한다. 수정은 유형을 불변으로 유지하면서 posting을 한 트랜잭션에서 재구성하고, 삭제는 거래만 soft delete해 감사 가능한 posting 원본을 보존한다. 아직 card charge가 없는 일반 지출이 결제 자산을 신용카드로 바꾸면 같은 update 트랜잭션에서 기존 posting을 교체하고 billing snapshot·회차별 charge·명세·schedule을 생성해 `CARD_PURCHASE` aggregate로 승격한다. 이미 card charge가 있는 신용카드 구매와 시스템 거래는 `managementType`으로 구분해 일반 command에서 차단한다.
 
 사용자 수입·지출 command는 `excludedFromStatistics`를 함께 받고 응답에도 반환한다. 이 값은 posting 생성과 자산 잔액 계산에 관여하지 않고 `ledger_financial_activity` 포함 여부만 제어한다. 신용카드 구매 정정과 환불 preview/apply command도 같은 값을 preview token·idempotency hash에 포함해 확인 뒤 다른 집계 상태가 저장되는 것을 막는다. 이전 클라이언트가 필드를 생략하면 `false`로 처리하고 일반 이체에는 `true`를 허용하지 않는다.

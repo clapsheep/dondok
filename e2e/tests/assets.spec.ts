@@ -416,7 +416,8 @@ test('새 가계부의 기본 자산과 이름을 포함한 빠른 자산 등록
   await expectDetailAcrossBreakpoints(page, detailTypes, detailLoan, '기준일 대출 잔액', '-25000000', '상세에서 보완한 대출 메모')
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('신혼집 공동 대출')
   await page.getByRole('button', { name: '변경 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요')
+  await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요')
+  await expect(page.getByRole('heading', { name: '신혼집 공동 대출', exact: true })).toBeVisible()
 })
 
 test('자산 이름을 직접 저장하거나 비워 두면 고정 종류 이름에 순번을 붙인다', async ({ page, request }) => {
@@ -425,7 +426,8 @@ test('자산 이름을 직접 저장하거나 비워 두면 고정 종류 이름
   await page.getByRole('link', { name: '자산', exact: true }).click()
   await page.getByRole('link', { name: '자산 추가' }).click()
 
-  await openQuickAssetDetail(page, { typeName: '계좌', name: '우리 비상금', amount: '1250000', expectedName: '우리 비상금', expectedAmount: '1,250,000원' })
+  await openQuickAssetDetail(page, { typeName: '계좌', name: '우리 비상금', amount: '1250000', expectedName: '우리 비상금', expectedAmount: '1,250,000원', institutionName: '우리은행' })
+  await expect(page.getByLabel('은행', { exact: true })).toContainText('우리은행')
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('우리 비상금')
 
   await openNewAssetForm(page)
@@ -437,7 +439,7 @@ test('자산 이름을 직접 저장하거나 비워 두면 고정 종류 이름
   await page.getByRole('group', { name: '자산 종류' }).getByRole('button', { name: '투자', exact: true }).click()
   await expect(name, '상세에서 종류를 바꿔도 직접 입력한 이름을 보존해야 합니다').toHaveValue('투자 준비금')
   await page.getByRole('button', { name: '변경 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요')
+  await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요')
 
   await openNewAssetForm(page)
   await openQuickAssetDetail(page, { typeName: '기타', amount: '300000', expectedName: '기타', expectedAmount: '300,000원' })
@@ -445,8 +447,8 @@ test('자산 이름을 직접 저장하거나 비워 두면 고정 종류 이름
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('기타')
   await page.getByLabel('자산 이름 (선택)', { exact: true }).fill('여행 통장')
   await page.getByRole('button', { name: '변경 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요')
-  await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('여행 통장')
+  await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요')
+  await expect(page.getByRole('heading', { name: '여행 통장', exact: true })).toBeVisible()
 })
 
 test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이체는 선택해서 설정한다', async ({ page, request }) => {
@@ -551,7 +553,8 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   ], autoTransferDay, '변경 저장')
 
   await page.getByRole('button', { name: '변경 저장', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요.')
+  await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요.')
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(detailAutoTransferSwitch).toBeChecked()
   await expect(page.getByLabel('자동이체 계좌', { exact: true })).toHaveAttribute('data-value', autoTransferAccountId)
   await expect(page.getByLabel('자동이체 계좌', { exact: true })).toContainText(paymentAssetName)
@@ -609,7 +612,8 @@ test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산
   await expectCardDetailAcrossBreakpoints(page)
   await autoSettlement.click()
   await page.getByRole('button', { name: '변경 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('자산 정보를 저장했어요')
+  await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요')
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(autoSettlement).toBeChecked()
 })
 

@@ -82,6 +82,11 @@ export type CardStatementPaymentResult = {
   settlementTransaction: Transaction
 }
 
+export type CorrectCardStatementPaymentAccountInput = {
+  settlementAssetId: string
+  expectedVersion: number
+}
+
 export const cardStatementKeys = {
   all: ['card-statements'] as const,
   lists: () => ['card-statements', 'list'] as const,
@@ -104,6 +109,10 @@ export const cardStatementApi = {
   applyPrepayment: (statementId: string, input: ApplyCardStatementPrepaymentInput, idempotencyKey: string) => api<CardStatementPaymentResult>(`/api/card-statements/${statementId}/prepayments`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },
+    body: jsonBody(input),
+  }),
+  correctPaymentAccount: (statementId: string, paymentId: string, input: CorrectCardStatementPaymentAccountInput) => api<CardStatementPaymentResult>(`/api/card-statements/${statementId}/payments/${paymentId}`, {
+    method: 'PUT',
     body: jsonBody(input),
   }),
 }

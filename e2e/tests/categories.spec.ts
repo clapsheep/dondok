@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { submitQuickAsset } from './support/assets'
 import { registerAndLogin } from './support/auth'
-import { selectTransactionCategory } from './support/transactions'
+import { selectTransactionCategory, transactionCategoryTrigger } from './support/transactions'
 
 test('공동 분류를 추가·수정하고 사용 중 삭제하면 거래를 같은 방향 기타로 이동한다', async ({ page, request, context }) => {
   const suffix = `${test.info().workerIndex}-${Date.now().toString().slice(-6)}`
@@ -32,6 +32,17 @@ test('공동 분류를 추가·수정하고 사용 중 삭제하면 거래를 �
   const initialCategories = await readCategories(page, 'EXPENSE')
   for (const category of initialCategories) await expect(categoryButton(page, category.name)).toBeVisible()
   await expect(categoryButtons(page)).toHaveCount(initialCategories.length)
+
+  const movedName = initialCategories[0].name
+  const targetName = initialCategories[2].name
+  await dragCategory(page, movedName, targetName)
+  await expect(page.getByRole('status').filter({ hasText: '분류 순서를 변경했어요.' })).toBeVisible()
+  const expectedOrder = [initialCategories[1].name, initialCategories[2].name, initialCategories[0].name, ...initialCategories.slice(3).map((category) => category.name)]
+  await expect.poll(() => categoryNames(page)).toEqual(expectedOrder)
+  await expect.poll(async () => (await readCategories(page, 'EXPENSE')).map((category) => category.name)).toEqual(expectedOrder)
+
+  await page.reload()
+  await expect.poll(() => categoryNames(page)).toEqual(expectedOrder)
   await categoryButton(page, fallbackName).click()
   await expectSelectedCategoryControls(page, fallbackName, 0, false)
 
@@ -61,6 +72,11 @@ test('공동 분류를 추가·수정하고 사용 중 삭제하면 거래를 �
 
   await page.goto('/transactions/new')
   await page.getByLabel('금액').fill(String(amount))
+  await transactionCategoryTrigger(page).click()
+  const picker = page.getByRole('dialog', { name: '지출 분류 선택' })
+  const pickerNames = await picker.locator('button[aria-pressed]').allTextContents()
+  expect(pickerNames.indexOf(targetName)).toBeLessThan(pickerNames.indexOf(movedName))
+  await page.keyboard.press('Escape')
   await selectTransactionCategory(page, renamedName)
   await page.getByRole('button', { name: '기록 저장' }).click()
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
@@ -77,7 +93,7 @@ test('공동 분류를 추가·수정하고 사용 중 삭제하면 거래를 �
   await expectTouchTarget(page.getByRole('button', { name: '분류 삭제', exact: true }), '분류 삭제')
   await page.getByRole('button', { name: '분류 삭제', exact: true }).click()
 
-  await expect(page.getByRole('status')).toContainText(`‘${fallbackName}’ 분류로 1건을 옮기고 삭제했어요.`)
+  await expect(page.getByRole('status').filter({ hasText: `‘${fallbackName}’ 분류로 1건을 옮기고 삭제했어요.` })).toBeVisible()
   await expect(categoryButton(page, renamedName)).toHaveCount(0)
   await expect(page.getByRole('button', { name: `${fallbackName} 삭제` })).toHaveCount(0)
 
@@ -114,7 +130,7 @@ function categoryRegion(page: Page) {
 }
 
 function categoryButtons(page: Page) {
-  return categoryRegion(page).getByRole('button', { pressed: false }).or(categoryRegion(page).getByRole('button', { pressed: true }))
+  return categoryRegion(page).locator('[data-category-select]')
 }
 
 function categoryButton(page: Page, name: string) {
@@ -158,6 +174,28 @@ async function readCategories(page: Page, kind: 'EXPENSE' | 'INCOME') {
     if (!response.ok) throw new Error(`분류 조회 실패: ${response.status}`)
     return response.json() as Promise<Array<{ name: string }>>
   }, kind)
+}
+
+async function categoryNames(page: Page) {
+  return categoryButtons(page).allTextContents()
+}
+
+async function dragCategory(page: Page, sourceName: string, targetName: string) {
+  const source = page.getByRole('button', { name: `${sourceName} 순서 이동`, exact: true })
+  const target = categoryButton(page, targetName)
+  const sourceBox = await source.boundingBox()
+  const targetBox = await target.boundingBox()
+  expect(sourceBox).not.toBeNull()
+  expect(targetBox).not.toBeNull()
+  if (!sourceBox || !targetBox) return
+
+  const sourceX = sourceBox.x + sourceBox.width / 2
+  const sourceY = sourceBox.y + sourceBox.height / 2
+  await page.mouse.move(sourceX, sourceY)
+  await page.mouse.down()
+  await page.mouse.move(sourceX + 8, sourceY, { steps: 3 })
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 20 })
+  await page.mouse.up()
 }
 
 async function expectTouchTarget(locator: Locator, label: string) {

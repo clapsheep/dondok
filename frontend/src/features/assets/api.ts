@@ -1,4 +1,5 @@
 import { api, jsonBody } from '../../lib/api'
+import type { FinancialInstitutionCode } from './financialInstitutions'
 
 export type AssetBehavior = 'STANDARD' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'SAVINGS'
 export type OwnershipScope = 'PERSONAL' | 'JOINT'
@@ -48,6 +49,7 @@ export type Asset = {
   paymentSourceCapable: boolean
   ownershipScope: OwnershipScope
   ownerMemberId: string | null
+  financialInstitutionCode: FinancialInstitutionCode | null
   name: string
   openedOn: string
   memo: string | null
@@ -67,6 +69,7 @@ export type CreateAssetInput = {
   assetTypeId: string
   ownershipScope: OwnershipScope
   ownerMemberId: string | null
+  financialInstitutionCode: FinancialInstitutionCode | null
   name: string
   openedOn: string
   memo: string | null

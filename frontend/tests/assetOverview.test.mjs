@@ -36,7 +36,7 @@ test('고정 시스템 코드 순서로 그룹화하고 빈 그룹은 제외한�
   assert.deepEqual(overview.groups.map((group) => group.key), ['liquid', 'cards', 'investments', 'loans', 'insurance'])
   assert.deepEqual(overview.groups.map((group) => group.label), ['자금', '카드', '투자', '대출', '보험'])
   assert.deepEqual(overview.groups.map((group) => group.items.map((item) => item.systemCode)), [
-    ['CASH', 'OTHER', 'BANK', 'SAVINGS', 'BANK'],
+    ['CASH', 'OTHER', 'BANK', 'BANK', 'SAVINGS'],
     ['CREDIT_CARD', 'DEBIT_CARD'],
     ['INVESTMENT'],
     ['LOAN'],
@@ -58,6 +58,17 @@ test('이번 달과 다음 달 카드 결제 금액은 응답 필드를 각각 �
 
   assert.equal(overview.currentMonthCardPaymentDueWon, 42_000)
   assert.equal(overview.nextMonthCardPaymentDueWon, 53_000)
+})
+
+test('계좌와 적금은 금융기관 카탈로그 순서로 붙여서 정렬한다', () => {
+  const overview = buildAssetOverview([
+    { ...asset('BANK', 1), assetId: '3', assetTypeName: '계좌', name: '토스 통장', financialInstitutionCode: 'TOSS_BANK' },
+    { ...asset('SAVINGS', 1), assetId: '2', assetTypeName: '적금', name: '국민 적금', financialInstitutionCode: 'KB_KOOKMIN' },
+    { ...asset('CASH', 1), assetId: '1', assetTypeName: '현금', name: '현금', financialInstitutionCode: null },
+    { ...asset('BANK', 1), assetId: '4', assetTypeName: '계좌', name: '국민 통장', financialInstitutionCode: 'KB_KOOKMIN' },
+  ])
+
+  assert.deepEqual(overview.groups[0].items.map((item) => item.name), ['현금', '국민 통장', '국민 적금', '토스 통장'])
 })
 
 test('상단 합계에는 보관 자산을 포함하고 활성 그룹에서는 제외한다', () => {

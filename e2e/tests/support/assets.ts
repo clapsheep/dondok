@@ -6,6 +6,7 @@ type BalanceQuickAsset = {
   amount: string
   expectedName: string
   expectedAmount?: string
+  institutionName?: string
 }
 
 export function assetRow(page: Page, name: string) {
@@ -34,6 +35,10 @@ export async function submitQuickAsset(page: Page, asset: BalanceQuickAsset): Pr
   await page.getByRole('group', { name: '자산 종류' })
     .getByRole('button', { name: asset.typeName, exact: true })
     .click()
+  if (asset.institutionName) {
+    await page.getByLabel('은행', { exact: true }).click()
+    await page.getByRole('button', { name: asset.institutionName, exact: true }).click()
+  }
   if (asset.name !== undefined) {
     await page.getByLabel('자산 이름 (선택)', { exact: true }).fill(asset.name)
   }

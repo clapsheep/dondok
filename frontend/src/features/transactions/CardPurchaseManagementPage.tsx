@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
 import { SelectField } from '../../components/ui/SelectField'
@@ -174,12 +175,8 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
   const [conflict, setConflict] = useState<Conflict>()
   const [remoteMissing, setRemoteMissing] = useState(false)
   const errorSummary = useRef<HTMLParagraphElement>(null)
-  const previewHeading = useRef<HTMLHeadingElement>(null)
+  const confirmationHeading = useRef<HTMLHeadingElement>(null)
   const idempotency = useRef<{ token: string; key: string } | undefined>(undefined)
-
-  useEffect(() => {
-    if (preview) previewHeading.current?.focus()
-  }, [preview])
 
   const previewMutation = useMutation({
     mutationFn: (input: CardPurchaseCorrectionInput) => transactionApi.previewCardPurchaseCorrection(purchase.transactionId, input),
@@ -242,8 +239,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
     previewMutation.mutate(parsed.input)
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  function applyCorrection() {
     if (!preview || !online || remoteMissing) return
     const parsed = parseCorrection(draft, baseVersion)
     setErrors(parsed.errors)
@@ -252,6 +248,14 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
       ? idempotency.current
       : { token: preview.previewToken, key: crypto.randomUUID() }
     applyMutation.mutate({ input: { ...parsed.input, previewToken: preview.previewToken }, key: idempotency.current.key })
+  }
+
+  function closeConfirmation() {
+    if (applyMutation.isPending) return
+    setPreview(undefined)
+    previewMutation.reset()
+    applyMutation.reset()
+    idempotency.current = undefined
   }
 
   function recalculateLatest() {
@@ -280,7 +284,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
         <ConflictPanel conflict={conflict} onRecalculate={recalculateLatest}>
           {conflict ? <CorrectionChanges purchase={conflict.latest.purchase} draft={draft} assets={assets} categories={categories} ledger={ledger} /> : null}
         </ConflictPanel>
-        <form className="mt-5" onSubmit={submit} noValidate>
+        <form className="mt-5" onSubmit={(event) => { event.preventDefault(); requestPreview() }} noValidate>
           {Object.values(errors).some(Boolean) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
           <div className="grid gap-4 border-b border-[var(--line)] pb-5 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
             <MoneyField id="correctionAmount" label="금액" value={draft.amountWon} onValueChange={(value) => updateDraft('amountWon', value)} error={errors.amountWon} disabled={pending} required />
@@ -299,20 +303,38 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
           <StatisticsExclusionSwitch type="EXPENSE" checked={draft.excludedFromStatistics} onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)} disabled={pending} />
           <OfflineNotice online={online} />
           <MutationError error={previewMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="변경 영향을 계산하지 못했어요." />
-          <MutationError error={applyMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="정정을 적용하지 못했어요." />
-          <div className="mt-5 flex flex-col-reverse gap-3 min-[22.5rem]:flex-row min-[22.5rem]:justify-end">
-            {applyMutation.isPending ? <Button type="button" variant="secondary" size="large" disabled>취소</Button> : <Button asChild variant="secondary" size="large"><Link to={`/transactions/${purchase.transactionId}/card-purchase`} state={{ returnTo }}>취소</Link></Button>}
-            <Button type="button" size="large" onClick={() => requestPreview()} disabled={!online || pending || remoteMissing || Boolean(conflict) || dependenciesPending || dependenciesError}>{previewMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Check size={18} />}변경 내용 확인</Button>
+          <div className="mt-5 flex justify-end">
+            <Button type="submit" size="large" disabled={!online || pending || remoteMissing || Boolean(conflict) || dependenciesPending || dependenciesError}>{previewMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}정정 저장</Button>
           </div>
-          {preview ? (
-            <ImpactPreview ref={previewHeading} title="변경 영향" preview={preview}>
-              <CorrectionChanges purchase={purchase} draft={draft} assets={assets} categories={categories} ledger={ledger} />
-              <Button type="submit" className="mt-5 w-full min-[22.5rem]:w-auto" size="large" disabled={!online || applyMutation.isPending}>
-                {applyMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}정정 적용
-              </Button>
-            </ImpactPreview>
-          ) : null}
         </form>
+        <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) closeConfirmation() }}>
+          {preview ? (
+            <DialogContent
+              className="left-1/2 top-auto bottom-[max(.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-[calc(100vw-2rem)] -translate-x-1/2 translate-y-0 md:top-1/2 md:bottom-auto md:w-[min(38rem,calc(100vw-3rem))] md:-translate-y-1/2"
+              aria-labelledby="correction-confirmation-title"
+              aria-describedby="correction-confirmation-description"
+              initialFocus={confirmationHeading}
+            >
+              <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6">
+                <DialogHeader className="border-b border-[var(--line)] pb-4">
+                  <DialogTitle ref={confirmationHeading} id="correction-confirmation-title" className="outline-none" tabIndex={-1}>정정 내용을 저장할까요?</DialogTitle>
+                  <DialogDescription id="correction-confirmation-description">바뀌는 기록과 카드·계좌 장부 영향을 확인해 주세요.</DialogDescription>
+                </DialogHeader>
+                <div className="py-5">
+                  <CorrectionChanges purchase={purchase} draft={draft} assets={assets} categories={categories} ledger={ledger} />
+                  <AccountReturns returns={preview.accountReturns} unpaidCardReductionWon={preview.unpaidCardReductionWon} />
+                  <MutationError error={applyMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="정정을 저장하지 못했어요." />
+                </div>
+                <DialogFooter className="grid grid-cols-2 border-t border-[var(--line)] pt-4 sm:flex">
+                  <Button type="button" variant="secondary" size="large" disabled={applyMutation.isPending} onClick={closeConfirmation}>취소</Button>
+                  <Button type="button" size="large" disabled={!online || applyMutation.isPending} onClick={applyCorrection}>
+                    {applyMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}저장
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          ) : null}
+        </Dialog>
       </section>
     </AppShell>
   )

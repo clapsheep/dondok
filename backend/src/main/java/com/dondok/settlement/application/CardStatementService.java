@@ -187,6 +187,50 @@ public class CardStatementService {
                 detail(current), payment(payment), transaction(transfer));
     }
 
+    @Transactional
+    public CardStatementPaymentResult correctPaymentAccount(
+            UUID userId,
+            UUID statementId,
+            UUID paymentId,
+            CorrectPaymentAccountCommand command
+    ) {
+        LedgerMemberEntity member = mutationGuard.lockCurrentMember(userId);
+        StatementRow statement = repository.lockStatement(member.getBookId(), statementId);
+        if (statement == null) {
+            throw statementNotFound();
+        }
+        if (statement.version() != command.expectedVersion()) {
+            throw versionConflict(statement);
+        }
+        PaymentRow payment = repository.lockPayment(member.getBookId(), paymentId);
+        if (payment == null || !payment.statementId().equals(statementId)) {
+            throw error(HttpStatus.NOT_FOUND, "CARD_STATEMENT_PAYMENT_NOT_FOUND",
+                    "카드 결제 기록을 찾을 수 없습니다.");
+        }
+        if (payment.returnedAmountWon() > 0) {
+            throw error(HttpStatus.CONFLICT, "CARD_PAYMENT_ACCOUNT_CORRECTION_REFUND_EXISTS",
+                    "환불 반환에 사용된 결제는 출금 계좌를 변경할 수 없습니다.");
+        }
+        if (!repository.isActivePaymentSource(member.getBookId(), command.settlementAssetId())) {
+            throw error(HttpStatus.BAD_REQUEST, "CARD_SETTLEMENT_ASSET_INVALID",
+                    "같은 가계부의 결제 가능한 자산을 선택해 주세요.");
+        }
+        if (!payment.settlementAssetId().equals(command.settlementAssetId())) {
+            repository.correctPaymentSettlementAsset(
+                    member.getBookId(), statementId, payment, command.settlementAssetId(),
+                    member.getId(), clock.instant());
+        }
+        PaymentRow currentPayment = requiredPayment(member.getBookId(), paymentId);
+        ManagedTransferPort.ManagedTransfer transfer = managedTransfers.find(
+                member.getBookId(), currentPayment.settlementTransactionId());
+        if (transfer == null) {
+            throw new IllegalStateException("corrected card payment transfer is missing");
+        }
+        return new CardStatementPaymentResult(
+                detail(requiredStatement(member.getBookId(), statementId)),
+                payment(currentPayment), transaction(transfer));
+    }
+
     private CardStatementPaymentResult replay(UUID bookId, UUID paymentId) {
         PaymentRow payment = requiredPayment(bookId, paymentId);
         ManagedTransferPort.ManagedTransfer transfer = managedTransfers.find(
@@ -492,6 +536,12 @@ public class CardStatementService {
             CardStatementDetail statement,
             CardStatementPayment payment,
             SettlementTransaction settlementTransaction
+    ) {
+    }
+
+    public record CorrectPaymentAccountCommand(
+            UUID settlementAssetId,
+            long expectedVersion
     ) {
     }
 }

@@ -1,4 +1,5 @@
 import type { Asset, AssetTypeSystemCode } from './api'
+import { financialInstitutionSortOrder } from './financialInstitutions.ts'
 
 export type AssetGroupKey = 'liquid' | 'cards' | 'investments' | 'loans' | 'insurance'
 
@@ -81,9 +82,26 @@ export function buildAssetOverview(assets: readonly Asset[]): AssetOverview {
     nextMonthCardPaymentDueWon,
     groups: groupDefinitions.flatMap((definition) => {
       const group = groups.get(definition.key)
-      return group ? [group] : []
+      if (!group) return []
+      group.items.sort(compareAssetsForOverview)
+      return [group]
     }),
   }
+}
+
+function compareAssetsForOverview(left: Asset, right: Asset) {
+  const leftBankRelated = left.systemCode === 'BANK' || left.systemCode === 'SAVINGS'
+  const rightBankRelated = right.systemCode === 'BANK' || right.systemCode === 'SAVINGS'
+  if (leftBankRelated !== rightBankRelated) return leftBankRelated ? 1 : -1
+  if (leftBankRelated && rightBankRelated) {
+    const institutionOrder = financialInstitutionSortOrder(left.financialInstitutionCode)
+      - financialInstitutionSortOrder(right.financialInstitutionCode)
+    if (institutionOrder !== 0) return institutionOrder
+  }
+  const typeOrder = (left.assetTypeName ?? left.systemCode).localeCompare(right.assetTypeName ?? right.systemCode, 'ko')
+  return typeOrder
+    || (left.name ?? '').localeCompare(right.name ?? '', 'ko')
+    || (left.assetId ?? '').localeCompare(right.assetId ?? '')
 }
 
 export function buildAssetStatusOverview(assets: readonly Asset[]): AssetStatusOverview {

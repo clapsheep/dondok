@@ -14,7 +14,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -80,6 +82,45 @@ public class CategoryService {
         long usage = categoryJdbc.transactionUsage(member.getBookId(), category.getKind())
                 .getOrDefault(categoryId, 0L);
         return CategoryView.from(category, usage);
+    }
+
+    @Transactional
+    public List<CategoryView> reorder(UUID userId, ReorderCategoriesCommand command) {
+        LedgerMemberEntity member = mutationGuard.lockCurrentMemberExclusively(userId);
+        if (command.categories() == null || command.categories().isEmpty()) {
+            throw invalidCategoryOrder();
+        }
+        Set<UUID> requestedIds = new HashSet<>();
+        for (CategoryOrderItem item : command.categories()) {
+            if (item == null || item.categoryId() == null || item.expectedVersion() < 0
+                    || !requestedIds.add(item.categoryId())) {
+                throw invalidCategoryOrder();
+            }
+        }
+
+        List<CategoryEntity> locked = categories.findAllActiveForUpdate(
+                member.getBookId(), command.kind());
+        Map<UUID, CategoryEntity> byId = locked.stream()
+                .collect(java.util.stream.Collectors.toMap(CategoryEntity::getId, category -> category));
+        if (!byId.keySet().equals(requestedIds)) {
+            throw categoryOrderConflict();
+        }
+
+        Instant now = clock.instant();
+        for (int index = 0; index < command.categories().size(); index++) {
+            CategoryOrderItem item = command.categories().get(index);
+            CategoryEntity category = byId.get(item.categoryId());
+            requireVersion(category, item.expectedVersion());
+            category.reorder((index + 1) * 10, member.getId(), now);
+        }
+        categories.flush();
+        Map<UUID, Long> usage = categoryJdbc.transactionUsage(member.getBookId(), command.kind());
+        return command.categories().stream()
+                .map(item -> {
+                    CategoryEntity category = byId.get(item.categoryId());
+                    return CategoryView.from(category, usage.getOrDefault(category.getId(), 0L));
+                })
+                .toList();
     }
 
     @Transactional
@@ -159,6 +200,16 @@ public class CategoryService {
         return error(HttpStatus.NOT_FOUND, "CATEGORY_NOT_FOUND", "분류를 찾을 수 없습니다.");
     }
 
+    private ApiException invalidCategoryOrder() {
+        return error(HttpStatus.BAD_REQUEST, "CATEGORY_ORDER_INVALID",
+                "현재 분류를 중복 없이 모두 포함해 순서를 정해 주세요.");
+    }
+
+    private ApiException categoryOrderConflict() {
+        return error(HttpStatus.PRECONDITION_FAILED, "VERSION_CONFLICT",
+                "순서를 정하는 동안 분류 목록이 변경되었습니다.");
+    }
+
     private ApiException error(HttpStatus status, String code, String message) {
         return new ApiException(status, code, message);
     }
@@ -173,6 +224,10 @@ public class CategoryService {
     public record CreateCategoryCommand(CategoryKind kind, String name) {
     }
     public record UpdateCategoryCommand(String name, long expectedVersion) {
+    }
+    public record ReorderCategoriesCommand(CategoryKind kind, List<CategoryOrderItem> categories) {
+    }
+    public record CategoryOrderItem(UUID categoryId, long expectedVersion) {
     }
     public record ArchiveCategoryResult(
             UUID categoryId,

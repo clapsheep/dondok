@@ -132,6 +132,80 @@ class CardStatementSettlementIntegrationTest {
     }
 
     @Test
+    void correctsPaymentAccountWithoutChangingAmountDateOrStatementSettlement() {
+        Fixture fixture = fixture(true, 200_000);
+        AssetService.AssetView correctedBank = createBank(
+                fixture, "정정 결제 계좌", 50_000, "corrected-payment-bank");
+        TransactionService.TransactionView purchase = purchase(
+                fixture, 100_000, "payment-account-correction-purchase");
+        UUID statementId = statementId(purchase.transactionId());
+        CardStatementService.CardStatementPaymentResult paid = prepay(
+                fixture, statementId, 60_000, "payment-account-correction");
+        long statementVersion = paid.statement().version();
+
+        CardStatementService.CardStatementPaymentResult corrected =
+                statements.correctPaymentAccount(
+                        fixture.userId(), statementId, paid.payment().paymentId(),
+                        new CardStatementService.CorrectPaymentAccountCommand(
+                                correctedBank.assetId(), statementVersion));
+
+        assertThat(corrected.payment().settlementAssetId()).isEqualTo(correctedBank.assetId());
+        assertThat(corrected.payment().amountWon()).isEqualTo(60_000);
+        assertThat(corrected.payment().paidOn()).isEqualTo(paid.payment().paidOn());
+        assertThat(corrected.statement().remainingAmountWon()).isEqualTo(40_000);
+        assertThat(corrected.statement().version()).isEqualTo(statementVersion + 1);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(200_000);
+        assertThat(balance(correctedBank.assetId())).isEqualTo(-10_000);
+        assertThat(corrected.settlementTransaction().postings())
+                .anySatisfy(posting -> {
+                    assertThat(posting.assetId()).isEqualTo(correctedBank.assetId());
+                    assertThat(posting.deltaWon()).isEqualTo(-60_000);
+                });
+
+        assertThatThrownBy(() -> statements.correctPaymentAccount(
+                fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CorrectPaymentAccountCommand(
+                        fixture.bank().assetId(), statementVersion)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo("VERSION_CONFLICT"));
+    }
+
+    @Test
+    void correctsCompletedAutomaticSettlementAccountAndScheduleTogether() {
+        Fixture fixture = fixture(true, 200_000);
+        AssetService.AssetView correctedBank = createBank(
+                fixture, "자동 정산 정정 계좌", 300_000, "corrected-regular-payment-bank");
+        TransactionService.TransactionView purchase = purchase(
+                fixture, 80_000, "regular-payment-account-correction-purchase");
+        UUID statementId = statementId(purchase.transactionId());
+        UUID scheduleId = scheduleId(statementId);
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        assertThat(settlementService.settle(scheduleId))
+                .isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+        CardStatementService.CardStatementDetail paid = statements.statement(
+                fixture.userId(), statementId);
+        CardStatementService.CardStatementPayment regular = paid.payments().stream()
+                .filter(payment -> payment.paymentType().equals("REGULAR"))
+                .findFirst().orElseThrow();
+
+        CardStatementService.CardStatementPaymentResult corrected =
+                statements.correctPaymentAccount(
+                        fixture.userId(), statementId, regular.paymentId(),
+                        new CardStatementService.CorrectPaymentAccountCommand(
+                                correctedBank.assetId(), paid.version()));
+
+        assertThat(corrected.statement().status()).isEqualTo("PAID");
+        assertThat(corrected.statement().remainingAmountWon()).isZero();
+        assertThat(corrected.payment().paidOn()).isEqualTo(regular.paidOn());
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(200_000);
+        assertThat(balance(correctedBank.assetId())).isEqualTo(220_000);
+        assertThat(jdbcTemplate.queryForObject("""
+                select settlement_asset_id from card_payment_schedule where id = ?
+                """, UUID.class, scheduleId)).isEqualTo(correctedBank.assetId());
+    }
+
+    @Test
     void staleConcurrentPrepaymentsCommitOnlyOnePayment() throws Exception {
         Fixture fixture = fixture(false, 0);
         TransactionService.TransactionView purchase = purchase(fixture, 100_000, "race-purchase");

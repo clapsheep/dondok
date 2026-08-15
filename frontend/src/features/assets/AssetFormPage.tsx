@@ -35,6 +35,8 @@ import {
   type UpdateAssetInput,
 } from './api'
 import { AssetPicker } from './AssetPicker'
+import { FinancialInstitutionAvatar, FinancialInstitutionPicker } from './FinancialInstitutionPicker'
+import { financialInstitution, type FinancialInstitutionCode } from './financialInstitutions'
 import { resolveAssetName } from './assetName'
 import { formatWon, todayInSeoul } from './format'
 import { blockingLinkKindLabel, removalActionLabel, removalDescription, removalTitle, removalWarnings } from './removal'
@@ -46,6 +48,7 @@ type AssetDraft = {
   assetTypeId: string
   ownershipScope: OwnershipScope
   ownerMemberId: string
+  financialInstitutionCode: FinancialInstitutionCode
   name: string
   openedOn: string
   memo: string
@@ -67,11 +70,12 @@ type FieldErrors = Partial<Record<keyof AssetDraft, string>>
 type SaveCommand = { kind: 'create'; input: CreateAssetInput; idempotencyKey: string } | { kind: 'update'; input: UpdateAssetInput }
 type PaymentSourceTarget = 'settlementAssetId' | 'debitCardPaymentAssetId' | 'savingsTransferAssetId'
 
-const CREATE_VISIBLE_FIELDS = new Set<keyof AssetDraft>(['assetTypeId', 'name', 'openingBalanceWon', 'openedOn'])
+const CREATE_VISIBLE_FIELDS = new Set<keyof AssetDraft>(['assetTypeId', 'financialInstitutionCode', 'name', 'openingBalanceWon', 'openedOn'])
 const EDIT_VISIBLE_FIELDS = new Set<keyof AssetDraft>([
   'assetTypeId',
   'ownershipScope',
   'ownerMemberId',
+  'financialInstitutionCode',
   'name',
   'openedOn',
   'memo',
@@ -186,7 +190,7 @@ function AssetDesktopList({ assets, selectedAssetId }: { assets: Asset[]; select
       <nav className="mt-1 divide-y divide-[var(--line)] border-t border-[var(--line)]">
         {assets.map((asset) => (
           <Link key={asset.assetId} to={`/assets/${asset.assetId}/edit`} aria-current={asset.assetId === selectedAssetId ? 'page' : undefined} className={`block border-l-2 px-3 py-3 text-sm transition-colors ${asset.assetId === selectedAssetId ? 'border-forest-600 text-forest-800 dark:text-forest-100' : 'border-transparent text-[var(--muted)] hover:text-forest-800 dark:hover:text-white'}`}>
-            <span className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-semibold">{asset.name}</span><span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{asset.assetTypeName}</span></span><span className="shrink-0 font-semibold tabular-nums">{formatWon(asset.currentBalanceWon)}</span></span>
+            <span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-2">{asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} size="sm" /> : null}<span className="min-w-0"><span className="block truncate font-semibold">{asset.name}</span><span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' ? `${financialInstitution(asset.financialInstitutionCode).name} · ` : ''}{asset.assetTypeName}</span></span></span><span className="shrink-0 font-semibold tabular-nums">{formatWon(asset.currentBalanceWon)}</span></span>
           </Link>
         ))}
       </nav>
@@ -215,7 +219,6 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   const [conflictLoading, setConflictLoading] = useState(false)
   const [conflictLoadError, setConflictLoadError] = useState(false)
   const [rebased, setRebased] = useState(false)
-  const [saved, setSaved] = useState(false)
   const [paymentSourceTarget, setPaymentSourceTarget] = useState<PaymentSourceTarget>()
   const online = useOnlineStatus()
   const idempotency = useRef<{ fingerprint: string; key: string } | undefined>(undefined)
@@ -226,6 +229,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   const isCreditCard = selectedType?.behavior === 'CREDIT_CARD'
   const isDebitCard = selectedType?.behavior === 'DEBIT_CARD'
   const isSavings = selectedType?.behavior === 'SAVINGS'
+  const usesFinancialInstitution = selectedType?.systemCode === 'BANK' || selectedType?.systemCode === 'SAVINGS'
   const fallbackAssetName = resolveAssetName({
     draftName: '',
     typeName: selectedType?.name ?? '',
@@ -256,11 +260,9 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
       void queryClient.invalidateQueries({ queryKey: assetKeys.all })
       void queryClient.invalidateQueries({ queryKey: transactionKeys.all })
       setConflict(false)
-      setSaved(true)
-      setDraft(draftFromAsset(asset))
+      navigate(`/assets/${asset.assetId}`, { replace: true, state: { assetUpdated: true } })
     },
     onError: (error, command) => {
-      setSaved(false)
       if (error instanceof ApiError) {
         const apiFieldErrors = fieldErrorsFromApi(error, command.kind === 'update', command.input)
         setFieldErrors(apiFieldErrors)
@@ -274,7 +276,6 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   })
 
   function update<K extends keyof AssetDraft>(key: K, value: AssetDraft[K]) {
-    setSaved(false)
     setRebased(false)
     setFieldErrors((current) => ({ ...current, [key]: undefined }))
     setDraft((current) => ({ ...current, [key]: value }))
@@ -307,7 +308,6 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   }
 
   function selectAssetType(assetTypeId: string) {
-    setSaved(false)
     setRebased(false)
     setFieldErrors((current) => ({
       ...current,
@@ -421,6 +421,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
             </div>
             {fieldErrors.assetTypeId ? <p id="asset-type-error" className="mt-2 text-sm text-red-700 dark:text-[#ff9d93]" role="alert">{fieldErrors.assetTypeId}</p> : null}
           </div>
+          {usesFinancialInstitution ? <FinancialInstitutionPicker value={draft.financialInstitutionCode} onChange={(value) => update('financialInstitutionCode', value)} error={fieldErrors.financialInstitutionCode} /> : null}
           <Field
             id="assetName"
             name="assetName"
@@ -464,8 +465,6 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
         {conflict ? <ConflictPanel latest={conflictLatest} loading={conflictLoading} loadError={conflictLoadError} draft={draft} draftName={resolvedAssetName} draftTypeName={selectedTypeDisplayName} draftBehavior={selectedType?.behavior} ledger={ledger} assets={assets} onRetry={() => void loadConflictLatest()} onApply={applyDraftToLatest} onReset={useLatestValues} /> : null}
         {rebased ? <p className="mt-6 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">최신 버전에 내 입력을 적용할 준비가 됐어요. 내용을 확인하고 변경 저장을 눌러 주세요.</p> : null}
         {saveAsset.error && !conflict ? <p className="mt-6 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{saveAsset.error instanceof Error ? saveAsset.error.message : '자산을 저장하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
-        {saved ? <p className="mt-6 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">자산 정보를 저장했어요.</p> : null}
-
         <div className="mt-5 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4 sm:flex sm:justify-end">
           <Button asChild variant="secondary"><Link to="/assets">취소</Link></Button>
           <Button type="submit" disabled={saveAsset.isPending || !online || remoteDeleted || remoteArchived || conflict}>{saveAsset.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}{editing ? '변경 저장' : '자산 등록'}</Button>
@@ -797,6 +796,7 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
   const [name, setName] = useState('')
   const [openingBalanceWon, setOpeningBalanceWon] = useState('')
   const [openedOn, setOpenedOn] = useState(todayInSeoul())
+  const [financialInstitutionCode, setFinancialInstitutionCode] = useState<FinancialInstitutionCode>('OTHER')
   const [errors, setErrors] = useState<FieldErrors>({})
   const fallbackName = resolveAssetName({ draftName: '', typeName: bankType?.name ?? '계좌', assets })
 
@@ -860,6 +860,7 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
       assetTypeId: bankType.assetTypeId,
       ownershipScope: 'PERSONAL',
       ownerMemberId,
+      financialInstitutionCode,
       name: resolveAssetName({ draftName: name, typeName: bankType.name, assets }),
       openedOn,
       memo: null,
@@ -874,8 +875,8 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
   }
 
   const contextDescription = target === 'savingsTransferAssetId'
-    ? '적금의 자동이체에 사용할 계좌를 등록합니다. 현재 작성 중인 적금 정보는 그대로 유지돼요.'
-    : '카드 결제에 사용할 계좌를 등록합니다. 현재 작성 중인 카드 정보는 그대로 유지돼요.'
+    ? '적금 자동이체 계좌를 등록해요. 작성 중인 내용은 유지됩니다.'
+    : '카드 결제 계좌를 등록해요. 작성 중인 내용은 유지됩니다.'
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !createAccount.isPending) requestClose() }}>
@@ -884,17 +885,18 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
       aria-labelledby="payment-source-dialog-title"
       aria-describedby="payment-source-dialog-description"
     >
-      <div className="flex flex-col pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:py-5">
-        <header className="flex items-start justify-between gap-4 border-b border-[var(--line)] pb-4">
-          <div><DialogTitle id="payment-source-dialog-title" className="tracking-[-.02em]">계좌 바로 만들기</DialogTitle><DialogDescription id="payment-source-dialog-description" className="mt-2">{contextDescription}</DialogDescription></div>
+      <div className="flex flex-col pb-[max(.75rem,env(safe-area-inset-bottom))] pl-[max(.75rem,env(safe-area-inset-left))] pr-[max(.75rem,env(safe-area-inset-right))] pt-[max(.75rem,env(safe-area-inset-top))] sm:px-6 sm:py-5">
+        <header className="flex items-start justify-between gap-3 border-b border-[var(--line)] pb-2 sm:gap-4 sm:pb-4">
+          <div><DialogTitle id="payment-source-dialog-title" className="text-lg tracking-[-.02em] sm:text-xl">계좌 바로 만들기</DialogTitle><DialogDescription id="payment-source-dialog-description" className="mt-1 text-xs leading-5 sm:mt-2 sm:text-sm">{contextDescription}</DialogDescription></div>
           <Button className="shrink-0" type="button" size="icon" variant="ghost" aria-label="계좌 만들기 닫기" disabled={createAccount.isPending} onClick={requestClose}><X size={19} /></Button>
         </header>
 
         <form onSubmit={submit} noValidate>
-          <div className="grid gap-3 py-4 sm:gap-4 sm:py-5">
-            <Field id="paymentSourceName" name="paymentSourceName" label="자산 이름 (선택)" hint={`비워 두면 ‘${fallbackName}’으로 저장해요.`} value={name} onChange={(event) => updateName(event.target.value)} maxLength={100} placeholder={fallbackName} error={errors.name} autoFocus />
+          <div className="grid gap-2 py-2 sm:gap-4 sm:py-5">
+            <FinancialInstitutionPicker value={financialInstitutionCode} onChange={setFinancialInstitutionCode} compact />
+            <Field id="paymentSourceName" name="paymentSourceName" label="자산 이름 (선택)" value={name} onChange={(event) => updateName(event.target.value)} maxLength={100} placeholder={fallbackName} error={errors.name} autoFocus />
             <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
-              <MoneyField id="paymentSourceOpeningBalance" name="paymentSourceOpeningBalance" label="기준일 잔액" hint="비우면 0원, 부채는 - 금액으로 등록해요." value={openingBalanceWon} onValueChange={updateOpeningBalance} placeholder="0" error={errors.openingBalanceWon} allowNegative />
+              <MoneyField id="paymentSourceOpeningBalance" name="paymentSourceOpeningBalance" label="기준일 잔액" value={openingBalanceWon} onValueChange={updateOpeningBalance} placeholder="0" error={errors.openingBalanceWon} allowNegative />
               <Field id="paymentSourceOpenedOn" name="paymentSourceOpenedOn" label="잔액 기준일" value={openedOn} onChange={(event) => updateOpenedOn(event.target.value)} type="date" error={errors.openedOn} required />
             </div>
           </div>
@@ -903,7 +905,7 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
           {!online ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">오프라인 상태예요. 입력은 유지되며 연결 후 등록할 수 있어요.</p> : null}
           {createAccount.error ? <p className="border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{createAccount.error instanceof Error ? createAccount.error.message : '계좌를 등록하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
 
-          <div className="grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4 sm:flex sm:justify-end">
+          <div className="grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-2 sm:flex sm:justify-end sm:pt-4">
             <Button type="button" variant="secondary" disabled={createAccount.isPending} onClick={requestClose}>취소</Button>
             <Button type="submit" disabled={!online || !bankType || createAccount.isPending}>{createAccount.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}계좌 등록</Button>
           </div>
@@ -1015,6 +1017,7 @@ function newDraft(types: AssetType[], ledger: LedgerBook, preferredSystemCode: s
     assetTypeId: types.find((type) => type.systemCode === preferredSystemCode)?.assetTypeId ?? types[0]?.assetTypeId ?? '',
     ownershipScope: 'PERSONAL',
     ownerMemberId: ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? '',
+    financialInstitutionCode: 'OTHER',
     name: '',
     openedOn: todayInSeoul(),
     memo: '',
@@ -1038,6 +1041,7 @@ function draftFromAsset(asset: Asset): AssetDraft {
     assetTypeId: asset.assetTypeId,
     ownershipScope: asset.ownershipScope,
     ownerMemberId: asset.ownerMemberId ?? '',
+    financialInstitutionCode: asset.financialInstitutionCode ?? 'OTHER',
     name: asset.name,
     openedOn: asset.openedOn,
     memo: asset.memo ?? '',
@@ -1098,6 +1102,9 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
       assetTypeId: draft.assetTypeId,
       ownershipScope: editing ? draft.ownershipScope : 'PERSONAL',
       ownerMemberId: editing && draft.ownershipScope === 'JOINT' ? null : draft.ownerMemberId,
+      financialInstitutionCode: selectedType?.systemCode === 'BANK' || selectedType?.systemCode === 'SAVINGS'
+        ? draft.financialInstitutionCode
+        : null,
       name,
       openedOn: draft.openedOn,
       memo: memo || null,

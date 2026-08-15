@@ -143,6 +143,75 @@ public class CardSettlementRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    public PaymentRow lockPayment(UUID bookId, UUID paymentId) {
+        List<UUID> locked = jdbcTemplate.query("""
+                select id from card_statement_payment
+                 where book_id = ? and id = ?
+                 for update
+                """, (rs, rowNum) -> rs.getObject(1, UUID.class), bookId, paymentId);
+        return locked.isEmpty() ? null : findPayment(bookId, paymentId);
+    }
+
+    public boolean isActivePaymentSource(UUID bookId, UUID assetId) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                select exists(
+                    select 1
+                      from asset
+                      join asset_type type
+                        on type.book_id = asset.book_id and type.id = asset.asset_type_id
+                     where asset.book_id = ? and asset.id = ?
+                       and asset.archived_at is null and type.archived_at is null
+                       and type.payment_source_capable
+                )
+                """, Boolean.class, bookId, assetId);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public void correctPaymentSettlementAsset(
+            UUID bookId,
+            UUID statementId,
+            PaymentRow payment,
+            UUID settlementAssetId,
+            UUID editorMemberId,
+            Instant now
+    ) {
+        int paymentUpdated = jdbcTemplate.update("""
+                update card_statement_payment
+                   set settlement_asset_id = ?
+                 where book_id = ? and id = ? and statement_id = ? and settlement_asset_id = ?
+                """, settlementAssetId, bookId, payment.paymentId(), statementId,
+                payment.settlementAssetId());
+        int postingUpdated = jdbcTemplate.update("""
+                update transaction_posting
+                   set asset_id = ?
+                 where book_id = ? and transaction_id = ?
+                   and asset_id = ? and delta_won = ?
+                """, settlementAssetId, bookId, payment.settlementTransactionId(),
+                payment.settlementAssetId(), -payment.amountWon());
+        int transactionUpdated = jdbcTemplate.update("""
+                update ledger_transaction
+                   set updated_by_member_id = ?, updated_at = ?, version = version + 1
+                 where book_id = ? and id = ? and deleted_at is null
+                """, editorMemberId, Timestamp.from(now), bookId,
+                payment.settlementTransactionId());
+        if ("REGULAR".equals(payment.paymentType())) {
+            jdbcTemplate.update("""
+                    update card_payment_schedule
+                       set settlement_asset_id = ?, updated_at = ?, version = version + 1
+                     where book_id = ? and statement_id = ? and status = 'COMPLETED'
+                    """, settlementAssetId, Timestamp.from(now), bookId, statementId);
+        }
+        int statementUpdated = jdbcTemplate.update("""
+                update card_statement
+                   set updated_at = ?, version = version + 1
+                 where book_id = ? and id = ?
+                """, Timestamp.from(now), bookId, statementId);
+        if (paymentUpdated != 1 || postingUpdated != 1
+                || transactionUpdated != 1 || statementUpdated != 1) {
+            throw new IllegalStateException("card payment settlement asset correction was incomplete");
+        }
+    }
+
     public void insertPayment(PaymentWrite payment) {
         jdbcTemplate.update("""
                 insert into card_statement_payment (

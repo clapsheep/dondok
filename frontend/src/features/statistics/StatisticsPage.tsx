@@ -1,10 +1,12 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, UsersRound } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
+import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { PageTitle } from '../../components/ui/PageTitle'
+import { RadioGroup, RadioGroupItem } from '../../components/ui/RadioGroup'
 import { ApiError } from '../../lib/api'
 import { addMonths, currentMonthInSeoul, monthTitle } from '../../lib/month'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
@@ -27,10 +29,11 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
   const online = useOnlineStatus()
   const [params, setParams] = useSearchParams()
   const currentMonth = currentMonthInSeoul()
+  const currentMember = ledger.members.find((member) => member.currentUser) ?? ledger.members[0]!
   const memberIds = new Set(ledger.members.map((member) => member.memberId))
-  const urlState = parseStatisticsUrl(params, { currentMonth, validMemberIds: memberIds })
+  const urlState = parseStatisticsUrl(params, { currentMonth, currentMemberId: currentMember.memberId, validMemberIds: memberIds })
   const currentSearch = params.toString()
-  const canonicalSearch = statisticsSearchParams(urlState).toString()
+  const canonicalSearch = statisticsSearchParams(urlState, currentMember.memberId).toString()
   const filters = statisticsFiltersFromUrl(urlState)
 
   useEffect(() => {
@@ -55,7 +58,7 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
   const categoriesError = incomeCategories.isError || expenseCategories.isError
 
   function replaceState(next: StatisticsUrlState) {
-    setParams(statisticsSearchParams(next), { replace: true })
+    setParams(statisticsSearchParams(next, currentMember.memberId), { replace: true })
   }
 
   function moveMonth(offset: number) {
@@ -66,8 +69,13 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
     replaceState({ ...urlState, direction })
   }
 
+  function changeMember(memberKey: string) {
+    replaceState({ ...urlState, memberId: memberKey === 'all' ? null : memberKey })
+  }
+
   const activeCount = activeStatisticsFilterCount(urlState)
   const filterSummary = statisticsFilterSummary(urlState, ledger, categories, statistics.data)
+  const memberSummary = statisticsMemberSummary(urlState.memberId, ledger)
 
   return (
     <AppShell ledgerNavigation>
@@ -88,16 +96,23 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
           </div>
         </header>
 
-        <div className="mt-5 flex items-center justify-between gap-3">
-          <Button type="button" variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={20} /></Button>
-          <div className="text-center">
-            <h2 className="text-xl font-semibold tabular-nums">{monthTitle(urlState.month)}</h2>
-            {urlState.month !== currentMonth ? <Button className="mt-1 min-h-11" type="button" variant="ghost" onClick={() => replaceState({ ...urlState, month: currentMonth })}>이번 달</Button> : null}
+        <StatisticsMemberFilter
+          members={ledger.members}
+          currentMemberId={currentMember.memberId}
+          value={urlState.memberId ?? 'all'}
+          onChange={changeMember}
+        />
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between gap-2">
+            <Button type="button" variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></Button>
+            <h2 className="whitespace-nowrap text-sm font-medium tabular-nums text-[var(--muted)]" data-month-title>{monthTitle(urlState.month)}</h2>
+            <Button type="button" variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={18} /></Button>
           </div>
-          <Button type="button" variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={20} /></Button>
+          {urlState.month !== currentMonth ? <div className="text-center"><Button className="min-h-11" type="button" variant="ghost" onClick={() => replaceState({ ...urlState, month: currentMonth })}>이번 달</Button></div> : null}
         </div>
 
-        <p className={activeCount ? 'mt-3 text-center text-sm text-[var(--muted)]' : 'sr-only'} aria-live="polite">{activeCount ? `${filterSummary} · 필터 ${activeCount}개 적용됨` : '공동 전체 통계'}</p>
+        <p className={activeCount ? 'mt-3 text-center text-sm text-[var(--muted)]' : 'sr-only'} aria-live="polite">{activeCount ? `${memberSummary} 통계 · ${filterSummary} · 세부 필터 ${activeCount}개 적용됨` : `${memberSummary} 통계`}</p>
         {!online ? <p className="mt-4 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">오프라인 상태예요. 화면에 남아 있는 통계는 볼 수 있지만 최신값을 확인할 수 없어요.</p> : null}
         {statistics.isFetching && statistics.data ? <p className="mt-4 inline-flex items-center gap-2 text-sm text-[var(--muted)]" role="status"><LoaderCircle className="animate-spin" size={16} />최신 통계를 확인하는 중…</p> : null}
 
@@ -111,11 +126,72 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
             backgroundError={statistics.isError}
             onRetry={() => statistics.refetch()}
             filtered={activeCount > 0}
-            onClearFilters={() => replaceState({ ...urlState, memberId: null, owner: 'all', categoryId: null })}
+            onClearFilters={() => replaceState({ ...urlState, owner: 'all', categoryId: null })}
           />
         )}
       </section>
     </AppShell>
+  )
+}
+
+function StatisticsMemberFilter({ members, currentMemberId, value, onChange }: {
+  members: LedgerBook['members']
+  currentMemberId: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  const orderedMembers = [...members].sort((left, right) => Number(right.currentUser) - Number(left.currentUser))
+  return (
+    <fieldset className="-mx-4 mt-3 min-w-0 xs:-mx-6 md:mx-0">
+      <legend id="statistics-member-filter-label" className="sr-only">통계를 볼 구성원</legend>
+      <div className="overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xs:px-6 md:px-0">
+        <RadioGroup
+          name="statistics-member-filter"
+          value={value}
+          onValueChange={onChange}
+          aria-labelledby="statistics-member-filter-label"
+          className="flex w-max min-w-full items-end gap-1"
+        >
+          {orderedMembers.map((member) => (
+            <StatisticsMemberOption
+              key={member.memberId}
+              value={member.memberId}
+              selected={value === member.memberId}
+              label={member.currentUser ? '나' : member.displayName}
+              accessibleLabel={member.memberId === currentMemberId ? '내 통계 보기' : `${member.displayName} 통계 보기`}
+              avatar={<MemberAvatar displayName={member.displayName} memberId={member.memberId} size="xs" />}
+            />
+          ))}
+          <StatisticsMemberOption
+            value="all"
+            selected={value === 'all'}
+            label="모두"
+            accessibleLabel="모든 구성원 통계 보기"
+            avatar={<UsersRound aria-hidden="true" size={16} />}
+          />
+        </RadioGroup>
+      </div>
+    </fieldset>
+  )
+}
+
+function StatisticsMemberOption({ value, selected, label, accessibleLabel, avatar }: {
+  value: string
+  selected: boolean
+  label: string
+  accessibleLabel: string
+  avatar: ReactNode
+}) {
+  const id = `statistics-member-${value}`
+  return (
+    <label
+      htmlFor={id}
+      className={`flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-2.5 text-sm transition-colors focus-within:ring-3 focus-within:ring-inset focus-within:ring-[var(--ring)] ${selected ? 'border-forest-700 font-semibold text-forest-800 dark:border-forest-300 dark:text-forest-100' : 'border-transparent font-medium text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`}
+    >
+      {avatar}
+      <span className="max-w-36 whitespace-nowrap" title={label}>{label}</span>
+      <RadioGroupItem id={id} value={value} className="sr-only" aria-label={accessibleLabel} />
+    </label>
   )
 }
 
@@ -319,7 +395,6 @@ function StatisticsError({ error, onRetry }: { error: Error | null; onRetry: () 
 
 function statisticsFilterSummary(state: StatisticsUrlState, ledger: LedgerBook, categories: Category[], statistics?: MonthlyStatistics) {
   const labels: string[] = []
-  if (state.memberId) labels.push(`구성원 ${memberName(state.memberId, ledger)}`)
   if (state.owner === 'joint') labels.push('공동 소유 자산')
   else if (state.owner.startsWith('member:')) labels.push(`${memberName(state.owner.slice('member:'.length), ledger)} 소유 자산`)
   if (state.categoryId) {
@@ -329,6 +404,12 @@ function statisticsFilterSummary(state: StatisticsUrlState, ledger: LedgerBook, 
     labels.push(categoryName)
   }
   return labels.join(' · ')
+}
+
+function statisticsMemberSummary(memberId: string | null, ledger: LedgerBook) {
+  if (memberId === null) return '모든 구성원'
+  const member = ledger.members.find((item) => item.memberId === memberId)
+  return member?.currentUser ? '내' : `${member?.displayName ?? '선택한 구성원'}의`
 }
 
 function memberName(memberId: string, ledger: LedgerBook) {

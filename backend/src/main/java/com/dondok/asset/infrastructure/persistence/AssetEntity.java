@@ -1,6 +1,7 @@
 package com.dondok.asset.infrastructure.persistence;
 
 import com.dondok.asset.domain.AssetOwnershipScope;
+import com.dondok.asset.domain.FinancialInstitutionCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -22,6 +23,9 @@ public class AssetEntity {
     @Column(name = "ownership_scope", nullable = false, length = 10)
     private AssetOwnershipScope ownershipScope;
     @Column(name = "owner_member_id") private UUID ownerMemberId;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "financial_institution_code", length = 40)
+    private FinancialInstitutionCode financialInstitutionCode;
     @Column(nullable = false, length = 100) private String name;
     @Column(name = "opened_on", nullable = false) private LocalDate openedOn;
     @Column(name = "balance_anchor_won", nullable = false) private long balanceAnchorWon;
@@ -41,7 +45,8 @@ public class AssetEntity {
 
     public AssetEntity(
             UUID id, UUID bookId, UUID assetTypeId, AssetOwnershipScope ownershipScope,
-            UUID ownerMemberId, String name, LocalDate openedOn, String memo,
+            UUID ownerMemberId, FinancialInstitutionCode financialInstitutionCode,
+            String name, LocalDate openedOn, String memo,
             long balanceAnchorWon, int sortOrder, UUID memberId, Instant now
     ) {
         this.id = id;
@@ -49,6 +54,7 @@ public class AssetEntity {
         this.assetTypeId = assetTypeId;
         this.ownershipScope = ownershipScope;
         this.ownerMemberId = ownerMemberId;
+        this.financialInstitutionCode = financialInstitutionCode;
         this.name = name;
         this.openedOn = openedOn;
         this.balanceAnchorWon = balanceAnchorWon;
@@ -63,12 +69,14 @@ public class AssetEntity {
 
     public void update(
             UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
+            FinancialInstitutionCode financialInstitutionCode,
             String name, LocalDate openedOn, String memo, long balanceAnchorWon,
             UUID updatedByMemberId, Instant now
     ) {
         this.assetTypeId = assetTypeId;
         this.ownershipScope = ownershipScope;
         this.ownerMemberId = ownerMemberId;
+        this.financialInstitutionCode = financialInstitutionCode;
         this.name = name;
         this.openedOn = openedOn;
         this.balanceAnchorWon = balanceAnchorWon;
@@ -89,6 +97,7 @@ public class AssetEntity {
     public UUID getAssetTypeId() { return assetTypeId; }
     public AssetOwnershipScope getOwnershipScope() { return ownershipScope; }
     public UUID getOwnerMemberId() { return ownerMemberId; }
+    public FinancialInstitutionCode getFinancialInstitutionCode() { return financialInstitutionCode; }
     public String getName() { return name; }
     public LocalDate getOpenedOn() { return openedOn; }
     public long getBalanceAnchorWon() { return balanceAnchorWon; }

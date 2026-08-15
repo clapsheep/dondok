@@ -5,7 +5,6 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
-import { PageTitle } from '../../components/ui/PageTitle'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
 import { RadioGroup, RadioGroupItem } from '../../components/ui/RadioGroup'
 import { addMonths, currentMonthInSeoul, monthBounds, monthTitle, todayInSeoul } from '../../lib/month'
@@ -217,14 +216,8 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
 
   return (
     <section ref={pullToRefreshRoot} className="relative max-w-[74rem] pb-5 pt-1 md:py-8" data-home-ledger>
-      <h1 className="sr-only md:hidden">가계부</h1>
+      <h1 className="sr-only">가계부</h1>
       <PullToRefreshIndicator distance={pullDistance} refreshing={pullRefreshing} />
-      <div className="hidden flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4 md:flex" data-home-header>
-        <PageTitle>가계부</PageTitle>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" aria-label="최신 거래 확인" onClick={() => void refreshTransactions()}><RefreshCw size={18} /></Button>
-        </div>
-      </div>
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-x-8 xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-x-10">
         <div className="min-w-0 lg:col-start-1 lg:row-start-1">
@@ -575,7 +568,8 @@ function TransactionRow({ transaction, returnTo }: { transaction: Transaction; r
   const amount = `${transactionRowAmountPrefix(transaction)}${formatWon(transaction.amountWon)}`
   const tone = transactionRowTone(transaction)
   const label = transaction.description || transaction.category?.name || transactionTypeLabel(transaction)
-  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><span className="truncate">{postingLabel(transaction)}</span>{transaction.performedBy ? <><span aria-hidden="true">·</span><MemberAvatar displayName={transaction.performedBy.displayName} memberId={transaction.performedBy.memberId} size="xs" /><span className="truncate">{transaction.performedBy.displayName}</span></> : null}{transaction.installmentCount && transaction.installmentCount > 1 ? <><span aria-hidden="true">·</span><span className="shrink-0">{transaction.installmentCount}개월</span></> : null}{transaction.excludedFromStatistics ? <><span aria-hidden="true">·</span><span className="shrink-0 font-semibold">집계 제외</span></> : null}</div></div><div className="text-right"><strong className={`text-sm font-semibold tabular-nums ${tone}`}>{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
+  const categoryLabel = transaction.description ? transaction.category?.name : undefined
+  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-[var(--muted)]">{categoryLabel ? <><span className="max-w-full break-words font-medium text-ink-700 dark:text-cream-200">{categoryLabel}</span><span aria-hidden="true">·</span></> : null}<span className="min-w-0 break-words">{postingLabel(transaction)}</span>{transaction.performedBy ? <><span aria-hidden="true">·</span><span className="inline-flex min-w-0 items-center gap-1"><MemberAvatar displayName={transaction.performedBy.displayName} memberId={transaction.performedBy.memberId} size="xs" /><span className="truncate">{transaction.performedBy.displayName}</span></span></> : null}{transaction.installmentCount && transaction.installmentCount > 1 ? <><span aria-hidden="true">·</span><span className="shrink-0">{transaction.installmentCount}개월</span></> : null}{transaction.excludedFromStatistics ? <><span aria-hidden="true">·</span><span className="shrink-0 font-semibold">집계 제외</span></> : null}</div></div><div className="shrink-0 text-right"><strong className={`text-sm font-semibold tabular-nums ${tone}`}>{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
   const destination = transactionRowDestination(transaction)
   return <li className="border-b border-[var(--line)] last:border-b-0">{destination ? <Link to={destination} state={{ returnTo }} aria-label={transactionRowAccessibleName(transaction, label, amount)} className="group grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 transition-colors hover:bg-forest-50 dark:hover:bg-forest-800 md:px-2">{content}</Link> : <div className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 md:px-2">{content}</div>}</li>
 }

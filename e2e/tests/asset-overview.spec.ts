@@ -16,6 +16,7 @@ type MockAsset = {
   paymentSourceCapable: boolean
   ownershipScope: 'PERSONAL' | 'JOINT'
   ownerMemberId: string | null
+  financialInstitutionCode: 'OTHER' | 'KB_KOOKMIN' | 'TOSS_BANK' | null
   name: string
   openedOn: string
   memo: null
@@ -314,11 +315,17 @@ async function expectOwnerProjection(page: Page, projection: {
       await expect(identity.locator('[data-asset-name]')).toHaveText(name)
       await expect(identity.locator('[data-asset-metadata]')).toContainText(visibleType)
     } else {
-      await expect(link.locator('[data-asset-metadata]'), `${name} 기본 이름은 filtered 보기에서 metadata가 없어야 합니다`).toHaveCount(0)
-      await expect(identity).toHaveText(name)
+      const institutionAvatar = identity.locator('[data-financial-institution-avatar]')
+      if (await institutionAvatar.count()) {
+        await expect(link.locator('[data-asset-metadata]'), `${name} 금융기관은 filtered 보기에서도 식별되어야 합니다`).toBeVisible()
+        await expect(identity.locator('[data-asset-type]'), `${name} 기본 이름에는 종류를 반복하지 않아야 합니다`).toHaveCount(0)
+      } else {
+        await expect(link.locator('[data-asset-metadata]'), `${name} 기본 이름은 filtered 보기에서 metadata가 없어야 합니다`).toHaveCount(0)
+        await expect(identity).toHaveText(name)
+      }
     }
     await expect(link, `${name}의 접근 가능한 이름에는 전체 소유자가 남아야 합니다`).toHaveAccessibleName(
-      new RegExp(`^${escapeRegExp(name)}, [^,]+, ${escapeRegExp(projection.accessibleOwner)},`),
+      new RegExp(`^${escapeRegExp(name)}, (?:[^,]+, ){1,2}${escapeRegExp(projection.accessibleOwner)},`),
     )
   }
   for (const name of projection.hiddenAssets) {
@@ -379,8 +386,8 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
   }
 
   const cashRow = await expectAssetRow(funds, '현금', { type: '현금', owner: '공동 소유', visibleOwner: '공동' }, { signed: '400,000원' }, viewport)
-  const accountRow = await expectAssetRow(funds, '계좌 2', { type: '계좌', owner: ownerName, visibleOwner: '나' }, { signed: '2,100,000원' }, viewport)
-  const overdraftRow = await expectAssetRow(funds, '마이너스통장', { type: '계좌', owner: ownerName, visibleType: '계좌', visibleOwner: '나' }, { signed: '-300,000원' }, viewport)
+  const accountRow = await expectAssetRow(funds, '계좌 2', { type: '계좌', owner: ownerName, institution: 'KB국민은행', visibleOwner: '나' }, { signed: '2,100,000원' }, viewport)
+  const overdraftRow = await expectAssetRow(funds, '마이너스통장', { type: '계좌', owner: ownerName, institution: '토스뱅크', visibleType: '계좌', visibleOwner: '나' }, { signed: '-300,000원' }, viewport)
   await expectLiquidBalanceHierarchy(
     liquidSummary.assets[0],
     [...cashRow.assets, ...accountRow.assets, ...overdraftRow.assets],
@@ -695,6 +702,7 @@ async function expectAssetRow(
   identity: {
     type: string
     owner: string
+    institution?: string
     visibleType?: string
     visibleOwner?: string
   },
@@ -713,7 +721,7 @@ async function expectAssetRow(
   const row = link.locator('..')
   await expect(row).toBeVisible()
   await expect(row.getByText(name, { exact: true })).toBeVisible()
-  await expect(link).toHaveAttribute('title', `${name} · ${identity.type} · ${identity.owner}`)
+  await expect(link).toHaveAttribute('title', `${name} · ${identity.institution ? `${identity.institution} · ` : ''}${identity.type} · ${identity.owner}`)
 
   const identityLine = link.locator('[data-asset-identity]')
   const nameNode = identityLine.locator('[data-asset-name]')
@@ -721,6 +729,8 @@ async function expectAssetRow(
   const ownerMetadata = identityLine.locator('[data-asset-owner]')
   await expect(identityLine).toHaveCount(1)
   await expect(nameNode).toHaveAttribute('title', name)
+  await expect(identityLine.locator('[data-financial-institution-avatar]')).toHaveCount(identity.institution ? 1 : 0)
+  if (identity.institution) await expect(identityLine.locator('[data-asset-metadata]')).toContainText(identity.institution)
   if (identity.visibleType) await expect(typeMetadata).toHaveText(identity.visibleType)
   else await expect(typeMetadata, `${name} 기본 이름에는 종류를 반복하지 않아야 합니다`).toHaveCount(0)
   if (identity.visibleOwner) await expect(ownerMetadata).toHaveText(identity.visibleOwner)
@@ -851,8 +861,8 @@ function escapeRegExp(value: string) {
 function overviewAssets(currentMemberId: string, otherMemberId = currentMemberId): MockAsset[] {
   return [
     mockAsset({ id: 'cash', type: '현금', systemCode: 'CASH', behavior: 'STANDARD', balance: 400_000, ownershipScope: 'JOINT' }),
-    mockAsset({ id: 'bank', type: '계좌', name: '계좌 2', systemCode: 'BANK', behavior: 'STANDARD', balance: 2_100_000, ownerMemberId: currentMemberId, paymentSourceCapable: true }),
-    mockAsset({ id: 'overdraft', type: '계좌', name: '마이너스통장', systemCode: 'BANK', behavior: 'STANDARD', balance: -300_000, ownerMemberId: currentMemberId, paymentSourceCapable: true }),
+    mockAsset({ id: 'bank', type: '계좌', name: '계좌 2', systemCode: 'BANK', behavior: 'STANDARD', balance: 2_100_000, ownerMemberId: currentMemberId, paymentSourceCapable: true, financialInstitutionCode: 'KB_KOOKMIN' }),
+    mockAsset({ id: 'overdraft', type: '계좌', name: '마이너스통장', systemCode: 'BANK', behavior: 'STANDARD', balance: -300_000, ownerMemberId: currentMemberId, paymentSourceCapable: true, financialInstitutionCode: 'TOSS_BANK' }),
     mockAsset({ id: 'credit', type: '신용카드', systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: -350_000, ownershipScope: 'JOINT', cardCurrent: 280_000, cardNext: 190_000 }),
     mockAsset({ id: 'debit', type: '체크카드', systemCode: 'DEBIT_CARD', behavior: 'DEBIT_CARD', balance: -50_000, ownerMemberId: currentMemberId, cardCurrent: 0, cardNext: 0 }),
     mockAsset({ id: 'positive-credit', type: '신용카드', name: CUSTOM_CARD_NAME, systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: 100_000, ownershipScope: 'JOINT', cardCurrent: 120_000, cardNext: 80_000 }),
@@ -873,6 +883,7 @@ function mockAsset(input: {
   paymentSourceCapable?: boolean
   cardCurrent?: number
   cardNext?: number
+  financialInstitutionCode?: MockAsset['financialInstitutionCode']
 }): MockAsset {
   return {
     assetId: `qc-${input.id}`,
@@ -883,6 +894,7 @@ function mockAsset(input: {
     paymentSourceCapable: input.paymentSourceCapable ?? false,
     ownershipScope: input.ownershipScope ?? 'PERSONAL',
     ownerMemberId: input.ownershipScope === 'JOINT' ? null : input.ownerMemberId ?? null,
+    financialInstitutionCode: input.financialInstitutionCode ?? null,
     name: input.name ?? input.type,
     openedOn: '2026-07-01',
     memo: null,
