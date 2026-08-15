@@ -120,7 +120,7 @@ public record CreateExpense(
 - 체크카드 구매: 선택 자산은 체크카드로 보존하고 연결 결제 계좌에 `-amount`
 - 카드 정산: 이체 policy + `CARD_SETTLEMENT`
 
-공개 일반 이체 command는 출발·도착 자산을 같은 가계부 범위에서 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 모두 `BANK`인지 검증한다. 소유 marker는 권한 검사에 사용하지 않으므로 현재 사용자, 다른 구성원, 공동 소유 계좌 사이의 모든 조합을 허용한다. 아니면 `400 TRANSFER_BANK_ACCOUNT_REQUIRED`로 전체 요청을 거부한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
+공개 일반 이체 command는 출발·도착 자산을 같은 가계부 범위에서 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 각각 `BANK` 또는 `SAVINGS`인지 검증한다. 소유 marker는 권한 검사에 사용하지 않으므로 현재 사용자, 다른 구성원, 공동 소유 계좌·적금 사이의 모든 조합을 허용한다. 아니면 `400 TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED`로 전체 요청을 거부한다. 계좌→적금 납입과 적금→계좌 인출도 같은 일반 이체 posting policy를 사용하며 통계에서 제외한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
 
 자산 생성·수정의 `openingBalanceWon`과 `openedOn`은 호환 필드명이며 각각 기준일 잔액과 잔액 기준일을 뜻한다. application service는 선언값을 `asset.balance_anchor_won`에 함께 저장하고 기존 내부 `OPENING_BALANCE` 업무 이력도 동기화한다. 현재 잔액 read model은 기준일 잔액에 기준일 당일 이후 유효 posting만 합산하며 기준일 이전 거래는 통계·원장 이력에만 반영한다. 신용카드 구매 생성·정정은 구매일과 카드 잔액 기준일을 비교해 charge의 `absorbed_by_balance_anchor`를 결정하고, 자산 기준일 수정은 기존 구매 charge를 같은 DB 트랜잭션에서 다시 분류한 뒤 명세와 schedule을 재계산한다.
 
@@ -273,7 +273,7 @@ unique 충돌은 DB를 최종 진실로 두고 안정된 409 오류 코드로 �
 
 수정 조회 응답에는 aggregate `version`을 포함하고 update command는 `If-Match` 또는 `expectedVersion`으로 편집 시작 시 version을 전달한다. 현재 version과 다르면 `412 VERSION_CONFLICT`를 반환하고 어떤 필드도 저장하지 않는다. 서버는 필드 자동 병합을 하지 않으며 응답에 최신 resource를 다시 읽을 수 있는 안정된 식별자를 제공한다.
 
-MVP에는 SSE와 sync outbox를 두지 않는다. REST command 결과가 authoritative하며 작성 세션은 해당 응답으로 TanStack Query cache를 갱신하거나 관련 query를 invalidate한다. 다른 세션은 route 진입, window focus, 사용자 새로고침에서 재조회한다. 목록은 cursor pagination, 달력·통계는 기간이 제한된 projection query를 사용한다. 홈 달력과 거래 목록은 선택적 `performedByMemberId`를 같은 가계부 구성원으로 검증한 뒤 동일하게 적용하고, 생략한 이전 클라이언트에는 전체 기록을 반환한다. 프론트 query key에는 월·기간과 선택 구성원을 함께 넣어 서로 다른 범위의 응답을 공유하지 않는다.
+MVP에는 SSE와 sync outbox를 두지 않는다. REST command 결과가 authoritative하며 작성 세션은 해당 응답으로 TanStack Query cache를 갱신하거나 관련 query를 invalidate한다. 다른 세션은 route 진입, window focus, 사용자 새로고침에서 재조회한다. 목록은 cursor pagination, 달력·통계는 기간이 제한된 projection query를 사용한다. `GET /api/assets/{assetId}/transactions`는 같은 가계부의 활성·보관 자산을 먼저 확인한 뒤 직접 선택한 거래와 posting 거래를 합친 최신순 cursor page를 반환한다. 홈 달력과 거래 목록은 선택적 `performedByMemberId`를 같은 가계부 구성원으로 검증한 뒤 동일하게 적용하고, 생략한 이전 클라이언트에는 전체 기록을 반환한다. 프론트 query key에는 월·기간·선택 구성원 또는 자산 ID를 함께 넣어 서로 다른 범위의 응답을 공유하지 않는다.
 
 월간 통계는 별도 `statistics` feature의 read-only controller/application/repository로 둔다. transaction feature의 persistence 구현에 의존하지 않고 DB의 canonical `ledger_financial_activity` view와 공개된 월간 HTTP 계약만 공유한다. view가 사용자 선택 집계 제외를 먼저 제거하므로 달력·월 합계·분류·연간 흐름이 같은 의미를 유지하며, 원장 목록은 base transaction을 조회해 제외 기록도 반환한다. `YearMonth`에서 한 달 반개구간을 서버가 만들고 동적 WHERE로 선택 필터만 SQL에 포함해 nullable `OR` 조건의 generic plan을 피한다. 모든 필터 ID와 자산 소유 조합은 같은 가계부 경계에서 검증하며, 조회에는 version·행 잠금·idempotency를 적용하지 않는다. 응답은 DB 집계 금액을 바꾸지 않고 환불로 음수가 된 지출·분류 순금액도 그대로 전달한다.
 

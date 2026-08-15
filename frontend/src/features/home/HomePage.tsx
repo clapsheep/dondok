@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, SquarePen, UsersRound } from 'lucide-react'
-import { type ReactNode, useEffect, useMemo, useRef } from 'react'
+import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
@@ -133,6 +133,12 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
   const groups = useMemo(() => groupTransactions(items), [items])
   const selectedItems = useMemo(() => selectedTransactions.data?.pages.flatMap((page) => page.items) ?? [], [selectedTransactions.data])
   const selectedDaySummary = calendar.data?.days.find((day) => day.date === selectedDate)
+  const refreshTransactions = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: transactionKeys.all }),
+    [queryClient],
+  )
+  const pullToRefreshRoot = useRef<HTMLElement>(null)
+  const { distance: pullDistance, refreshing: pullRefreshing } = useMobilePullToRefresh(pullToRefreshRoot, !dayDetailOpen, refreshTransactions)
   const fetchNextPage = transactions.fetchNextPage
   const hasNextPage = transactions.hasNextPage
   const isFetchingNextPage = transactions.isFetchingNextPage
@@ -210,12 +216,13 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
   }
 
   return (
-    <section className="max-w-[74rem] py-5 md:py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4">
+    <section ref={pullToRefreshRoot} className="relative max-w-[74rem] pb-5 pt-1 md:py-8" data-home-ledger>
+      <h1 className="sr-only md:hidden">가계부</h1>
+      <PullToRefreshIndicator distance={pullDistance} refreshing={pullRefreshing} />
+      <div className="hidden flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4 md:flex" data-home-header>
         <PageTitle>가계부</PageTitle>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" aria-label="최신 거래 확인" onClick={() => queryClient.invalidateQueries({ queryKey: transactionKeys.all })}><RefreshCw size={18} /></Button>
-          <Button asChild><Link to="/transactions/new"><SquarePen size={18} />기록</Link></Button>
+          <Button variant="ghost" size="icon" aria-label="최신 거래 확인" onClick={() => void refreshTransactions()}><RefreshCw size={18} /></Button>
         </div>
       </div>
 
@@ -437,7 +444,16 @@ function DayDetailDialog({ open, date, summary, items, isSummaryPending, isPendi
             <DialogTitle className="min-w-24 truncate text-center text-base tabular-nums md:text-xl">{dayTitle(date)}</DialogTitle>
             <Button type="button" variant="ghost" size="icon" aria-label="다음 날" onClick={onNext}><ChevronRight size={20} /></Button>
           </div>
-          <span aria-hidden="true" />
+          <Button asChild type="button" variant="ghost" size="icon">
+            <Link
+              to="/transactions/new"
+              state={{ returnTo, transactionDate: date }}
+              aria-label={`${dayTitle(date)}에 거래 기록`}
+              title="이 날짜에 기록"
+            >
+              <SquarePen size={19} />
+            </Link>
+          </Button>
           <DialogDescription className="sr-only">선택한 날짜의 수입과 지출 기록을 확인합니다.</DialogDescription>
         </header>
 
@@ -462,6 +478,87 @@ function DayDetailDialog({ open, date, summary, items, isSummaryPending, isPendi
         </section>
       </DialogContent>
     </Dialog>
+  )
+}
+
+const PULL_REFRESH_THRESHOLD = 64
+
+function useMobilePullToRefresh(rootRef: RefObject<HTMLElement | null>, enabled: boolean, onRefresh: () => Promise<unknown>) {
+  const startY = useRef<number | null>(null)
+  const distanceRef = useRef(0)
+  const [distance, setDistance] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const mobile = window.matchMedia('(max-width: 767px)')
+
+    const reset = () => {
+      startY.current = null
+      distanceRef.current = 0
+      setDistance(0)
+    }
+    const start = (event: TouchEvent) => {
+      if (!enabled || refreshing || !mobile.matches || window.scrollY > 0 || event.touches.length !== 1) return
+      startY.current = event.touches[0].clientY
+    }
+    const move = (event: TouchEvent) => {
+      if (startY.current === null || event.touches.length !== 1) return
+      if (window.scrollY > 0) {
+        reset()
+        return
+      }
+      const pulled = event.touches[0].clientY - startY.current
+      if (pulled <= 0) {
+        distanceRef.current = 0
+        setDistance(0)
+        return
+      }
+      event.preventDefault()
+      const nextDistance = Math.min(84, pulled * 0.45)
+      distanceRef.current = nextDistance
+      setDistance(nextDistance)
+    }
+    const finish = () => {
+      if (startY.current === null) return
+      const shouldRefresh = distanceRef.current >= PULL_REFRESH_THRESHOLD
+      reset()
+      if (!shouldRefresh) return
+      setRefreshing(true)
+      void onRefresh().catch(() => undefined).finally(() => setRefreshing(false))
+    }
+
+    root.addEventListener('touchstart', start, { passive: true })
+    root.addEventListener('touchmove', move, { passive: false })
+    root.addEventListener('touchend', finish)
+    root.addEventListener('touchcancel', reset)
+    return () => {
+      root.removeEventListener('touchstart', start)
+      root.removeEventListener('touchmove', move)
+      root.removeEventListener('touchend', finish)
+      root.removeEventListener('touchcancel', reset)
+    }
+  }, [enabled, onRefresh, refreshing, rootRef])
+
+  return { distance, refreshing }
+}
+
+function PullToRefreshIndicator({ distance, refreshing }: { distance: number; refreshing: boolean }) {
+  const visible = refreshing || distance > 0
+  const ready = distance >= PULL_REFRESH_THRESHOLD
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center text-xs font-medium text-[var(--muted)] transition-opacity md:hidden"
+      style={{ opacity: visible ? 1 : 0, transform: `translateY(${refreshing ? 12 : Math.max(-24, distance - 28)}px)` }}
+      aria-live="polite"
+      data-pull-to-refresh
+    >
+      <span className="inline-flex items-center gap-1.5">
+        <RefreshCw className={refreshing ? 'animate-spin' : undefined} size={15} />
+        {refreshing ? '새로고침 중…' : ready ? '놓아서 새로고침' : '아래로 당겨 새로고침'}
+      </span>
+    </div>
   )
 }
 

@@ -53,6 +53,7 @@ export async function submitQuickAsset(page: Page, asset: BalanceQuickAsset): Pr
 export async function openQuickAssetDetail(page: Page, asset: BalanceQuickAsset) {
   const row = await submitQuickAsset(page, asset)
   await row.getByRole('link').click()
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
 }
 

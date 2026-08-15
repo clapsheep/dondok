@@ -76,7 +76,7 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
           </div>
         </div>
 
-        {assetCreated ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">자산을 등록했어요.{createdAssetId ? <> <Link className="font-semibold underline underline-offset-4" to={`/assets/${createdAssetId}`}>상세 설정</Link></> : null}</p> : null}
+        {assetCreated ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">자산을 등록했어요.{createdAssetId ? <> <Link className="font-semibold underline underline-offset-4" to={`/assets/${createdAssetId}`}>거래 내역 보기</Link></> : null}</p> : null}
         {navigationState?.assetRemoved ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">{navigationState.assetRemoved.disposition === 'DELETED' ? `‘${navigationState.assetRemoved.name}’ 자산을 완전히 삭제했어요.` : `‘${navigationState.assetRemoved.name}’ 자산을 보관했어요. 과거 거래와 잔액은 유지돼요.`}</p> : null}
         {!online ? <p className="mt-4 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">오프라인 상태예요. 마지막으로 불러온 자산은 볼 수 있지만 최신값 확인과 등록은 연결 후 가능해요.</p> : null}
         {limitReached ? <p className="mt-4 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">활성 자산은 50개까지 등록할 수 있어요. 보관한 자산은 이 개수에서 제외돼요.</p> : null}

@@ -306,7 +306,7 @@ async function expectAmountAndDateControlsStacked(page: Page, amountLabel: strin
 }
 
 async function openNewAssetForm(page: Page) {
-  await page.getByRole('link', { name: '자산 목록' }).click()
+  await page.getByRole('link', { name: '자산', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
   await page.getByRole('link', { name: '자산 추가' }).click()
   await expect(page.getByRole('heading', { name: '자산 등록', exact: true })).toBeVisible()
@@ -402,6 +402,7 @@ test('새 가계부의 기본 자산과 이름을 포함한 빠른 자산 등록
   await expect(row).toBeVisible()
   await row.getByRole('link').click()
 
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('신혼집 대출')
   await expect(page.getByRole('radio', { name: '구성원 소유 : 구성원 한 명의 자산', exact: true })).toBeChecked()
@@ -494,6 +495,7 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await expect(debitCardRow).toBeVisible()
   await expectCardPaymentAmounts(debitCardRow)
   await debitCardRow.getByRole('link').click()
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('잔액 기준일', { exact: true })).toHaveValue('2026-06-20')
   await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveAttribute('data-value', settlementAccountId)
@@ -519,6 +521,7 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   const savingsRow = balanceAssetRow(page, '공동 적금', '430,000원')
   await expect(savingsRow).toBeVisible()
   await savingsRow.getByRole('link').click()
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('잔액 기준일', { exact: true })).toHaveValue('2026-07-03')
   const detailAutoTransferSwitch = page.getByRole('switch', { name: '자동이체 설정', exact: true })
@@ -596,6 +599,7 @@ test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산
   await expectCardPaymentAmounts(row, { currentMonth: '0원', nextMonth: '180,000원' })
   await row.getByRole('link').click()
 
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('생활비 신용카드')
   await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveAttribute('data-value', /.+/)

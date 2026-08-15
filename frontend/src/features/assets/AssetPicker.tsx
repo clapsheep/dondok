@@ -25,6 +25,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '../../components/ui/Popover'
+import { Switch } from '../../components/ui/Switch'
 import type { LedgerMember } from '../membership/api'
 import type { Asset, AssetTypeSystemCode } from './api'
 import { formatWon } from './format'
@@ -86,26 +87,47 @@ export function AssetPicker({
   const generatedId = useId()
   const trigger = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
+  const [showAllAssets, setShowAllAssets] = useState(false)
   const [activeGroup, setActiveGroup] = useState<AssetGroupKey | 'all'>('all')
   const selected = assets.find((asset) => asset.assetId === value)
   const missingSelected = !selected && value && missingSelection?.assetId === value ? missingSelection : undefined
-  const groups = pickerGroups(assets)
+  const currentMember = members.find((member) => member.currentUser)
+  const ownAssets = currentMember
+    ? assets.filter((asset) => asset.ownershipScope === 'PERSONAL' && asset.ownerMemberId === currentMember.memberId)
+    : []
+  const visibleAssets = showAllAssets ? assets : ownAssets
+  const groups = pickerGroups(visibleAssets)
   const filteredGroups = activeGroup === 'all' ? groups : groups.filter((group) => group.key === activeGroup)
+  const selectedOutsideOwnAssets = Boolean(selected && !ownAssets.some((asset) => asset.assetId === selected.assetId))
   const titleId = `${id}-${generatedId}-title`
   const descriptionId = `${id}-${generatedId}-description`
+  const showAllAssetsId = `${id}-${generatedId}-show-all-assets`
   const selectionSummaryId = `${id}-${generatedId}-selection`
   const describedBy = [selectionSummaryId, hint ? `${id}-hint` : undefined, error ? `${id}-error` : undefined].filter(Boolean).join(' ')
   const selectedLabel = selected ? `${selected.name}, ${selected.assetTypeName}, ${ownerLabel(selected, members)}, ${assetAmountLabel(selected)}` : missingSelected ? `${missingSelected.name}, 현재 목록에 없음` : placeholder
 
   function selectAsset(assetId: string) {
     onChange(assetId)
-    setOpen(false)
+    changeOpen(false)
+  }
+
+  function changeOpen(nextOpen: boolean) {
+    setOpen(nextOpen)
+    if (!nextOpen) {
+      setShowAllAssets(false)
+      setActiveGroup('all')
+    }
+  }
+
+  function changeAssetScope(checked: boolean) {
+    setShowAllAssets(checked)
+    setActiveGroup('all')
   }
 
   return (
     <div data-slot="field" data-asset-picker data-invalid={Boolean(error)} className="grid min-w-0 gap-1">
       <Label htmlFor={id}>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen} modal>
+      <Popover open={open} onOpenChange={changeOpen} modal>
         <PopoverTrigger
           render={(
             <Button
@@ -128,21 +150,41 @@ export function AssetPicker({
         </PopoverTrigger>
 
         <PopoverContent className="h-[min(52dvh,30rem)] md:h-auto" positionerClassName="asset-picker-positioner" aria-labelledby={titleId} aria-describedby={descriptionId} finalFocus={trigger}>
-          <PopoverHeader className="shrink-0 border-b border-[var(--line)] px-4 py-3 md:px-5 md:py-4">
+          <PopoverHeader className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start border-b border-[var(--line)] px-4 py-3 md:flex md:px-5 md:py-4">
             <div className="min-w-0">
               <PopoverTitle id={titleId}>{label} 선택</PopoverTitle>
-              <PopoverDescription id={descriptionId} className="sr-only md:not-sr-only md:mt-1">종류와 소유자를 확인하고 기록에 연결할 자산을 골라 주세요.</PopoverDescription>
+              <PopoverDescription id={descriptionId} className="sr-only md:not-sr-only md:mt-1">처음에는 내 자산만 보여요. 필요하면 모든 자산 보기를 켜세요.</PopoverDescription>
+            </div>
+            <div className="col-span-2 row-start-2 mt-2 flex min-h-8 items-center justify-end gap-2 md:ml-auto md:mt-0 md:min-h-10">
+              <Label htmlFor={showAllAssetsId} className="cursor-pointer whitespace-nowrap text-xs text-[var(--muted)]">모든 자산 보기</Label>
+              <Switch
+                id={showAllAssetsId}
+                checked={showAllAssets}
+                onCheckedChange={changeAssetScope}
+                aria-label="모든 자산 보기"
+              />
             </div>
             <PopoverClose
-              render={<Button type="button" size="icon" variant="ghost" className="shrink-0" aria-label={`${label} 선택 닫기`} />}
+              render={<Button type="button" size="icon" variant="ghost" className="col-start-2 row-start-1 shrink-0 md:order-last" aria-label={`${label} 선택 닫기`} />}
             >
               <X size={19} />
             </PopoverClose>
           </PopoverHeader>
 
+          {!showAllAssets && selectedOutsideOwnAssets ? (
+            <button
+              type="button"
+              className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-2 text-left text-xs text-[var(--muted)] transition-colors hover:bg-forest-50 hover:text-forest-800 dark:hover:bg-forest-950 dark:hover:text-forest-100"
+              onClick={() => changeAssetScope(true)}
+            >
+              <span>현재 선택은 공동·다른 구성원 자산이에요.</span>
+              <span className="shrink-0 font-semibold text-forest-700 dark:text-forest-100">목록에서 보기</span>
+            </button>
+          ) : null}
+
           {groups.length > 1 ? (
             <div className="flex shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-[var(--line)] px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] md:overflow-visible md:px-4 md:py-2" role="group" aria-label="자산 종류 필터">
-              <GroupFilter label="전체" count={assets.length} active={activeGroup === 'all'} onSelect={() => setActiveGroup('all')} />
+              <GroupFilter label="전체" count={visibleAssets.length} active={activeGroup === 'all'} onSelect={() => setActiveGroup('all')} />
               {groups.map((group) => <GroupFilter key={group.key} label={group.label} count={group.items.length} active={activeGroup === group.key} onSelect={() => setActiveGroup(group.key)} />)}
             </div>
           ) : null}
@@ -178,7 +220,7 @@ export function AssetPicker({
                   ))}
                 </div>
               </section>
-            )) : <p className="px-2 py-8 text-center text-sm text-[var(--muted)]">선택할 수 있는 자산이 없어요.</p>}
+            )) : <p className="px-2 py-8 text-center text-sm text-[var(--muted)]">{!showAllAssets && assets.length ? '선택할 수 있는 내 자산이 없어요. 모든 자산 보기를 켜서 공동·다른 구성원 자산을 확인해 주세요.' : '선택할 수 있는 자산이 없어요.'}</p>}
           </div>
         </PopoverContent>
       </Popover>
@@ -242,6 +284,7 @@ function GroupFilter({ label, count, active, onSelect }: { label: string; count:
 function pickerGroups(assets: Asset[]): PickerGroup[] {
   const groups = buildAssetOverview(assets).groups.map((group) => ({ key: group.key, label: group.label, items: group.items }))
   if (groups.length === 1 && assets.every((asset) => asset.systemCode === 'BANK')) groups[0].label = '계좌'
+  if (groups.length === 1 && assets.some((asset) => asset.systemCode === 'SAVINGS') && assets.every((asset) => asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS')) groups[0].label = '계좌·적금'
   if (groups.length === 1 && assets.every((asset) => asset.systemCode === 'CREDIT_CARD')) groups[0].label = '신용카드'
   return groups
 }

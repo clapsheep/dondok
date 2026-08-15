@@ -16,7 +16,11 @@ export async function openAssetPicker(page: Page, label: string, scope: PickerSc
 
 export async function selectAsset(page: Page, label: string, assetName: string, scope: PickerScope = page) {
   const { trigger, picker } = await openAssetPicker(page, label, scope)
-  await picker.getByRole('button', { name: new RegExp(`^${escapeRegExp(assetName)},`) }).click()
+  const option = picker.getByRole('button', { name: new RegExp(`^${escapeRegExp(assetName)},`) })
+  if (!await option.count()) {
+    await picker.getByRole('switch', { name: '모든 자산 보기', exact: true }).click()
+  }
+  await option.click()
   await expect(picker).toHaveCount(0)
   await expect(trigger).toContainText(assetName)
   await expect(trigger).toBeFocused()

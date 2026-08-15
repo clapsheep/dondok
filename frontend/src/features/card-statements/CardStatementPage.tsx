@@ -204,7 +204,7 @@ function CardStatementContent({ statement }: { statement: CardStatementDetail })
           <section className="border-t border-[var(--line)] pt-5" aria-labelledby="prepayment-unavailable-title">
             <h2 id="prepayment-unavailable-title" className="text-lg font-semibold">선결제 준비가 필요해요</h2>
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">카드 자산에 결제 계좌를 먼저 설정하면 선결제할 수 있어요.</p>
-            <Button asChild className="mt-4" variant="secondary"><Link to={`/assets/${authoritative.cardAsset.assetId}`}>결제 계좌 설정</Link></Button>
+            <Button asChild className="mt-4" variant="secondary"><Link to={`/assets/${authoritative.cardAsset.assetId}/edit`}>결제 계좌 설정</Link></Button>
           </section>
         ) : authoritative.remainingAmountWon > 0 ? (
           <p className="border-t border-[var(--line)] pt-5 text-sm text-[var(--muted)]">결제일이 되었거나 명세 상태가 변경되어 지금은 선결제할 수 없어요.</p>

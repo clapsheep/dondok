@@ -99,11 +99,14 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(history.getByRole('listitem').filter({ hasText: '40,000원' })).toContainText('선결제')
 
   await page.getByRole('link', { name: '카드 자산으로 돌아가기' }).click()
-  await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
-  await page.getByRole('link', { name: '자산 목록' }).click()
+  await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: '자산', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
   await expect(balanceAssetRow(page, '계좌', '-70,000원')).toBeVisible()
-  await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), { currentMonth: '0원', nextMonth: '50,000원' })
+  await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), {
+    currentMonth: '0원',
+    nextMonth: Number(todayInSeoul().slice(-2)) <= 14 ? '50,000원' : '0원',
+  })
 
   await page.goto(`/?view=calendar&month=${month}`)
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
@@ -201,6 +204,7 @@ async function openDefaultCardStatement(page: Page) {
   const cardLink = cardAssetRow(page, '신용카드').getByRole('link')
   const cardHref = await cardLink.getAttribute('href')
   await cardLink.click()
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   const list = page.getByRole('region', { name: '카드 결제 내역' })
   await expect(list).toBeVisible()

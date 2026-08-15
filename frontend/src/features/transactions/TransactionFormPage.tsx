@@ -26,7 +26,7 @@ import {
   type UpdateTransactionInput,
 } from './api'
 import { performerPersonLabel, performerQuestionLabel, performerSelectionError } from './performerLabels'
-import { transferAccountAssets, transferAccountLabel } from './transferAssets'
+import { transferAssetLabel, transferEligibleAssets } from './transferAssets'
 import { CategoryPicker } from './CategoryPicker'
 import { PerformerPicker } from './PerformerPicker'
 import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
@@ -47,7 +47,7 @@ type Draft = {
 
 type FieldErrors = Partial<Record<keyof Draft, string>>
 type Conflict = { latest: Transaction; action: 'update' | 'delete' }
-type NavigationState = { returnTo?: string; transactionDraft?: Draft }
+type NavigationState = { returnTo?: string; transactionDraft?: Draft; transactionDate?: string }
 
 export function TransactionFormPage({ ledger }: { ledger: LedgerBook }) {
   const { transactionId } = useParams()
@@ -87,18 +87,19 @@ export function TransactionFormPage({ ledger }: { ledger: LedgerBook }) {
       assets={assets.data}
       transaction={transaction.data}
       initialDraft={!transactionId ? state?.transactionDraft : undefined}
+      initialDate={!transactionId ? state?.transactionDate : undefined}
       returnTo={safeReturnTo(location.state, transaction.data?.occurredOn)}
     />
   )
 }
 
-function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo }: { ledger: LedgerBook; assets: Asset[]; transaction?: Transaction; initialDraft?: Draft; returnTo: string }) {
+function TransactionEditor({ ledger, assets, transaction, initialDraft, initialDate, returnTo }: { ledger: LedgerBook; assets: Asset[]; transaction?: Transaction; initialDraft?: Draft; initialDate?: string; returnTo: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
   const editing = Boolean(transaction)
   const currentMemberId = ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? ''
-  const [draft, setDraft] = useState<Draft>(() => transaction ? draftFromTransaction(transaction) : validNavigationDraft(initialDraft, currentMemberId))
+  const [draft, setDraft] = useState<Draft>(() => transaction ? draftFromTransaction(transaction) : validNavigationDraft(initialDraft, currentMemberId, initialDate))
   const [baseVersion, setBaseVersion] = useState(transaction?.version ?? 0)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [conflict, setConflict] = useState<Conflict>()
@@ -115,13 +116,13 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
     staleTime: 0,
     refetchOnWindowFocus: 'always',
   })
-  const transferAccounts = transferAccountAssets(assets)
+  const transferAssets = transferEligibleAssets(assets)
   const assetId = editing ? draft.assetId : draft.assetId || assets[0]?.assetId || ''
-  const sourceAssetId = transferSelection(draft.sourceAssetId, transferAccounts)
-    || (!draft.sourceAssetId && !editing ? transferAccounts[0]?.assetId ?? '' : '')
-  const destinationAssetId = transferSelection(draft.destinationAssetId, transferAccounts)
+  const sourceAssetId = transferSelection(draft.sourceAssetId, transferAssets)
+    || (!draft.sourceAssetId && !editing ? transferAssets[0]?.assetId ?? '' : '')
+  const destinationAssetId = transferSelection(draft.destinationAssetId, transferAssets)
     || (!draft.destinationAssetId && !editing
-      ? transferAccounts.find((asset) => asset.assetId !== sourceAssetId)?.assetId ?? ''
+      ? transferAssets.find((asset) => asset.assetId !== sourceAssetId)?.assetId ?? ''
       : '')
   const categoryId = editing ? draft.categoryId : draft.categoryId || categories.data?.[0]?.categoryId || ''
   const selectedAsset = assets.find((asset) => asset.assetId === assetId)
@@ -260,9 +261,9 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
   const resolvedDraft = { ...draft, assetId, sourceAssetId, destinationAssetId, categoryId }
 
   return (
-    <AppShell ledgerNavigation mobileHeader={{ title: editing ? '거래 수정' : '거래 기록', backTo: returnTo, backLabel: '가계부로 돌아가기' }}>
+    <AppShell ledgerNavigation mobileHeader={editing ? { title: '거래 수정', backTo: returnTo, backLabel: '거래 목록으로' } : undefined}>
       <section className="mx-auto max-w-[48rem] py-3 sm:py-5 lg:max-w-[74rem] lg:py-8">
-        <header className="hidden border-b border-[var(--line)] pb-4 md:block"><h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '거래 수정' : '거래 기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">본인이 한 기록으로 시작해요. 필요하면 다른 구성원을 선택할 수 있어요.{editing ? ' 거래 종류는 기록 후 바꿀 수 없어요.' : ''}</p></header>
+        <header className={`${editing ? 'hidden md:block ' : ''}border-b border-[var(--line)] pb-4`}><h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '거래 수정' : '거래 기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">본인이 한 기록으로 시작해요. 필요하면 다른 구성원을 선택할 수 있어요.{editing ? ' 거래 종류는 기록 후 바꿀 수 없어요.' : ''}</p></header>
 
         {remoteDeleted ? (
           <section className="mt-5 border-l-4 border-amber-500 px-4 py-2" aria-labelledby="deleted-transaction-title">
@@ -281,49 +282,45 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
           </section>
         ) : null}
 
-        <form className="mt-1 lg:mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-8 xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-10" onSubmit={submit} noValidate>
+        <form className="mt-1 lg:mt-6 lg:grid lg:grid-cols-[minmax(0,40rem)_18rem] lg:items-start lg:justify-between lg:gap-8 xl:grid-cols-[minmax(0,40rem)_20rem] xl:gap-10" onSubmit={submit} noValidate>
           <div className="min-w-0">
             {hasFieldErrors(errors) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
 
-          {editing ? (
-            <div className="border-b border-[var(--line)] pb-4 sm:pb-5"><p className="text-sm font-semibold">거래 종류</p><p className="mt-2 min-h-11 border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold" aria-label="거래 종류">{typeLabel(draft.type)}</p></div>
-          ) : (
-            <fieldset className="border-b border-[var(--line)] pb-4 sm:pb-5"><legend className="text-sm font-semibold">거래 종류</legend><div className="mt-2 grid grid-cols-3 border border-[var(--line)]"><TypeButton type="INCOME" selected={draft.type} onSelect={selectType}>수입</TypeButton><TypeButton type="EXPENSE" selected={draft.type} onSelect={selectType}>지출</TypeButton><TypeButton type="TRANSFER" selected={draft.type} onSelect={selectType}>이체</TypeButton></div></fieldset>
-          )}
+            {editing ? (
+              <div className="mb-5"><p className="text-sm font-semibold">거래 종류</p><p className="mt-2 min-h-11 border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold" aria-label="거래 종류">{typeLabel(draft.type)}</p></div>
+            ) : (
+              <fieldset className="mb-5"><legend className="text-sm font-semibold">거래 종류</legend><div className="mt-2 grid grid-cols-3 border border-[var(--line)]"><TypeButton type="INCOME" selected={draft.type} onSelect={selectType}>수입</TypeButton><TypeButton type="EXPENSE" selected={draft.type} onSelect={selectType}>지출</TypeButton><TypeButton type="TRANSFER" selected={draft.type} onSelect={selectType}>이체</TypeButton></div></fieldset>
+            )}
 
-          <div className="grid gap-4 border-b border-[var(--line)] py-4 sm:py-5" data-transaction-primary-fields>
+          <div className="grid gap-4" data-transaction-fields>
             <MoneyField id="transactionAmount" label="금액" value={draft.amountWon} onValueChange={(value) => updateDraft('amountWon', value)} placeholder="0" error={errors.amountWon} inputClassName="min-h-12 pr-9 text-lg sm:text-xl" autoFocus={!editing} required />
             <DatePickerField id="transactionDate" label="날짜" value={draft.occurredOn} onChange={(value) => updateDraft('occurredOn', value)} error={errors.occurredOn} required />
-          </div>
 
-          {draft.type === 'TRANSFER' ? (
-            <div className="grid gap-4 border-b border-[var(--line)] py-4 sm:py-5 xl:grid-cols-[1fr_auto_1fr] xl:items-end">
-              {transferAccounts.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이체하려면 서로 다른 계좌가 두 개 이상 필요해요. 계좌를 하나 더 등록해 주세요.</p> : null}
-              {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이 이체에 연결된 자산은 현재 계좌 이체에 사용할 수 없어요. 보내는 계좌와 받는 계좌를 다시 선택해 주세요.</p> : null}
-              <p className="text-xs leading-5 text-[var(--muted)] xl:col-span-3">함께 쓰는 구성원의 계좌와 공동 계좌를 모두 선택할 수 있어요.</p>
-              <AssetPicker id="sourceAsset" label="보내는 계좌" assets={transferAccounts} members={ledger.members} value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId} placeholder="계좌를 선택해 주세요" required />
-              <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] xl:block" size={20} />
-              <AssetPicker id="destinationAsset" label="받는 계좌" assets={transferAccounts} members={ledger.members} value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId} placeholder="계좌를 선택해 주세요" required />
-            </div>
-          ) : (
-            <div className="grid items-start gap-4 border-b border-[var(--line)] py-4 sm:py-5" data-transaction-classification-fields>
-              {categories.isError ? <div className="border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert"><p>분류를 불러오지 못했어요. 분류를 확인한 뒤 거래를 저장할 수 있어요.</p><Button className="mt-3" type="button" variant="secondary" onClick={() => categories.refetch()}>분류 다시 불러오기</Button></div> : null}
-              <CategoryPicker key={categoryKind} kind={categoryKind} categories={categories.data ?? []} value={categoryId} missingName={transaction?.category?.name} onChange={(value) => updateDraft('categoryId', value)} error={errors.categoryId} disabled={categories.isPending || categories.isError || pending || remoteDeleted} online={online} />
-              <AssetPicker id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} assets={assets} members={ledger.members} value={assetId} onChange={(value) => updateDraft('assetId', value)} missingSelection={transaction?.asset && !assets.some((asset) => asset.assetId === transaction.asset?.assetId) ? { assetId: transaction.asset.assetId, name: transaction.asset.name } : undefined} error={errors.assetId} required />
-              {isCardExpense ? <div className="w-full max-w-48"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
-            </div>
-          )}
+            {draft.type === 'TRANSFER' ? (
+              <div className="grid gap-4 pt-1 xl:grid-cols-[1fr_auto_1fr] xl:items-end">
+                {transferAssets.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이체하려면 서로 다른 계좌나 적금이 두 개 이상 필요해요. 계좌 또는 적금을 하나 더 등록해 주세요.</p> : null}
+                {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이 이체에 연결된 자산은 현재 일반 이체에 사용할 수 없어요. 보내는 자산과 받는 자산을 다시 선택해 주세요.</p> : null}
+                <p className="text-xs leading-5 text-[var(--muted)] xl:col-span-3">함께 쓰는 구성원의 계좌·적금과 공동 자산을 모두 선택할 수 있어요.</p>
+                <AssetPicker id="sourceAsset" label="보내는 자산" assets={transferAssets} members={ledger.members} value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId} placeholder="계좌 또는 적금을 선택해 주세요" required />
+                <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] xl:block" size={20} />
+                <AssetPicker id="destinationAsset" label="받는 자산" assets={transferAssets} members={ledger.members} value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId} placeholder="계좌 또는 적금을 선택해 주세요" required />
+              </div>
+            ) : (
+              <>
+                {categories.isError ? <div className="border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert"><p>분류를 불러오지 못했어요. 분류를 확인한 뒤 거래를 저장할 수 있어요.</p><Button className="mt-3" type="button" variant="secondary" onClick={() => categories.refetch()}>분류 다시 불러오기</Button></div> : null}
+                <CategoryPicker key={categoryKind} kind={categoryKind} categories={categories.data ?? []} value={categoryId} missingName={transaction?.category?.name} onChange={(value) => updateDraft('categoryId', value)} error={errors.categoryId} disabled={categories.isPending || categories.isError || pending || remoteDeleted} online={online} />
+                <AssetPicker id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} assets={assets} members={ledger.members} value={assetId} onChange={(value) => updateDraft('assetId', value)} missingSelection={transaction?.asset && !assets.some((asset) => asset.assetId === transaction.asset?.assetId) ? { assetId: transaction.asset.assetId, name: transaction.asset.name } : undefined} error={errors.assetId} required />
+                {isCardExpense ? <div className="w-full max-w-48"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
+                <StatisticsExclusionSwitch
+                  type={draft.type}
+                  checked={draft.excludedFromStatistics}
+                  onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)}
+                  disabled={pending || remoteDeleted}
+                  className="border-0 py-1 sm:py-1"
+                />
+              </>
+            )}
 
-          {draft.type !== 'TRANSFER' ? (
-            <StatisticsExclusionSwitch
-              type={draft.type}
-              checked={draft.excludedFromStatistics}
-              onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)}
-              disabled={pending || remoteDeleted}
-            />
-          ) : null}
-
-          <div className="grid gap-4 border-b border-[var(--line)] py-4 sm:py-5">
             <PerformerPicker id="performedBy" label={performerQuestionLabel(draft.type)} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending || remoteDeleted} />
             <TextareaField id="transactionDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} maxLength={500} />
           </div>
@@ -339,7 +336,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, returnTo
             </div>
             <div className="flex flex-col-reverse gap-3 xs:flex-row xs:justify-end lg:mt-6 lg:grid">
               <Button asChild variant="secondary" size="large"><Link to={returnTo}>취소</Link></Button>
-              <Button type="submit" size="large" disabled={pending || !online || remoteDeleted || (draft.type !== 'TRANSFER' && (categories.isPending || categories.isError)) || (draft.type === 'TRANSFER' && (transferAccounts.length < 2 || !sourceAssetId || !destinationAssetId))}>{pending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}{editing ? '변경 저장' : '기록 저장'}</Button>
+              <Button type="submit" size="large" disabled={pending || !online || remoteDeleted || (draft.type !== 'TRANSFER' && (categories.isPending || categories.isError)) || (draft.type === 'TRANSFER' && (transferAssets.length < 2 || !sourceAssetId || !destinationAssetId))}>{pending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}{editing ? '변경 저장' : '기록 저장'}</Button>
             </div>
           </aside>
         </form>
@@ -411,8 +408,8 @@ function parseDraft(draft: Draft, isCardExpense: boolean): { input?: CreateTrans
   if (!draft.occurredOn) errors.occurredOn = '날짜를 선택해 주세요.'
   if (!draft.performedByMemberId) errors.performedByMemberId = performerSelectionError(draft.type)
   if (draft.type === 'TRANSFER') {
-    if (!draft.sourceAssetId) errors.sourceAssetId = '보내는 계좌를 선택해 주세요.'
-    if (!draft.destinationAssetId) errors.destinationAssetId = '받는 계좌를 선택해 주세요.'
+    if (!draft.sourceAssetId) errors.sourceAssetId = '보내는 자산을 선택해 주세요.'
+    if (!draft.destinationAssetId) errors.destinationAssetId = '받는 자산을 선택해 주세요.'
     if (draft.sourceAssetId && draft.sourceAssetId === draft.destinationAssetId) errors.destinationAssetId = '서로 다른 계좌를 선택해 주세요.'
   } else {
     if (!draft.categoryId) errors.categoryId = '분류를 선택해 주세요.'
@@ -440,16 +437,17 @@ function draftFromTransaction(transaction: Transaction): Draft {
   return { type: transaction.type, amountWon: String(transaction.amountWon), occurredOn: transaction.occurredOn, categoryId: transaction.category?.categoryId ?? '', assetId: transaction.asset?.assetId ?? transaction.postings[0]?.assetId ?? '', sourceAssetId: source, destinationAssetId: destination, performedByMemberId: transaction.performedBy?.memberId ?? '', description: transaction.description ?? '', installmentCount: String(transaction.installmentCount ?? 1), excludedFromStatistics: transaction.excludedFromStatistics }
 }
 
-function validNavigationDraft(draft: Draft | undefined, memberId: string): Draft {
+function validNavigationDraft(draft: Draft | undefined, memberId: string, initialDate?: string): Draft {
   if (draft && ['INCOME', 'EXPENSE', 'TRANSFER'].includes(draft.type)) return { ...draft, performedByMemberId: draft.performedByMemberId || memberId, excludedFromStatistics: draft.excludedFromStatistics === true }
-  return { type: 'EXPENSE', amountWon: '', occurredOn: todayInSeoul(), categoryId: '', assetId: '', sourceAssetId: '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1', excludedFromStatistics: false }
+  const occurredOn = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : todayInSeoul()
+  return { type: 'EXPENSE', amountWon: '', occurredOn, categoryId: '', assetId: '', sourceAssetId: '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1', excludedFromStatistics: false }
 }
 
 function apiFieldErrors(error: ApiError): FieldErrors { const mapped: FieldErrors = {}; for (const item of error.fieldErrors) if (item.field in defaultDraftKeys) mapped[item.field as keyof Draft] = item.code; for (const [field, message] of Object.entries(error.errors ?? {})) if (field in defaultDraftKeys) mapped[field as keyof Draft] = message; return mapped }
 const defaultDraftKeys: Record<keyof Draft, true> = { type: true, amountWon: true, occurredOn: true, categoryId: true, assetId: true, sourceAssetId: true, destinationAssetId: true, performedByMemberId: true, description: true, installmentCount: true, excludedFromStatistics: true }
 function transferSelection(id: string, accounts: Asset[]) { return accounts.some((asset) => asset.assetId === id) ? id : '' }
 function safeReturnTo(state: unknown, occurredOn?: string) { const value = (state as NavigationState | null)?.returnTo; return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : `/?view=daily&month=${(occurredOn ?? todayInSeoul()).slice(0, 7)}` }
-function transferAssetName(id: string, assets: Asset[], ledger: LedgerBook, fallback: string) { const asset = assets.find((item) => item.assetId === id); return asset ? transferAccountLabel(asset, ledger.members) : fallback }
+function transferAssetName(id: string, assets: Asset[], ledger: LedgerBook, fallback: string) { const asset = assets.find((item) => item.assetId === id); return asset ? transferAssetLabel(asset, ledger.members) : fallback }
 function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], ledger: LedgerBook) { const assetName = (id: string) => draft.type === 'TRANSFER' ? transferAssetName(id, assets, ledger, id) : assets.find((asset) => asset.assetId === id)?.name ?? id; const category = categories.find((item) => item.categoryId === draft.categoryId)?.name ?? draft.categoryId; const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)?.displayName ?? draft.performedByMemberId; return [`종류: ${typeLabel(draft.type)}`, `날짜: ${draft.occurredOn}`, `금액: ${draft.amountWon}원`, draft.type === 'TRANSFER' ? `자산: ${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `분류/자산: ${category} / ${assetName(draft.assetId)}`, ...(draft.type !== 'TRANSFER' ? [`달력·통계: ${draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}`] : []), `${performerPersonLabel(draft.type)}: ${member}`, `내용: ${draft.description}`].join('\n') }
 function typeLabel(type: TransactionType) { return type === 'INCOME' ? '수입' : type === 'EXPENSE' ? '지출' : '이체' }
 function formatWon(value: number) { return `${new Intl.NumberFormat('ko-KR').format(Math.abs(value))}원` }

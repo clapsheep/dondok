@@ -44,6 +44,7 @@ type MobileHeader = {
   title: string
   backTo: string
   backLabel?: string
+  action?: ReactNode
 }
 
 export function MobileLedgerNavigation() {
@@ -99,7 +100,7 @@ export function AppShell({ children, ledgerNavigation = false, mobileHeader }: {
                 <Link to={mobileHeader.backTo} aria-label={mobileHeader.backLabel ?? '이전 화면으로'}><ArrowLeft size={20} /></Link>
               </Button>
               <h1 className="truncate px-2 text-center text-[1.0625rem] font-semibold tracking-[-.02em]">{mobileHeader.title}</h1>
-              <span aria-hidden="true" />
+              <span className="grid size-11 place-items-center">{mobileHeader.action}</span>
             </div>
           </header>
         ) : null}
