@@ -305,6 +305,32 @@ public class TransactionJdbcRepository {
         return new TransactionRows(rows.get(0), new ArrayList<>(postings));
     }
 
+    public CardPaymentReferenceRow findCardPaymentReference(UUID bookId, UUID transactionId) {
+        List<CardPaymentReferenceRow> rows = jdbcTemplate.query("""
+                select payment.statement_id, payment.id payment_id, payment.payment_type,
+                       statement.version statement_version,
+                       coalesce(returned.amount_won, 0) returned_amount_won
+                  from card_statement_payment payment
+                  join card_statement statement
+                    on statement.book_id = payment.book_id
+                   and statement.id = payment.statement_id
+                  left join lateral (
+                      select sum(allocation.amount_won) amount_won
+                        from card_purchase_refund_payment allocation
+                       where allocation.statement_payment_id = payment.id
+                  ) returned on true
+                 where payment.book_id = ?
+                   and payment.settlement_transaction_id = ?
+                   and payment.cancelled_at is null
+                """, (resultSet, rowNum) -> new CardPaymentReferenceRow(
+                resultSet.getObject("statement_id", UUID.class),
+                resultSet.getObject("payment_id", UUID.class),
+                resultSet.getString("payment_type"),
+                resultSet.getLong("statement_version"),
+                resultSet.getLong("returned_amount_won")), bookId, transactionId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     public TransactionState findStateForUpdate(UUID bookId, UUID transactionId) {
         List<TransactionState> rows = jdbcTemplate.query("""
                 select transaction.id, transaction.transaction_type, transaction.transfer_subtype,
@@ -478,6 +504,14 @@ public class TransactionJdbcRepository {
                           Integer installmentCount) {
     }
     public record TransactionRows(ReadRow transaction, List<PostingRow> postings) {
+    }
+    public record CardPaymentReferenceRow(
+            UUID statementId,
+            UUID paymentId,
+            String paymentType,
+            long statementVersion,
+            long returnedAmountWon
+    ) {
     }
     public record TransactionState(UUID transactionId, TransactionType type,
                                    TransferSubtype transferSubtype, String sourceType, long version,

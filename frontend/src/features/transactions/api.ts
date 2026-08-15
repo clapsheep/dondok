@@ -24,6 +24,13 @@ export type Transaction = {
   transferSubtype: 'NORMAL' | 'CARD_SETTLEMENT' | 'CARD_PREPAYMENT' | null
   managementType: TransactionManagementType
   relatedPurchaseTransactionId: string | null
+  cardPayment: {
+    statementId: string
+    paymentId: string
+    paymentType: 'PREPAYMENT' | 'REGULAR'
+    statementVersion: number
+    returnedAmountWon: number
+  } | null
   occurredOn: string
   amountWon: number
   category: { categoryId: string; name: string } | null

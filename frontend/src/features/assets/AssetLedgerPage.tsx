@@ -90,8 +90,9 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   const editAction = currentAsset.status === 'ACTIVE'
     ? <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="자산 편집"><Settings size={20} /></Link></Button>
     : <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="사용 종료 자산 관리"><RotateCcw size={20} /></Link></Button>
-  const navigationState = location.state as { transactionDeleted?: boolean; assetUpdated?: boolean; assetRestored?: boolean } | null
+  const navigationState = location.state as { transactionDeleted?: boolean; prepaymentCancelled?: boolean; assetUpdated?: boolean; assetRestored?: boolean } | null
   const deleted = Boolean(navigationState?.transactionDeleted)
+  const prepaymentCancelled = Boolean(navigationState?.prepaymentCancelled)
   const updated = Boolean(navigationState?.assetUpdated)
   const restored = Boolean(navigationState?.assetRestored)
 
@@ -136,6 +137,7 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
         </header>
 
         {deleted ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 삭제했어요.</p> : null}
+        {prepaymentCancelled ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">선결제를 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.</p> : null}
         {updated ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산 정보를 변경했어요. 현재 잔액과 설정에 반영했습니다.</p> : null}
         {restored ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산을 다시 사용할 수 있게 복원했어요.</p> : null}
         {recordSaved ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 기록했어요. 현재 잔액과 거래 내역을 새로 반영했습니다.</p> : null}
