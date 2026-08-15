@@ -16,13 +16,13 @@ jobs:
   contract-and-secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: OpenAPI lint
         run: npx --yes @redocly/cli@2.38.0 lint docs/api/openapi.yaml
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Production deployment contracts
@@ -51,12 +51,12 @@ jobs:
       DONDOK_MAIL_ENABLED: "false"
       PGPASSWORD: dondok_ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Backend tests and build
         working-directory: backend
         run: ./gradlew --no-daemon test bootJar
@@ -101,8 +101,8 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "24.18.0"
           cache: npm
@@ -129,8 +129,8 @@ jobs:
       MAILPIT_URL: http://127.0.0.1:8025
       CI: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "24.18.0"
           cache: npm
