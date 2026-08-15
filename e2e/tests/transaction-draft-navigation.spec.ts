@@ -13,7 +13,7 @@ test('홈 대제목을 비우고 변경된 거래 초안만 이탈 전에 확인
   await expect(page.getByRole('link', { name: '취소', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '취소', exact: true })).toHaveCount(0)
 
-  await page.getByLabel('금액').fill('12,345')
+  await page.getByLabel('금액', { exact: true }).fill('12,345')
   await page.getByLabel('내용 (선택)').fill('나가기 전에 지킬 초안')
   await page.getByRole('link', { name: '자산', exact: true }).click()
 
@@ -23,7 +23,7 @@ test('홈 대제목을 비우고 변경된 거래 초안만 이탈 전에 확인
   await leaveDialog.getByRole('button', { name: '계속 작성' }).click()
   await expect(leaveDialog).toHaveCount(0)
   await expect(page).toHaveURL(/\/transactions\/new$/)
-  await expect(page.getByLabel('금액')).toHaveValue('12,345')
+  await expect(page.getByLabel('금액', { exact: true })).toHaveValue('12,345')
   await expect(page.getByLabel('내용 (선택)')).toHaveValue('나가기 전에 지킬 초안')
 
   await page.getByRole('link', { name: '자산', exact: true }).click()
@@ -32,7 +32,7 @@ test('홈 대제목을 비우고 변경된 거래 초안만 이탈 전에 확인
   await expect(page.getByRole('heading', { name: '자산 현황', level: 1 })).toBeVisible()
 
   await page.getByRole('link', { name: '기록', exact: true }).click()
-  await expect(page.getByLabel('금액')).toHaveValue('')
+  await expect(page.getByLabel('금액', { exact: true })).toHaveValue('')
   await page.getByRole('link', { name: '홈', exact: true }).click()
   await expect(page).toHaveURL('/')
   await expect(page.getByRole('dialog', { name: '작성 중인 기록을 나갈까요?' })).toHaveCount(0)
