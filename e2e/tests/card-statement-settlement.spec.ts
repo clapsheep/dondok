@@ -98,13 +98,25 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(history.getByRole('listitem').filter({ hasText: '30,000원' })).toContainText('선결제')
   await expect(history.getByRole('listitem').filter({ hasText: '40,000원' })).toContainText('선결제')
 
-  await history.getByRole('listitem').filter({ hasText: '40,000원' }).getByRole('button', { name: '선결제 취소' }).click()
+  const statementUrl = page.url()
+  const secondPayment = await page.evaluate(async (statementId) => {
+    const response = await fetch(`/api/card-statements/${statementId}`, { credentials: 'include' })
+    if (!response.ok) throw new Error(`card statement returned ${response.status}`)
+    const detail = await response.json() as { payments: Array<{ amountWon: number; settlementTransactionId: string }> }
+    const payment = detail.payments.find((item) => item.amountWon === 40_000)
+    if (!payment) throw new Error('second prepayment was not found')
+    return payment
+  }, statement.statementId)
+  await page.goto(`/transactions/${secondPayment.settlementTransactionId}`)
+  await expect(page.getByRole('heading', { name: '거래 상세', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '선결제 취소', exact: true }).click()
   const cancellation = page.getByRole('dialog', { name: '선결제를 취소할까요?' })
   await expect(cancellation).toContainText('결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.')
   await cancellation.getByRole('button', { name: '선결제 취소', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('선결제를 취소하고')
+  await page.goto(statementUrl)
   await expectStatementSummary(page, { gross: '120,000원', paid: '30,000원', remaining: '90,000원' })
-  await expect(history.getByRole('listitem')).toHaveCount(1)
+  await expect(page.getByRole('region', { name: '결제 기록' }).getByRole('listitem')).toHaveCount(1)
 
   await page.getByRole('link', { name: '카드 자산으로 돌아가기' }).click()
   await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toBeVisible()

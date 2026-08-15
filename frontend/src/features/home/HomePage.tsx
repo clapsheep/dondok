@@ -616,8 +616,8 @@ function postingLabel(transaction: Transaction) {
 }
 
 function transactionStatus(state: unknown) {
-  const navigation = state as { transactionSaved?: boolean; transactionUpdated?: boolean; transactionDeleted?: boolean } | null
-  const message = navigation?.transactionSaved ? '거래를 기록했어요.' : navigation?.transactionUpdated ? '거래를 수정했어요.' : navigation?.transactionDeleted ? '거래를 삭제했어요.' : undefined
+  const navigation = state as { transactionSaved?: boolean; transactionUpdated?: boolean; transactionDeleted?: boolean; prepaymentCancelled?: boolean } | null
+  const message = navigation?.transactionSaved ? '거래를 기록했어요.' : navigation?.transactionUpdated ? '거래를 수정했어요.' : navigation?.transactionDeleted ? '거래를 삭제했어요.' : navigation?.prepaymentCancelled ? '선결제를 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.' : undefined
   return message ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">{message}</p> : null
 }
 

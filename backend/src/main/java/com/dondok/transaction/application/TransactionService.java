@@ -449,10 +449,17 @@ public class TransactionService {
         if (rows == null) {
             throw error(HttpStatus.NOT_FOUND, "TRANSACTION_NOT_FOUND", "거래를 찾을 수 없습니다.");
         }
-        return toView(rows);
+        return toView(rows, transactions.findCardPaymentReference(bookId, transactionId));
     }
 
     private TransactionView toView(TransactionJdbcRepository.TransactionRows rows) {
+        return toView(rows, null);
+    }
+
+    private TransactionView toView(
+            TransactionJdbcRepository.TransactionRows rows,
+            TransactionJdbcRepository.CardPaymentReferenceRow cardPayment
+    ) {
         TransactionJdbcRepository.ReadRow row = rows.transaction();
         CategoryView category = row.categoryId() == null ? null
                 : new CategoryView(row.categoryId(), row.categoryName());
@@ -470,6 +477,9 @@ public class TransactionService {
                 rows.postings().stream().map(posting -> new PostingView(
                         posting.assetId(), posting.assetName(), posting.deltaWon())).toList(),
                 row.installmentCount(), row.relatedPurchaseTransactionId(),
+                cardPayment == null ? null : new CardPaymentReferenceView(
+                        cardPayment.statementId(), cardPayment.paymentId(), cardPayment.paymentType(),
+                        cardPayment.statementVersion(), cardPayment.returnedAmountWon()),
                 row.version(), row.createdAt(), row.updatedAt());
     }
 
@@ -674,6 +684,14 @@ public class TransactionService {
     }
     public record PostingView(UUID assetId, String assetName, long deltaWon) {
     }
+    public record CardPaymentReferenceView(
+            UUID statementId,
+            UUID paymentId,
+            String paymentType,
+            long statementVersion,
+            long returnedAmountWon
+    ) {
+    }
     public record TransactionView(UUID transactionId, TransactionType type, TransferSubtype transferSubtype,
                                   TransactionManagementType managementType,
                                   LocalDate occurredOn, long amountWon, CategoryView category,
@@ -681,7 +699,9 @@ public class TransactionService {
                                   String description,
                                   boolean excludedFromStatistics,
                                   List<PostingView> postings, Integer installmentCount,
-                                  UUID relatedPurchaseTransactionId, long version,
+                                  UUID relatedPurchaseTransactionId,
+                                  CardPaymentReferenceView cardPayment,
+                                  long version,
                                   Instant createdAt, Instant updatedAt) {
     }
     public record TransactionPage(List<TransactionView> items, String nextCursor) {

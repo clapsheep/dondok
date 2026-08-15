@@ -144,6 +144,16 @@ class CardStatementSettlementIntegrationTest {
         assertThat(balance(fixture.card().assetId())).isZero();
         assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
 
+        TransactionService.TransactionView transactionDetail = transactionService.transaction(
+                fixture.userId(), paid.settlementTransaction().transactionId());
+        assertThat(transactionDetail.cardPayment()).satisfies(reference -> {
+            assertThat(reference.statementId()).isEqualTo(statementId);
+            assertThat(reference.paymentId()).isEqualTo(paid.payment().paymentId());
+            assertThat(reference.paymentType()).isEqualTo("PREPAYMENT");
+            assertThat(reference.statementVersion()).isEqualTo(paid.statement().version());
+            assertThat(reference.returnedAmountWon()).isZero();
+        });
+
         CardStatementService.CardPrepaymentCancellationResult cancelled = statements.cancelPrepayment(
                 fixture.userId(), statementId, paid.payment().paymentId(),
                 new CardStatementService.CancelPrepaymentCommand(paid.statement().version()));
