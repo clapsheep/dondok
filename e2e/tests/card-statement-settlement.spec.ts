@@ -111,9 +111,7 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await page.getByRole('link', { name: '자산', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
   await expect(balanceAssetRow(page, '계좌', '-30,000원')).toBeVisible()
-  await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), {
-    nearest: Number(todayInSeoul().slice(-2)) <= 14 ? '90,000원' : undefined,
-  })
+  await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), { nearest: '90,000원' })
 
   await page.goto(`/?view=calendar&month=${month}`)
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
