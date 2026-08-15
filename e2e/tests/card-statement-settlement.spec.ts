@@ -98,14 +98,21 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(history.getByRole('listitem').filter({ hasText: '30,000원' })).toContainText('선결제')
   await expect(history.getByRole('listitem').filter({ hasText: '40,000원' })).toContainText('선결제')
 
+  await history.getByRole('listitem').filter({ hasText: '40,000원' }).getByRole('button', { name: '선결제 취소' }).click()
+  const cancellation = page.getByRole('dialog', { name: '선결제를 취소할까요?' })
+  await expect(cancellation).toContainText('결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.')
+  await cancellation.getByRole('button', { name: '선결제 취소', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('선결제를 취소하고')
+  await expectStatementSummary(page, { gross: '120,000원', paid: '30,000원', remaining: '90,000원' })
+  await expect(history.getByRole('listitem')).toHaveCount(1)
+
   await page.getByRole('link', { name: '카드 자산으로 돌아가기' }).click()
   await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toBeVisible()
   await page.getByRole('link', { name: '자산', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
-  await expect(balanceAssetRow(page, '계좌', '-70,000원')).toBeVisible()
+  await expect(balanceAssetRow(page, '계좌', '-30,000원')).toBeVisible()
   await expectCardPaymentAmounts(cardAssetRow(page, '신용카드'), {
-    currentMonth: '0원',
-    nextMonth: Number(todayInSeoul().slice(-2)) <= 14 ? '50,000원' : '0원',
+    nearest: Number(todayInSeoul().slice(-2)) <= 14 ? '90,000원' : undefined,
   })
 
   await page.goto(`/?view=calendar&month=${month}`)
@@ -115,7 +122,7 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(page.getByTitle('0원', { exact: true }).first()).toBeVisible()
   await page.getByRole('radio', { name: '모두 모든 구성원 기록 보기' }).locator('..').click()
   await page.getByRole('button', { name: '일별 보기' }).click()
-  await expect(page.getByRole('listitem').filter({ hasText: '카드 선결제' })).toHaveCount(2)
+  await expect(page.getByRole('listitem').filter({ hasText: '카드 선결제' })).toHaveCount(1)
   expect(await hasPageOverflow(page)).toBe(false)
 })
 

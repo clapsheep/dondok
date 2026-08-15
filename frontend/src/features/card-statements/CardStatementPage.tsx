@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Landmark, LoaderCircle, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Landmark, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { Button } from '../../components/ui/Button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
 import { ApiError } from '../../lib/api'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { AssetPicker } from '../assets/AssetPicker'
@@ -61,11 +62,18 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
   const [requestInProgress, setRequestInProgress] = useState(false)
   const [editingPayment, setEditingPayment] = useState<{ paymentId: string; settlementAssetId: string }>()
   const [accountCorrectionConflict, setAccountCorrectionConflict] = useState(false)
+  const [cancellingPayment, setCancellingPayment] = useState<CardStatementPayment>()
   const previewHeading = useRef<HTMLHeadingElement>(null)
   const idempotency = useRef<{ previewToken: string; key: string } | undefined>(undefined)
   const assets = useQuery({
     queryKey: assetKeys.list,
     queryFn: assetApi.list,
+    staleTime: 0,
+    refetchOnWindowFocus: 'always',
+  })
+  const cardAsset = useQuery({
+    queryKey: assetKeys.detail(statement.cardAsset.assetId),
+    queryFn: () => assetApi.detail(statement.cardAsset.assetId),
     staleTime: 0,
     refetchOnWindowFocus: 'always',
   })
@@ -158,7 +166,34 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
     },
   })
 
+  const cancelPrepaymentMutation = useMutation({
+    mutationFn: ({ paymentId, expectedVersion }: { paymentId: string; expectedVersion: number }) => cardStatementApi.cancelPrepayment(
+      statement.statementId,
+      paymentId,
+      expectedVersion,
+    ),
+    onSuccess: (result) => {
+      queryClient.setQueryData(cardStatementKeys.detail(statement.statementId), result.statement)
+      queryClient.removeQueries({ queryKey: transactionKeys.detail(result.cancelledTransactionId) })
+      void queryClient.invalidateQueries({ queryKey: cardStatementKeys.lists() })
+      void queryClient.invalidateQueries({ queryKey: transactionKeys.all })
+      void queryClient.invalidateQueries({ queryKey: assetKeys.all })
+      setWorkflow(createStatementPrepaymentWorkflow<CardStatementPrepaymentPreview>(snapshot(result.statement)))
+      setCancellingPayment(undefined)
+      setSuccess('선결제를 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.')
+    },
+    onError: async (error) => {
+      if (!(error instanceof ApiError) || error.status !== 412) return
+      await queryClient.fetchQuery({
+        queryKey: cardStatementKeys.detail(statement.statementId),
+        queryFn: () => cardStatementApi.detail(statement.statementId),
+        staleTime: 0,
+      }).catch(() => undefined)
+    },
+  })
+
   const authoritative = queryClient.getQueryData<CardStatementDetail>(cardStatementKeys.detail(statement.statementId)) ?? statement
+  const cardInactive = cardAsset.data?.status === 'ARCHIVED'
   const currentLimit = workflow.conflict?.prepayableAmountWon ?? authoritative.prepayableAmountWon
   const paymentSourceAssets = (assets.data ?? []).filter((asset) => asset.paymentSourceCapable)
 
@@ -221,6 +256,7 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
         </header>
 
         {success ? <p className="mt-4 border-l-4 border-[var(--income)] px-4 py-2 text-sm" role="status">{success}</p> : null}
+        {cardInactive ? <p className="mt-4 border-l-4 border-amber-500 px-4 py-2 text-sm leading-6 text-amber-950 dark:text-[#ffe3a3]" role="status">사용 종료한 카드예요. 과거 명세는 확인할 수 있지만 예약 결제와 새 선결제는 중단됩니다. 다시 사용하면 남은 예약을 이어갈 수 있어요.</p> : null}
         {requestInProgress ? <p className="mt-4 border-l-4 border-amber-500 px-4 py-2 text-sm leading-6 text-amber-900 dark:text-[#ffe3a3]" role="status">같은 선결제 요청을 서버에서 처리 중이에요. 최신 명세와 결제 기록을 다시 확인했으니 잠시 후 영향을 다시 계산해 주세요.</p> : null}
         <StatementSummary statement={authoritative} />
         <PaymentHistory
@@ -245,9 +281,14 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
             setAccountCorrectionConflict(false)
             correctPaymentAccountMutation.mutate({ ...editingPayment, expectedVersion: authoritative.version })
           }}
+          onCancelPrepayment={(payment) => {
+            cancelPrepaymentMutation.reset()
+            setSuccess(undefined)
+            setCancellingPayment(payment)
+          }}
         />
 
-        {authoritative.prepayableAmountWon > 0 && authoritative.settlementAsset ? (
+        {cardInactive ? null : authoritative.prepayableAmountWon > 0 && authoritative.settlementAsset ? (
           <StatementPrepaymentPanel
             workflow={workflow}
             currentRemainingAmountWon={authoritative.remainingAmountWon}
@@ -277,6 +318,14 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
         <MutationError error={previewMutation.error} hidden={Boolean(workflow.conflict || workflow.remoteMissing)} fallback="선결제 영향을 계산하지 못했어요." />
         <MutationError error={applyMutation.error} hidden={Boolean(workflow.conflict || workflow.remoteMissing)} fallback="선결제를 기록하지 못했어요." />
       </section>
+      <Dialog open={Boolean(cancellingPayment)} onOpenChange={(open) => { if (!open && !cancelPrepaymentMutation.isPending) setCancellingPayment(undefined) }}>
+        <DialogContent className="max-w-md">
+          <DialogTitle>선결제를 취소할까요?</DialogTitle>
+          <DialogDescription className="mt-2">{cancellingPayment ? `${formatDate(cancellingPayment.paidOn)}에 기록한 ${formatWon(cancellingPayment.amountWon)} 선결제를 취소합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.` : ''}</DialogDescription>
+          {cancelPrepaymentMutation.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{cancelPrepaymentMutation.error.message}</p> : null}
+          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPrepaymentMutation.isPending} onClick={() => setCancellingPayment(undefined)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPrepaymentMutation.isPending || !cancellingPayment} onClick={() => cancellingPayment && cancelPrepaymentMutation.mutate({ paymentId: cancellingPayment.paymentId, expectedVersion: authoritative.version })}>{cancelPrepaymentMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}선결제 취소</Button></div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   )
 }
@@ -303,7 +352,7 @@ function SummaryValue({ label, value, emphasized = false }: { label: string; val
   return <div><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className={`mt-1 font-semibold tabular-nums ${emphasized ? 'text-xl text-forest-800 dark:text-forest-100' : ''}`}>{value}</dd></div>
 }
 
-function PaymentHistory({ statement, assets, members, editing, online, pending, error, conflict, onEdit, onAssetChange, onCancel, onSave }: {
+function PaymentHistory({ statement, assets, members, editing, online, pending, error, conflict, onEdit, onAssetChange, onCancel, onSave, onCancelPrepayment }: {
   statement: CardStatementDetail
   assets: Asset[]
   members: LedgerBook['members']
@@ -316,6 +365,7 @@ function PaymentHistory({ statement, assets, members, editing, online, pending, 
   onAssetChange: (assetId: string) => void
   onCancel: () => void
   onSave: () => void
+  onCancelPrepayment: (payment: CardStatementPayment) => void
 }) {
   return (
     <section className="border-t border-[var(--line)] py-5" aria-labelledby="statement-payment-history-title">
@@ -325,7 +375,7 @@ function PaymentHistory({ statement, assets, members, editing, online, pending, 
           {statement.payments.map((payment) => (
             <li className="grid gap-2 py-3 @min-[32rem]:grid-cols-[minmax(0,1fr)_auto] @min-[32rem]:items-center" key={payment.paymentId}>
               <span><strong>{cardStatementPaymentTypeLabel(payment.paymentType)}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{formatDate(payment.paidOn)} · {payment.settlementAssetName}</span></span>
-              <div className="flex flex-wrap items-center gap-2 @min-[32rem]:justify-end"><span className="font-semibold tabular-nums">{formatWon(payment.effectiveAmountWon)}{payment.returnedAmountWon > 0 ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]">반환 {formatWon(payment.returnedAmountWon)}</span> : null}</span>{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onEdit(payment)} disabled={pending}><Landmark size={16} />출금 계좌 변경</Button> : null}</div>
+              <div className="flex flex-wrap items-center gap-2 @min-[32rem]:justify-end"><span className="font-semibold tabular-nums">{formatWon(payment.effectiveAmountWon)}{payment.returnedAmountWon > 0 ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]">반환 {formatWon(payment.returnedAmountWon)}</span> : null}</span>{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onEdit(payment)} disabled={pending}><Landmark size={16} />출금 계좌 변경</Button> : null}{payment.paymentType === 'PREPAYMENT' && payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onCancelPrepayment(payment)} disabled={pending}><Trash2 size={16} />선결제 취소</Button> : null}</div>
               {editing?.paymentId === payment.paymentId ? (
                 <div className="border-t border-[var(--line-subtle)] pt-3 @min-[32rem]:col-span-2">
                   <p className="text-sm leading-6 text-[var(--muted)]">금액과 결제일은 그대로 두고 출금 계좌만 변경해요.</p>

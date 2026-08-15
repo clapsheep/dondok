@@ -97,7 +97,7 @@ public class CardSettlementRepository {
                        asset.name settlement_asset_name, payment.amount_won,
                        coalesce(returned.amount_won, 0) returned_amount_won,
                        payment.paid_on, payment.settlement_transaction_id,
-                       payment.created_by_member_id
+                       payment.created_by_member_id, payment.cancelled_at
                   from card_statement_payment payment
                   join asset on asset.book_id = payment.book_id and asset.id = payment.settlement_asset_id
                   left join lateral (
@@ -106,6 +106,7 @@ public class CardSettlementRepository {
                        where allocation.statement_payment_id = payment.id
                   ) returned on true
                  where payment.book_id = ? and payment.statement_id = ?
+                   and payment.cancelled_at is null
                  order by payment.paid_on desc, payment.id desc
                 """, (rs, rowNum) -> new PaymentRow(
                 rs.getObject("id", UUID.class), rs.getObject("statement_id", UUID.class),
@@ -114,7 +115,8 @@ public class CardSettlementRepository {
                 rs.getLong("amount_won"), rs.getLong("returned_amount_won"),
                 rs.getObject("paid_on", LocalDate.class),
                 rs.getObject("settlement_transaction_id", UUID.class),
-                rs.getObject("created_by_member_id", UUID.class)), bookId, statementId);
+                rs.getObject("created_by_member_id", UUID.class),
+                rs.getTimestamp("cancelled_at") == null ? null : rs.getTimestamp("cancelled_at").toInstant()), bookId, statementId);
     }
 
     public PaymentRow findPayment(UUID bookId, UUID paymentId) {
@@ -123,7 +125,7 @@ public class CardSettlementRepository {
                        asset.name settlement_asset_name, payment.amount_won,
                        coalesce(returned.amount_won, 0) returned_amount_won,
                        payment.paid_on, payment.settlement_transaction_id,
-                       payment.created_by_member_id
+                       payment.created_by_member_id, payment.cancelled_at
                   from card_statement_payment payment
                   join asset on asset.book_id = payment.book_id and asset.id = payment.settlement_asset_id
                   left join lateral (
@@ -139,7 +141,8 @@ public class CardSettlementRepository {
                 rs.getLong("amount_won"), rs.getLong("returned_amount_won"),
                 rs.getObject("paid_on", LocalDate.class),
                 rs.getObject("settlement_transaction_id", UUID.class),
-                rs.getObject("created_by_member_id", UUID.class)), bookId, paymentId);
+                rs.getObject("created_by_member_id", UUID.class),
+                rs.getTimestamp("cancelled_at") == null ? null : rs.getTimestamp("cancelled_at").toInstant()), bookId, paymentId);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
@@ -165,6 +168,80 @@ public class CardSettlementRepository {
                 )
                 """, Boolean.class, bookId, assetId);
         return Boolean.TRUE.equals(exists);
+    }
+
+    public boolean isActiveAsset(UUID bookId, UUID assetId) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                select exists(
+                    select 1 from asset
+                     where book_id = ? and id = ? and archived_at is null
+                )
+                """, Boolean.class, bookId, assetId);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public boolean activeRegularPaymentExists(UUID statementId) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                select exists(
+                    select 1
+                      from card_statement_payment payment
+                      join ledger_transaction transaction
+                        on transaction.book_id = payment.book_id
+                       and transaction.id = payment.settlement_transaction_id
+                     where payment.statement_id = ?
+                       and payment.payment_type = 'REGULAR'
+                       and payment.cancelled_at is null
+                       and transaction.deleted_at is null
+                )
+                """, Boolean.class, statementId);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public void cancelPrepayment(
+            UUID bookId,
+            UUID statementId,
+            PaymentRow payment,
+            UUID memberId,
+            LocalDate today,
+            boolean autoSettlementEnabled,
+            Instant now
+    ) {
+        int paymentUpdated = jdbcTemplate.update("""
+                update card_statement_payment
+                   set cancelled_at = ?, cancelled_by_member_id = ?
+                 where book_id = ? and id = ? and statement_id = ?
+                   and payment_type = 'PREPAYMENT' and cancelled_at is null
+                """, Timestamp.from(now), memberId, bookId, payment.paymentId(), statementId);
+        int transactionUpdated = jdbcTemplate.update("""
+                update ledger_transaction
+                   set deleted_at = ?, deleted_by_member_id = ?,
+                       updated_by_member_id = ?, updated_at = ?, version = version + 1
+                 where book_id = ? and id = ? and deleted_at is null
+                """, Timestamp.from(now), memberId, memberId, Timestamp.from(now),
+                bookId, payment.settlementTransactionId());
+        int statementUpdated = jdbcTemplate.update("""
+                update card_statement statement
+                   set status = case when statement.due_on > ? then 'OPEN' else 'FINALIZED' end,
+                       finalized_at = case
+                           when statement.due_on > ? then null
+                           else coalesce(statement.finalized_at, ?)
+                       end,
+                       settled_at = null,
+                       updated_at = ?, version = version + 1
+                 where statement.book_id = ? and statement.id = ?
+                """, Date.valueOf(today), Date.valueOf(today), Timestamp.from(now),
+                Timestamp.from(now), bookId, statementId);
+        if (autoSettlementEnabled) {
+            jdbcTemplate.update("""
+                    update card_payment_schedule
+                       set status = 'SCHEDULED', last_error = null, next_retry_at = null,
+                           updated_at = ?, version = version + 1
+                     where book_id = ? and statement_id = ? and status = 'COMPLETED'
+                    """, Timestamp.from(now), bookId, statementId);
+        }
+        if (paymentUpdated != 1 || transactionUpdated != 1 || statementUpdated != 1) {
+            throw new IllegalStateException("card prepayment cancellation was incomplete");
+        }
     }
 
     public void correctPaymentSettlementAsset(
@@ -259,14 +336,22 @@ public class CardSettlementRepository {
 
     public List<UUID> dueScheduleIds(LocalDate today, Instant now, int limit) {
         return jdbcTemplate.query("""
-                select id
-                  from card_payment_schedule
-                 where scheduled_on <= ?
+                select schedule.id
+                  from card_payment_schedule schedule
+                  join card_statement statement
+                    on statement.book_id = schedule.book_id
+                   and statement.id = schedule.statement_id
+                  join asset card
+                    on card.book_id = statement.book_id
+                   and card.id = statement.card_asset_id
+                   and card.archived_at is null
+                 where schedule.scheduled_on <= ?
                    and (
-                       status = 'SCHEDULED'
-                       or (status = 'FAILED' and (next_retry_at is null or next_retry_at <= ?))
+                       schedule.status = 'SCHEDULED'
+                       or (schedule.status = 'FAILED'
+                           and (schedule.next_retry_at is null or schedule.next_retry_at <= ?))
                    )
-                 order by scheduled_on, id
+                 order by schedule.scheduled_on, schedule.id
                  limit ?
                 """, (rs, rowNum) -> rs.getObject(1, UUID.class),
                 Date.valueOf(today), Timestamp.from(now), limit);
@@ -454,7 +539,8 @@ public class CardSettlementRepository {
             long returnedAmountWon,
             LocalDate paidOn,
             UUID settlementTransactionId,
-            UUID createdByMemberId
+            UUID createdByMemberId,
+            Instant cancelledAt
     ) {
     }
 

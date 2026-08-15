@@ -2,6 +2,7 @@ package com.dondok.asset.api;
 
 import com.dondok.asset.application.AssetService;
 import com.dondok.asset.domain.AssetOwnershipScope;
+import com.dondok.asset.domain.CardIssuerCode;
 import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.auth.application.DondokPrincipal;
 import jakarta.validation.Valid;
@@ -100,6 +101,15 @@ public class AssetController {
         return assetService.remove(principal.userId(), assetId, expectedVersion, previewToken);
     }
 
+    @PostMapping("/assets/{assetId}/restore")
+    AssetService.AssetView restoreAsset(
+            @AuthenticationPrincipal DondokPrincipal principal,
+            @PathVariable UUID assetId,
+            @Valid @RequestBody RestoreAssetRequest request
+    ) {
+        return assetService.restore(principal.userId(), assetId, request.expectedVersion());
+    }
+
     private interface AssetPayload {
         UUID assetTypeId();
 
@@ -108,6 +118,8 @@ public class AssetController {
         UUID ownerMemberId();
 
         FinancialInstitutionCode financialInstitutionCode();
+
+        CardIssuerCode cardIssuerCode();
 
         String name();
 
@@ -125,7 +137,7 @@ public class AssetController {
 
         default AssetService.AssetCommand toCommand() {
             return new AssetService.AssetCommand(
-                    assetTypeId(), ownershipScope(), ownerMemberId(), financialInstitutionCode(), name(),
+                    assetTypeId(), ownershipScope(), ownerMemberId(), financialInstitutionCode(), cardIssuerCode(), name(),
                     openedOn(), memo(), openingBalanceWon(),
                     cardSettings() == null ? null : cardSettings().toCommand(),
                     debitCardSettings() == null ? null : debitCardSettings().toCommand(),
@@ -133,11 +145,15 @@ public class AssetController {
         }
     }
 
+    public record RestoreAssetRequest(@Min(0) long expectedVersion) {
+    }
+
     public record CreateAssetRequest(
             @NotNull UUID assetTypeId,
             @NotNull AssetOwnershipScope ownershipScope,
             UUID ownerMemberId,
             FinancialInstitutionCode financialInstitutionCode,
+            CardIssuerCode cardIssuerCode,
             @NotBlank @Size(max = 100) String name,
             @NotNull LocalDate openedOn,
             @Size(max = 1000) String memo,
@@ -153,6 +169,7 @@ public class AssetController {
             @NotNull AssetOwnershipScope ownershipScope,
             UUID ownerMemberId,
             FinancialInstitutionCode financialInstitutionCode,
+            CardIssuerCode cardIssuerCode,
             @NotBlank @Size(max = 100) String name,
             @NotNull LocalDate openedOn,
             @Size(max = 1000) String memo,

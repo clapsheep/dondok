@@ -9,6 +9,16 @@ export function formatDate(value: string) {
   return dateFormat.format(new Date(`${value}T00:00:00+09:00`))
 }
 
+export function formatMonthDay(value: string) {
+  const [, month, day] = value.split('-').map(Number)
+  return `${month}월 ${day}일`
+}
+
+export function formatPaymentDueDate(value: string, today = todayInSeoul()) {
+  const label = formatMonthDay(value)
+  return value < today ? `미결제 · ${label}` : label
+}
+
 export function todayInSeoul() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',

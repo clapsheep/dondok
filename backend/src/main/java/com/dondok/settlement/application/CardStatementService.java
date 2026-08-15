@@ -110,6 +110,7 @@ public class CardStatementService {
         if (statement.version() != command.expectedVersion()) {
             throw versionConflict(statement);
         }
+        requireActiveCard(statement);
         LocalDate today = today();
         requirePrepayable(statement, command.amountWon(), today);
         CardStatementPaymentPolicy.PrepaymentDecision decision = prepaymentDecision(
@@ -150,6 +151,7 @@ public class CardStatementService {
         if (statement == null) {
             throw statementNotFound();
         }
+        requireActiveCard(statement);
         LocalDate today = today();
         if (statement.version() != command.expectedVersion()
                 || !MessageDigest.isEqual(
@@ -207,6 +209,10 @@ public class CardStatementService {
             throw error(HttpStatus.NOT_FOUND, "CARD_STATEMENT_PAYMENT_NOT_FOUND",
                     "카드 결제 기록을 찾을 수 없습니다.");
         }
+        if (payment.cancelledAt() != null) {
+            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_ALREADY_CANCELLED",
+                    "이미 취소된 선결제입니다.");
+        }
         if (payment.returnedAmountWon() > 0) {
             throw error(HttpStatus.CONFLICT, "CARD_PAYMENT_ACCOUNT_CORRECTION_REFUND_EXISTS",
                     "환불 반환에 사용된 결제는 출금 계좌를 변경할 수 없습니다.");
@@ -231,8 +237,57 @@ public class CardStatementService {
                 payment(currentPayment), transaction(transfer));
     }
 
+    @Transactional
+    public CardPrepaymentCancellationResult cancelPrepayment(
+            UUID userId,
+            UUID statementId,
+            UUID paymentId,
+            CancelPrepaymentCommand command
+    ) {
+        LedgerMemberEntity member = mutationGuard.lockCurrentMember(userId);
+        StatementRow statement = repository.lockStatement(member.getBookId(), statementId);
+        if (statement == null) {
+            throw statementNotFound();
+        }
+        if (statement.version() != command.expectedVersion()) {
+            throw versionConflict(statement);
+        }
+        PaymentRow payment = repository.lockPayment(member.getBookId(), paymentId);
+        if (payment == null || !payment.statementId().equals(statementId)) {
+            throw error(HttpStatus.NOT_FOUND, "CARD_STATEMENT_PAYMENT_NOT_FOUND",
+                    "카드 결제 기록을 찾을 수 없습니다.");
+        }
+        if (payment.cancelledAt() != null) {
+            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_ALREADY_CANCELLED",
+                    "이미 취소된 선결제입니다.");
+        }
+        if (!"PREPAYMENT".equals(payment.paymentType())) {
+            throw error(HttpStatus.CONFLICT, "CARD_REGULAR_PAYMENT_CANCELLATION_NOT_ALLOWED",
+                    "자동 정산 결제는 선결제 취소로 되돌릴 수 없습니다.");
+        }
+        if (payment.returnedAmountWon() > 0) {
+            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_CANCELLATION_REFUND_EXISTS",
+                    "환불 금액이 반환된 선결제는 취소할 수 없습니다.");
+        }
+        if (repository.activeRegularPaymentExists(statementId)) {
+            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_CANCELLATION_REGULAR_PAYMENT_EXISTS",
+                    "이후 자동 정산이 완료되어 선결제를 취소할 수 없습니다.");
+        }
+        Instant now = clock.instant();
+        repository.cancelPrepayment(
+                member.getBookId(), statementId, payment, member.getId(), today(),
+                statement.autoSettlementEnabled(), now);
+        return new CardPrepaymentCancellationResult(
+                detail(requiredStatement(member.getBookId(), statementId)),
+                paymentId, payment.settlementTransactionId());
+    }
+
     private CardStatementPaymentResult replay(UUID bookId, UUID paymentId) {
         PaymentRow payment = requiredPayment(bookId, paymentId);
+        if (payment.cancelledAt() != null) {
+            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_ALREADY_CANCELLED",
+                    "이미 취소된 선결제입니다.");
+        }
         ManagedTransferPort.ManagedTransfer transfer = managedTransfers.find(
                 bookId, payment.settlementTransactionId());
         if (transfer == null) {
@@ -325,6 +380,13 @@ public class CardStatementService {
             }
             throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_AMOUNT_EXCEEDED",
                     "남은 카드 결제 금액을 초과할 수 없습니다.");
+        }
+    }
+
+    private void requireActiveCard(StatementRow statement) {
+        if (!repository.isActiveAsset(statement.bookId(), statement.cardAssetId())) {
+            throw error(HttpStatus.CONFLICT, "CARD_ASSET_INACTIVE",
+                    "사용 종료한 카드에는 새 결제를 기록할 수 없습니다. 다시 사용한 뒤 진행해 주세요.");
         }
     }
 
@@ -537,6 +599,16 @@ public class CardStatementService {
             CardStatementPayment payment,
             SettlementTransaction settlementTransaction
     ) {
+    }
+
+    public record CardPrepaymentCancellationResult(
+            CardStatementDetail statement,
+            UUID cancelledPaymentId,
+            UUID cancelledTransactionId
+    ) {
+    }
+
+    public record CancelPrepaymentCommand(long expectedVersion) {
     }
 
     public record CorrectPaymentAccountCommand(

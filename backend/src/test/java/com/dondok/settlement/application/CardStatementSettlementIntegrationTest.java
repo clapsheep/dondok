@@ -132,6 +132,64 @@ class CardStatementSettlementIntegrationTest {
     }
 
     @Test
+    void cancellingPrepaymentAtomicallyRestoresBalancesAndReopensStatement() {
+        Fixture fixture = fixture(true, 200_000);
+        TransactionService.TransactionView purchase = purchase(fixture, 100_000, "cancel-prepayment-purchase");
+        UUID statementId = statementId(purchase.transactionId());
+        CardStatementService.CardStatementPaymentResult paid = prepay(
+                fixture, statementId, 100_000, "cancel-prepayment");
+
+        assertThat(paid.statement().status()).isEqualTo("PAID");
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(100_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+        assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
+
+        CardStatementService.CardPrepaymentCancellationResult cancelled = statements.cancelPrepayment(
+                fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CancelPrepaymentCommand(paid.statement().version()));
+
+        assertThat(cancelled.statement().status()).isEqualTo("OPEN");
+        assertThat(cancelled.statement().remainingAmountWon()).isEqualTo(100_000);
+        assertThat(cancelled.statement().payments()).isEmpty();
+        assertThat(cancelled.cancelledPaymentId()).isEqualTo(paid.payment().paymentId());
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(200_000);
+        assertThat(balance(fixture.card().assetId())).isEqualTo(-100_000);
+        assertThat(scheduleStatus(statementId)).isEqualTo("SCHEDULED");
+        assertThat(queryLong("""
+                select count(*) from ledger_transaction
+                 where id = ? and deleted_at is not null
+                """, paid.settlementTransaction().transactionId())).isOne();
+        assertThat(queryLong("""
+                select count(*) from card_statement_payment
+                 where id = ? and cancelled_at is not null
+                """, paid.payment().paymentId())).isOne();
+    }
+
+    @Test
+    void cancellingPrepaymentRejectsStaleVersionAndDuplicateCancellation() {
+        Fixture fixture = fixture(true, 200_000);
+        UUID statementId = statementId(purchase(fixture, 100_000, "cancel-guard-purchase").transactionId());
+        CardStatementService.CardStatementPaymentResult paid = prepay(
+                fixture, statementId, 40_000, "cancel-guard-prepayment");
+
+        assertThatThrownBy(() -> statements.cancelPrepayment(
+                fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CancelPrepaymentCommand(paid.statement().version() - 1)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo("VERSION_CONFLICT"));
+
+        CardStatementService.CardPrepaymentCancellationResult cancelled = statements.cancelPrepayment(
+                fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CancelPrepaymentCommand(paid.statement().version()));
+        assertThatThrownBy(() -> statements.cancelPrepayment(
+                fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CancelPrepaymentCommand(cancelled.statement().version())))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo("CARD_PREPAYMENT_ALREADY_CANCELLED"));
+    }
+
+    @Test
     void correctsPaymentAccountWithoutChangingAmountDateOrStatementSettlement() {
         Fixture fixture = fixture(true, 200_000);
         AssetService.AssetView correctedBank = createBank(
@@ -461,11 +519,12 @@ class CardStatementSettlementIntegrationTest {
     }
 
     @Test
-    void archivedCardKeepsItsUnpaidStatementAndCanStillBeSettled() {
-        Fixture fixture = fixture(false, 0);
+    void endedCardCancelsAutomaticScheduleAndRejectsNewPaymentsUntilRestored() {
+        Fixture fixture = fixture(true, 0);
         TransactionService.TransactionView purchase = purchase(
                 fixture, 75_000, "archived-card-purchase");
         UUID statementId = statementId(purchase.transactionId());
+        UUID scheduleId = scheduleId(statementId);
         AssetService.AssetRemovalPreview removalPreview = assetService.removalPreview(
                 fixture.userId(), fixture.card().assetId());
 
@@ -477,13 +536,37 @@ class CardStatementSettlementIntegrationTest {
                 fixture.userId(), fixture.card().assetId(),
                 removalPreview.expectedVersion(), removalPreview.previewToken());
 
-        assertThat(assetService.asset(fixture.userId(), fixture.card().assetId()).status())
-                .isEqualTo(AssetService.AssetStatus.ARCHIVED);
-        CardStatementService.CardStatementPaymentResult settled = prepay(
-                fixture, statementId, 75_000, "archived-card-prepayment");
+        AssetService.AssetView endedCard = assetService.asset(
+                fixture.userId(), fixture.card().assetId());
+        assertThat(endedCard.status()).isEqualTo(AssetService.AssetStatus.ARCHIVED);
+        assertThat(endedCard.currentMonthCardPaymentDueWon()
+                + endedCard.nextMonthCardPaymentDueWon()).isZero();
+        assertThat(scheduleStatus(statementId)).isEqualTo("CANCELLED");
 
-        assertThat(settled.statement().status()).isEqualTo("PAID");
-        assertThat(settled.statement().remainingAmountWon()).isZero();
+        CardStatementService.CardStatementDetail archivedStatement = statements.statement(
+                fixture.userId(), statementId);
+        assertThatThrownBy(() -> statements.preview(
+                fixture.userId(), statementId,
+                new CardStatementService.PrepaymentCommand(
+                        75_000, archivedStatement.version())))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo("CARD_ASSET_INACTIVE"));
+
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        assertThat(settlementService.settle(scheduleId))
+                .isEqualTo(CardSettlementService.SettlementOutcome.SKIPPED);
+        assertThat(queryLong("select count(*) from card_statement_payment where statement_id = ?", statementId))
+                .isZero();
+
+        AssetService.AssetView archivedCard = assetService.asset(
+                fixture.userId(), fixture.card().assetId());
+        assetService.restore(fixture.userId(), fixture.card().assetId(), archivedCard.version());
+        assertThat(scheduleStatus(statementId)).isEqualTo("SCHEDULED");
+        assertThat(settlementService.settle(scheduleId))
+                .isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+
+        assertThat(statements.statement(fixture.userId(), statementId).status()).isEqualTo("PAID");
         assertThat(balance(fixture.card().assetId())).isZero();
         assertThat(balance(fixture.bank().assetId())).isEqualTo(-75_000);
     }

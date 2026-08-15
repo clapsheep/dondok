@@ -13,7 +13,7 @@ type SeedResult = {
 
 test.use({ serviceWorkers: 'block' })
 
-test('카드 선택기는 이번 달 금액이 없어도 가장 가까운 다음 결제 예정액을 보여준다', async ({ page, request }) => {
+test('카드 선택기는 가장 가까운 결제 예정액을 보여준다', async ({ page, request }) => {
   await registerAndLogin(page, request, `카드 선택 금액 ${test.info().workerIndex}`)
   await page.route('**/api/assets', async (route) => {
     if (route.request().method() !== 'GET') {
@@ -23,13 +23,13 @@ test('카드 선택기는 이번 달 금액이 없어도 가장 가까운 다음
     const response = await route.fetch()
     const assets = await response.json() as Array<{
       behavior: string
-      currentMonthCardPaymentDueWon: number
-      nextMonthCardPaymentDueWon: number
+      nearestCardPaymentDueOn: string | null
+      nearestCardPaymentDueWon: number
     }>
     await route.fulfill({ response, json: assets.map((asset) => asset.behavior === 'CREDIT_CARD' ? {
       ...asset,
-      currentMonthCardPaymentDueWon: 0,
-      nextMonthCardPaymentDueWon: 210_000,
+      nearestCardPaymentDueOn: '2026-08-25',
+      nearestCardPaymentDueWon: 210_000,
     } : asset) })
   })
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
@@ -38,7 +38,7 @@ test('카드 선택기는 이번 달 금액이 없어도 가장 가까운 다음
   await page.goto('/transactions/new')
   const { trigger, picker } = await openAssetPicker(page, '결제 자산')
   await picker.getByRole('button', { name: /^카드 \d+$/ }).click()
-  const creditCard = picker.getByRole('button', { name: /^신용카드, 신용카드, 나, 결제 예정 210,000원$/ })
+  const creditCard = picker.getByRole('button', { name: /^신용카드, (?:기타 카드사, )?신용카드, 나, 결제 예정 210,000원$/ })
   await expect(creditCard).toBeVisible()
   await creditCard.click()
   await expect(trigger).toContainText('결제 예정 210,000원')

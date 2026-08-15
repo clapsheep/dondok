@@ -83,41 +83,73 @@ public class AssetLedgerRepository {
             return paymentDues;
         }
         String placeholders = String.join(",", java.util.Collections.nCopies(cardAssetIds.size(), "?"));
-        Object[] parameters = new Object[cardAssetIds.size() + 4];
-        parameters[0] = Date.valueOf(nextMonthStart);
-        parameters[1] = bookId;
+        Object[] parameters = new Object[cardAssetIds.size() + 5];
+        parameters[0] = bookId;
         for (int index = 0; index < cardAssetIds.size(); index++) {
-            parameters[index + 2] = cardAssetIds.get(index);
+            parameters[index + 1] = cardAssetIds.get(index);
         }
-        parameters[cardAssetIds.size() + 2] = Date.valueOf(monthStart);
-        parameters[cardAssetIds.size() + 3] = Date.valueOf(afterNextMonthStart);
+        parameters[cardAssetIds.size() + 1] = Date.valueOf(monthStart);
+        parameters[cardAssetIds.size() + 2] = Date.valueOf(nextMonthStart);
+        parameters[cardAssetIds.size() + 3] = Date.valueOf(nextMonthStart);
+        parameters[cardAssetIds.size() + 4] = Date.valueOf(afterNextMonthStart);
         jdbcTemplate.query("""
-                select forecast.card_asset_id,
-                       coalesce(sum(forecast.payment_amount_won)
-                           filter (where forecast.due_on < boundary.next_month_start), 0)
+                with due_totals as (
+                    select forecast.card_asset_id,
+                           forecast.due_on,
+                           sum(forecast.payment_amount_won) as payment_due_won
+                      from card_statement_forecast forecast
+                     where forecast.book_id = ?
+                       and forecast.card_asset_id in (%s)
+                       and forecast.status in ('OPEN', 'FINALIZED')
+                       and forecast.payment_amount_won > 0
+                     group by forecast.card_asset_id, forecast.due_on
+                ), ranked as (
+                    select due_totals.*,
+                           row_number() over (
+                               partition by due_totals.card_asset_id
+                               order by due_totals.due_on
+                           ) as due_rank
+                      from due_totals
+                )
+                select ranked.card_asset_id,
+                       coalesce(sum(ranked.payment_due_won)
+                           filter (where ranked.due_on >= ? and ranked.due_on < ?), 0)
                            as current_month_payment_due_won,
-                       coalesce(sum(forecast.payment_amount_won)
-                           filter (where forecast.due_on >= boundary.next_month_start), 0)
-                           as next_month_payment_due_won
-                  from card_statement_forecast forecast
-                 cross join (values (?::date)) boundary(next_month_start)
-                 where forecast.book_id = ?
-                   and forecast.card_asset_id in (%s)
-                   and forecast.status in ('OPEN', 'FINALIZED')
-                   and forecast.due_on >= ?
-                   and forecast.due_on < ?
-                 group by forecast.card_asset_id
+                       coalesce(sum(ranked.payment_due_won)
+                           filter (where ranked.due_on >= ? and ranked.due_on < ?), 0)
+                           as next_month_payment_due_won,
+                       max(ranked.due_on) filter (where ranked.due_rank = 1)
+                           as nearest_payment_due_on,
+                       coalesce(max(ranked.payment_due_won) filter (where ranked.due_rank = 1), 0)
+                           as nearest_payment_due_won,
+                       max(ranked.due_on) filter (where ranked.due_rank = 2)
+                           as following_payment_due_on,
+                       coalesce(max(ranked.payment_due_won) filter (where ranked.due_rank = 2), 0)
+                           as following_payment_due_won
+                  from ranked
+                 group by ranked.card_asset_id
                 """.formatted(placeholders),
                 (RowCallbackHandler) rs -> paymentDues.put(
                         rs.getObject("card_asset_id", UUID.class),
                         new CardPaymentDues(
                                 rs.getLong("current_month_payment_due_won"),
-                                rs.getLong("next_month_payment_due_won"))),
+                                rs.getLong("next_month_payment_due_won"),
+                                rs.getObject("nearest_payment_due_on", LocalDate.class),
+                                rs.getLong("nearest_payment_due_won"),
+                                rs.getObject("following_payment_due_on", LocalDate.class),
+                                rs.getLong("following_payment_due_won"))),
                 parameters);
         return paymentDues;
     }
 
-    public record CardPaymentDues(long currentMonthWon, long nextMonthWon) {
+    public record CardPaymentDues(
+            long currentMonthWon,
+            long nextMonthWon,
+            LocalDate nearestDueOn,
+            long nearestWon,
+            LocalDate followingDueOn,
+            long followingWon
+    ) {
     }
 
     public UUID synchronizeOpeningBalance(

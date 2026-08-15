@@ -1,5 +1,6 @@
 import type { Asset, AssetTypeSystemCode } from './api'
 import { financialInstitutionSortOrder } from './financialInstitutions.ts'
+import { cardIssuerSortOrder } from './cardIssuers.ts'
 
 export type AssetGroupKey = 'liquid' | 'cards' | 'investments' | 'loans' | 'insurance'
 
@@ -13,13 +14,13 @@ export type AssetGroupSummary = BalanceSummary & {
   key: AssetGroupKey
   label: string
   items: Asset[]
-  currentMonthCardPaymentDueWon: number
-  nextMonthCardPaymentDueWon: number
+  nearestCardPaymentDueWon: number
+  followingCardPaymentDueWon: number
 }
 
 export type AssetOverview = BalanceSummary & {
-  currentMonthCardPaymentDueWon: number
-  nextMonthCardPaymentDueWon: number
+  nearestCardPaymentDueWon: number
+  followingCardPaymentDueWon: number
   groups: AssetGroupSummary[]
 }
 
@@ -45,15 +46,15 @@ export function buildAssetOverview(assets: readonly Asset[]): AssetOverview {
   let assetsWon = 0
   let liabilitiesWon = 0
   let netWon = 0
-  let currentMonthCardPaymentDueWon = 0
-  let nextMonthCardPaymentDueWon = 0
+  let nearestCardPaymentDueWon = 0
+  let followingCardPaymentDueWon = 0
 
   for (const asset of assets) {
     if (asset.currentBalanceWon > 0) assetsWon += asset.currentBalanceWon
     else if (asset.currentBalanceWon < 0) liabilitiesWon += Math.abs(asset.currentBalanceWon)
     netWon += asset.currentBalanceWon
-    currentMonthCardPaymentDueWon += asset.currentMonthCardPaymentDueWon
-    nextMonthCardPaymentDueWon += asset.nextMonthCardPaymentDueWon
+    nearestCardPaymentDueWon += asset.nearestCardPaymentDueWon
+    followingCardPaymentDueWon += asset.followingCardPaymentDueWon
 
     const definition = groupBySystemCode.get(asset.systemCode)
     if (!definition) continue
@@ -64,12 +65,12 @@ export function buildAssetOverview(assets: readonly Asset[]): AssetOverview {
       assetsWon: 0,
       liabilitiesWon: 0,
       netWon: 0,
-      currentMonthCardPaymentDueWon: 0,
-      nextMonthCardPaymentDueWon: 0,
+      nearestCardPaymentDueWon: 0,
+      followingCardPaymentDueWon: 0,
     }
     addBalance(group, asset.currentBalanceWon)
-    group.currentMonthCardPaymentDueWon += asset.currentMonthCardPaymentDueWon
-    group.nextMonthCardPaymentDueWon += asset.nextMonthCardPaymentDueWon
+    group.nearestCardPaymentDueWon += asset.nearestCardPaymentDueWon
+    group.followingCardPaymentDueWon += asset.followingCardPaymentDueWon
     group.items.push(asset)
     groups.set(definition.key, group)
   }
@@ -78,8 +79,8 @@ export function buildAssetOverview(assets: readonly Asset[]): AssetOverview {
     assetsWon,
     liabilitiesWon,
     netWon,
-    currentMonthCardPaymentDueWon,
-    nextMonthCardPaymentDueWon,
+    nearestCardPaymentDueWon,
+    followingCardPaymentDueWon,
     groups: groupDefinitions.flatMap((definition) => {
       const group = groups.get(definition.key)
       if (!group) return []
@@ -93,10 +94,17 @@ function compareAssetsForOverview(left: Asset, right: Asset) {
   const leftBankRelated = left.systemCode === 'BANK' || left.systemCode === 'SAVINGS'
   const rightBankRelated = right.systemCode === 'BANK' || right.systemCode === 'SAVINGS'
   if (leftBankRelated !== rightBankRelated) return leftBankRelated ? 1 : -1
-  if (leftBankRelated && rightBankRelated) {
+  if ((leftBankRelated && rightBankRelated)
+    || (left.systemCode === right.systemCode && (left.systemCode === 'LOAN' || left.systemCode === 'INVESTMENT'))) {
     const institutionOrder = financialInstitutionSortOrder(left.financialInstitutionCode)
       - financialInstitutionSortOrder(right.financialInstitutionCode)
     if (institutionOrder !== 0) return institutionOrder
+  }
+  const leftCardRelated = left.systemCode === 'CREDIT_CARD' || left.systemCode === 'DEBIT_CARD'
+  const rightCardRelated = right.systemCode === 'CREDIT_CARD' || right.systemCode === 'DEBIT_CARD'
+  if (leftCardRelated && rightCardRelated) {
+    const issuerOrder = cardIssuerSortOrder(left.cardIssuerCode) - cardIssuerSortOrder(right.cardIssuerCode)
+    if (issuerOrder !== 0) return issuerOrder
   }
   const typeOrder = (left.assetTypeName ?? left.systemCode).localeCompare(right.assetTypeName ?? right.systemCode, 'ko')
   return typeOrder

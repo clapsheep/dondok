@@ -3,6 +3,7 @@ package com.dondok.asset.application;
 import com.dondok.asset.domain.AssetBehavior;
 import com.dondok.asset.domain.AssetOwnershipScope;
 import com.dondok.asset.domain.CardBillingCyclePolicy;
+import com.dondok.asset.domain.CardIssuerCode;
 import com.dondok.asset.domain.DefaultAssetType;
 import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.asset.infrastructure.persistence.AssetEntity;
@@ -50,7 +51,7 @@ import org.springframework.transaction.annotation.Isolation;
 public class AssetService {
     private static final int ACTIVE_ASSET_LIMIT = 50;
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
-    private static final CardPaymentDues NO_CARD_PAYMENT_DUES = new CardPaymentDues(0, 0);
+    private static final CardPaymentDues NO_CARD_PAYMENT_DUES = new CardPaymentDues(0, 0, null, 0, null, 0);
     private static final Set<String> SYSTEM_ASSET_TYPE_CODES = DefaultAssetType.ALL.stream()
             .map(DefaultAssetType::systemCode)
             .collect(Collectors.toUnmodifiableSet());
@@ -139,7 +140,7 @@ public class AssetService {
             long expectedVersion,
             String previewToken
     ) {
-        LedgerMemberEntity member = mutationGuard.lockCurrentMember(userId);
+        LedgerMemberEntity member = mutationGuard.lockCurrentMemberExclusively(userId);
         AssetEntity asset = assets.findActiveForUpdate(assetId, member.getBookId())
                 .orElseThrow(this::assetNotFound);
         if (asset.getVersion() != expectedVersion) {
@@ -165,6 +166,8 @@ public class AssetService {
         String name = asset.getName();
         long currentBalanceWon = snapshot.currentBalanceWon();
         if (snapshot.requiresArchive()) {
+            ledger.synchronizeCardPaymentSchedules(
+                    member.getBookId(), assetId, null, removedAt);
             asset.archive(member.getId(), removedAt);
             assets.flush();
             return new AssetRemovalResult(
@@ -172,11 +175,76 @@ public class AssetService {
                     currentBalanceWon, removedAt);
         }
 
+        ledger.synchronizeOpeningBalance(
+                member.getBookId(), assetId, member.getId(), asset.getOpenedOn(), 0, removedAt);
         assets.delete(asset);
         assets.flush();
         return new AssetRemovalResult(
                 assetId, name, AssetRemovalResultDisposition.DELETED,
                 currentBalanceWon, removedAt);
+    }
+
+    @Transactional
+    public AssetView restore(UUID userId, UUID assetId, long expectedVersion) {
+        LedgerMemberEntity member = mutationGuard.lockCurrentMemberExclusively(userId);
+        AssetEntity asset = assets.findAnyForUpdate(assetId, member.getBookId())
+                .orElseThrow(this::assetNotFound);
+        if (!asset.isArchived()) {
+            throw error(HttpStatus.CONFLICT, "ASSET_ALREADY_ACTIVE", "이미 사용 중인 자산입니다.");
+        }
+        if (asset.getVersion() != expectedVersion) {
+            throw versionConflict();
+        }
+        if (assets.countByBookIdAndArchivedAtIsNull(member.getBookId()) >= ACTIVE_ASSET_LIMIT) {
+            throw error(HttpStatus.CONFLICT, "ASSET_LIMIT_REACHED",
+                    "활성 자산은 가계부당 50개까지 등록할 수 있습니다.");
+        }
+        AssetTypeEntity type = requireRestorableLinks(asset);
+        Instant restoredAt = clock.instant();
+        asset.restore(member.getId(), restoredAt);
+        assets.flush();
+        if (type.getBehavior() == AssetBehavior.CREDIT_CARD) {
+            ledger.synchronizeCardPaymentSchedules(
+                    member.getBookId(), assetId,
+                    cardSettings.findById(assetId).orElse(null), restoredAt);
+        }
+        return view(member.getBookId(), asset);
+    }
+
+    private AssetTypeEntity requireRestorableLinks(AssetEntity asset) {
+        AssetTypeEntity type = assetTypes.findByIdAndBookIdAndArchivedAtIsNull(
+                        asset.getAssetTypeId(), asset.getBookId())
+                .orElseThrow(() -> error(HttpStatus.CONFLICT, "ASSET_RESTORE_TYPE_INVALID",
+                        "현재 사용할 수 없는 자산 종류라 복원할 수 없습니다."));
+        UUID linkedAssetId = switch (type.getBehavior()) {
+            case CREDIT_CARD -> cardSettings.findById(asset.getId())
+                    .map(CardSettingEntity::getSettlementAssetId).orElse(null);
+            case DEBIT_CARD -> debitCardSettings.findById(asset.getId())
+                    .map(DebitCardSettingEntity::getPaymentAssetId).orElse(null);
+            case SAVINGS -> savingsSettings.findById(asset.getId())
+                    .map(SavingsSettingEntity::getTransferAssetId).orElse(null);
+            default -> null;
+        };
+        if (linkedAssetId == null) {
+            if (type.getBehavior() == AssetBehavior.CREDIT_CARD
+                    || type.getBehavior() == AssetBehavior.DEBIT_CARD) {
+                throw restoreLinkInvalid();
+            }
+            return type;
+        }
+        AssetEntity linkedAsset = assets.findByIdAndBookIdAndArchivedAtIsNull(
+                        linkedAssetId, asset.getBookId()).orElseThrow(this::restoreLinkInvalid);
+        AssetTypeEntity linkedType = assetTypes.findByIdAndBookIdAndArchivedAtIsNull(
+                        linkedAsset.getAssetTypeId(), asset.getBookId()).orElseThrow(this::restoreLinkInvalid);
+        if (!linkedType.isPaymentSourceCapable()) {
+            throw restoreLinkInvalid();
+        }
+        return type;
+    }
+
+    private ApiException restoreLinkInvalid() {
+        return error(HttpStatus.CONFLICT, "ASSET_RESTORE_LINK_INVALID",
+                "연결 계좌가 보관되었거나 사용할 수 없습니다. 연결 계좌를 먼저 복원해 주세요.");
     }
 
     @Transactional
@@ -211,12 +279,13 @@ public class AssetService {
         SavingsSettingsCommand savingsCommand = validateSavingsSettings(
                 member.getBookId(), null, type, command.savingsSettings());
         FinancialInstitutionCode financialInstitutionCode = financialInstitutionCode(type, command.financialInstitutionCode());
+        CardIssuerCode cardIssuerCode = cardIssuerCode(type, command.cardIssuerCode());
         requireOpeningMagnitude(command.openingBalanceWon());
 
         UUID assetId = UuidV7.next();
         AssetEntity asset = assets.save(new AssetEntity(
                 assetId, member.getBookId(), type.getId(), command.ownershipScope(), ownerMemberId,
-                financialInstitutionCode,
+                financialInstitutionCode, cardIssuerCode,
                 command.name().strip(), command.openedOn(), stripToNull(command.memo()),
                 command.openingBalanceWon(), 0, member.getId(), now));
         assets.flush();
@@ -260,9 +329,10 @@ public class AssetService {
         SavingsSettingsCommand savingsCommand = validateSavingsSettings(
                 member.getBookId(), assetId, type, input.savingsSettings());
         FinancialInstitutionCode financialInstitutionCode = financialInstitutionCode(type, input.financialInstitutionCode());
+        CardIssuerCode cardIssuerCode = cardIssuerCode(type, input.cardIssuerCode());
         requireOpeningMagnitude(input.openingBalanceWon());
 
-        asset.update(type.getId(), input.ownershipScope(), ownerMemberId, financialInstitutionCode,
+        asset.update(type.getId(), input.ownershipScope(), ownerMemberId, financialInstitutionCode, cardIssuerCode,
                 input.name().strip(),
                 input.openedOn(), stripToNull(input.memo()), input.openingBalanceWon(),
                 member.getId(), now);
@@ -297,8 +367,20 @@ public class AssetService {
             AssetTypeEntity type,
             FinancialInstitutionCode requested
     ) {
-        if ("BANK".equals(type.getSystemCode()) || "SAVINGS".equals(type.getSystemCode())) {
-            return requested == null ? FinancialInstitutionCode.OTHER : requested;
+        if (Set.of("BANK", "SAVINGS", "LOAN", "INVESTMENT").contains(type.getSystemCode())) {
+            FinancialInstitutionCode resolved = requested == null ? FinancialInstitutionCode.OTHER : requested;
+            if (!resolved.supports(type.getSystemCode())) {
+                throw error(HttpStatus.BAD_REQUEST, "FINANCIAL_INSTITUTION_INVALID",
+                        "선택한 자산 종류에 맞는 금융기관을 선택해 주세요.");
+            }
+            return resolved;
+        }
+        return null;
+    }
+
+    private CardIssuerCode cardIssuerCode(AssetTypeEntity type, CardIssuerCode requested) {
+        if ("CREDIT_CARD".equals(type.getSystemCode()) || "DEBIT_CARD".equals(type.getSystemCode())) {
+            return requested == null ? CardIssuerCode.OTHER : requested;
         }
         return null;
     }
@@ -500,6 +582,7 @@ public class AssetService {
                 .collect(Collectors.toMap(SavingsSettingEntity::getSavingsAssetId, Function.identity()));
         Map<UUID, Long> balances = ledger.currentBalances(bookId);
         List<UUID> cardIds = found.stream()
+                .filter(asset -> !asset.isArchived())
                 .filter(asset -> requiredType(types, asset.getAssetTypeId()).getBehavior()
                         == AssetBehavior.CREDIT_CARD)
                 .map(AssetEntity::getId)
@@ -517,7 +600,8 @@ public class AssetService {
                 asset.getAssetTypeId(), bookId).orElseThrow(() -> new IllegalStateException("asset type is missing"));
         CardPaymentDues cardPaymentDues = currentAndNextMonthCardPaymentDues(
                 bookId,
-                type.getBehavior() == AssetBehavior.CREDIT_CARD ? List.of(asset.getId()) : List.of())
+                type.getBehavior() == AssetBehavior.CREDIT_CARD && !asset.isArchived()
+                        ? List.of(asset.getId()) : List.of())
                 .getOrDefault(asset.getId(), NO_CARD_PAYMENT_DUES);
         return toView(asset, type, cardSettings.findById(asset.getId()).orElse(null),
                 debitCardSettings.findById(asset.getId()).orElse(null),
@@ -543,8 +627,10 @@ public class AssetService {
                              CardPaymentDues cardPaymentDues) {
         return new AssetView(asset.getId(), type.getId(), type.getSystemCode(), type.getName(), type.getBehavior(),
                 type.isPaymentSourceCapable(), asset.getOwnershipScope(), asset.getOwnerMemberId(),
-                asset.getFinancialInstitutionCode(), asset.getName(), asset.getOpenedOn(), asset.getMemo(), openingBalanceWon,
+                asset.getFinancialInstitutionCode(), asset.getCardIssuerCode(), asset.getName(), asset.getOpenedOn(), asset.getMemo(), openingBalanceWon,
                 currentBalanceWon, cardPaymentDues.currentMonthWon(), cardPaymentDues.nextMonthWon(),
+                cardPaymentDues.nearestDueOn(), cardPaymentDues.nearestWon(),
+                cardPaymentDues.followingDueOn(), cardPaymentDues.followingWon(),
                 asset.isArchived() ? AssetStatus.ARCHIVED : AssetStatus.ACTIVE, asset.getArchivedAt(),
                 asset.getVersion(),
                 setting == null ? null : new CardSettingsView(
@@ -643,6 +729,7 @@ public class AssetService {
         appendHashPart(canonical, command.ownershipScope());
         appendHashPart(canonical, command.ownerMemberId());
         appendHashPart(canonical, command.financialInstitutionCode());
+        appendHashPart(canonical, command.cardIssuerCode());
         appendHashPart(canonical, command.name().strip());
         appendHashPart(canonical, command.openedOn());
         appendHashPart(canonical, stripToNull(command.memo()));
@@ -717,6 +804,7 @@ public class AssetService {
 
     public record AssetCommand(UUID assetTypeId, AssetOwnershipScope ownershipScope,
                                UUID ownerMemberId, FinancialInstitutionCode financialInstitutionCode,
+                               CardIssuerCode cardIssuerCode,
                                String name,
                                LocalDate openedOn, String memo, long openingBalanceWon,
                                CardSettingsCommand cardSettings,
@@ -724,10 +812,21 @@ public class AssetService {
                                SavingsSettingsCommand savingsSettings) {
         public AssetCommand(
                 UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
+                FinancialInstitutionCode financialInstitutionCode,
+                String name, LocalDate openedOn, String memo, long openingBalanceWon,
+                CardSettingsCommand cardSettings, DebitCardSettingsCommand debitCardSettings,
+                SavingsSettingsCommand savingsSettings
+        ) {
+            this(assetTypeId, ownershipScope, ownerMemberId, financialInstitutionCode, null, name,
+                    openedOn, memo, openingBalanceWon, cardSettings, debitCardSettings, savingsSettings);
+        }
+
+        public AssetCommand(
+                UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
                 String name, LocalDate openedOn, String memo, long openingBalanceWon,
                 CardSettingsCommand cardSettings
         ) {
-            this(assetTypeId, ownershipScope, ownerMemberId, null, name, openedOn, memo,
+            this(assetTypeId, ownershipScope, ownerMemberId, null, null, name, openedOn, memo,
                     openingBalanceWon, cardSettings, null, null);
         }
 
@@ -737,7 +836,7 @@ public class AssetService {
                 CardSettingsCommand cardSettings, DebitCardSettingsCommand debitCardSettings,
                 SavingsSettingsCommand savingsSettings
         ) {
-            this(assetTypeId, ownershipScope, ownerMemberId, null, name, openedOn, memo,
+            this(assetTypeId, ownershipScope, ownerMemberId, null, null, name, openedOn, memo,
                     openingBalanceWon, cardSettings, debitCardSettings, savingsSettings);
         }
     }
@@ -801,9 +900,12 @@ public class AssetService {
                             String assetTypeName, AssetBehavior behavior,
                             boolean paymentSourceCapable, AssetOwnershipScope ownershipScope,
                             UUID ownerMemberId, FinancialInstitutionCode financialInstitutionCode,
+                            CardIssuerCode cardIssuerCode,
                             String name, LocalDate openedOn, String memo,
                             long openingBalanceWon, long currentBalanceWon,
                             long currentMonthCardPaymentDueWon, long nextMonthCardPaymentDueWon,
+                            LocalDate nearestCardPaymentDueOn, long nearestCardPaymentDueWon,
+                            LocalDate followingCardPaymentDueOn, long followingCardPaymentDueWon,
                             AssetStatus status, Instant archivedAt,
                             long version,
                             CardSettingsView cardSettings, DebitCardSettingsView debitCardSettings,

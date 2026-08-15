@@ -77,18 +77,20 @@ erDiagram
 
 사용자 정의 자산 종류는 두지 않고 `asset_type.system_code`는 필수다. `기타`는 `현금`과 동일하게 `STANDARD`, `payment_source_capable = false`인 현금성 종류다. 개별 용도는 `asset.name`으로 표현한다. 기존 사용자 정의 종류는 같은 가계부의 `OTHER`로 재지정한 뒤 제거하되 자산과 거래·posting은 유지한다. `BANK`의 표시명은 `계좌`, `SAVINGS`는 `적금`이다. 마이너스 통장은 별도 물리 종류가 아니라 signed 잔액이 음수인 `BANK` 계좌이며 일반 계좌와 같은 결제·이체 기능을 사용한다. 기능은 표시명이나 잔액 부호가 아니라 behavior가 결정한다. 연결 설정의 대상과 출금 계좌는 composite FK로 같은 가계부임을 보장하고 서로 같은 자산일 수 없다. V9·V10은 기존 `BANK` 유형의 표시명만 `계좌`로 바꾸고 사용자가 입력한 `asset.name`은 보존한다. V16은 기존 `OVERDRAFT` 자산의 ID·이름·소유자·posting·연결 설정을 유지한 채 같은 가계부의 `BANK` 유형으로 재지정하고 `OVERDRAFT` 유형과 허용 코드를 제거한다. 자산 version만 증가시켜 이전 화면의 stale 저장을 거부하며 잔액은 기존 posting 합계를 그대로 사용한다.
 
+`asset.financial_institution_code`는 `BANK`·`SAVINGS`의 은행·상호금융, `LOAN`의 은행·캐피탈, `INVESTMENT`의 증권사를 나타내는 표시용 정적 카탈로그 코드다. 자산군과 맞지 않는 코드는 API에서 거부한다. 이전 클라이언트가 값을 생략하면 해당 자산군은 `OTHER`로 정규화하고, 다른 종류로 바꾸면 관련 코드를 `null`로 정규화한다. `asset.card_issuer_code`는 `CREDIT_CARD`·`DEBIT_CARD`에만 저장한다. V23·V24는 기존 계좌·적금과 카드 자산을, V27은 기존 대출·투자 자산을 각각 `OTHER`로 보정하며 금액·거래·설정은 변경하지 않는다.
+
 신규 가계부 생성 트랜잭션은 자산 유형 bootstrap 뒤 `CASH`, `BANK`, `CREDIT_CARD`, `DEBIT_CARD` 자산을 생성자 `PERSONAL` 소유로 하나씩 생성한다. 기준일 잔액은 모두 0원이어서 `OPENING_BALANCE` 거래와 posting을 만들지 않고, 잔액 기준일은 `Asia/Seoul` 기준 가계부 생성일이다. 신용카드와 체크카드 설정은 동일 트랜잭션에서 기본 `BANK` 자산을 참조한다. 기존 가계부는 이 네 자산을 backfill하지 않고, 기본 자산도 활성 50개 한도에 포함한다.
 
-### 자산 삭제·보관 계약
+### 자산 삭제·사용 종료 계약
 
 자산은 카테고리처럼 다른 자산으로 일괄 치환하면 잔액과 현금흐름이 훼손되므로 처리 방식이 달라야 한다.
 
-- 물리 삭제/보관 분기의 거래 이력은 soft delete 여부와 관계없이 대상 자산을 참조하는 `transaction_posting.asset_id` 또는 `ledger_transaction.primary_asset_id`의 distinct 거래로 계산한다.
-- 이력이 0건이면 대상 자체의 `card_setting`, `debit_card_setting`, `savings_setting`과 함께 물리 삭제하고, 1건 이상이면 `asset.archived_at/archived_by_member_id`만 기록한다.
+- 물리 삭제/사용 종료 분기의 실제 거래 이력은 soft delete 여부와 관계없이 대상 자산을 참조하는 `transaction_posting.asset_id` 또는 `ledger_transaction.primary_asset_id`의 distinct 거래로 계산하되 내부 `source_type=OPENING_BALANCE`는 제외한다.
+- 실제 이력과 lifecycle 참조가 0건이면 내부 opening transaction과 대상 설정을 함께 물리 삭제하고, 하나라도 있으면 `asset.archived_at/archived_by_member_id`를 기록한다. DB와 API의 `ARCHIVED`는 호환을 위한 내부 이름이며 화면에는 `사용 종료`로 표시한다.
 - 활성 신용카드의 `settlement_asset_id`, 활성 체크카드의 `payment_asset_id`, 활성 적금의 `transfer_asset_id`로 참조되거나 `SCHEDULED/PROCESSING/FAILED` 카드 결제 schedule의 `settlement_asset_id`이면 연결을 먼저 바꿀 때까지 차단한다. 이미 보관된 자산의 비활성 설정 참조는 blocker가 아니지만 대상의 물리 삭제를 막고 함께 보관 상태로 남겨 FK와 과거 설정을 보존한다. 완료·취소 schedule과 대상 카드 자신의 미결제 명세는 blocker가 아니다.
-- 잔액과 대상 카드의 미결제 명세 수는 경고이며 0원·결제 완료를 강제하지 않는다. 보관 카드의 기존 명세·schedule은 계속 정산한다.
-- 보관 자산은 활성 50개, 활성 그룹과 신규 거래·출금원 선택기에서 제외하지만 posting과 소유 marker를 유지해 순자산·과거 거래·통계에 계속 포함한다.
-- 보관 목록·상세 조회를 위해 상태 조건 조회를 제공하고 상세는 읽기 전용으로 둔다. MVP에는 `archived_at`을 null로 되돌리는 restore command를 제공하지 않는다.
+- 잔액과 대상 카드의 미결제 명세 수는 경고이며 0원·결제 완료를 강제하지 않는다. 카드 사용 종료 트랜잭션에서 `SCHEDULED/PROCESSING/FAILED` schedule을 `CANCELLED`로 바꾸고 worker 후보에서도 비활성 카드를 제외한다. 새 선결제는 `409 CARD_ASSET_INACTIVE`로 거부한다.
+- 사용 종료 자산은 활성 50개, 활성 그룹과 신규 거래·출금원 선택기에서 제외하지만 posting과 소유 marker를 유지해 순자산·과거 거래·통계에 계속 포함한다.
+- 사용 종료 자산은 `expectedVersion` 기반 다시 사용 command로 활성화할 수 있다. 신용카드는 유효한 설정을 기준으로 미결제 schedule을 다시 동기화한다.
 
 삭제 command는 자산 행을 잠근 뒤 preview의 version·분기·이력·잔액·연결 상태를 같은 트랜잭션에서 다시 계산한다. 하나라도 달라지면 `412`로 전체를 거부하고, blocker가 남아 있으면 `409`로 거부한다. FK는 과거 posting·거래·명세를 보존하는 자산의 물리 삭제를 최종 방어하며 application은 FK 오류에 의존하지 않고 먼저 `ARCHIVE`를 선택한다.
 
@@ -211,6 +213,8 @@ erDiagram
 - 남은 금액이 0이고 명세가 확정됐다면 statement `PAID`
 - 결제 계좌 장부 잔액과 관계없이 남은 전액을 기록하고 음수 잔액 허용
 
+사용자가 직접 기록한 `PREPAYMENT`는 명세 version을 확인하는 전용 취소 command로 되돌릴 수 있다. 결제 행에는 취소 시각·취소 구성원을 남기고 연결 `CARD_PREPAYMENT` 거래를 soft delete해 계좌와 카드 posting을 잔액에서 동시에 제외한다. 명세는 현재 날짜와 결제일을 기준으로 `OPEN` 또는 `FINALIZED`로 다시 열고, 자동 정산 일정이 선결제로 완료됐던 경우 `SCHEDULED`로 되돌린다. 환불 반환에 사용된 결제나 이후 정규 결제가 완료된 명세는 연쇄 이력을 임의로 바꾸지 않고 `409`로 거부한다. 자동 정산 `REGULAR` 결제는 선결제 취소 대상이 아니다.
+
 카드 구매는 일시불·할부를 지원하고 할부 이자는 자동 계산하지 않는다. 카드의 음수 opening posting은 `OPENING_BALANCE` origin의 1회 charge로 마감·결제 설정에 따른 명세에 포함하고 과거 due date면 catch-up worker가 처리한다. 장부 잔액 부족은 실패가 아니며 기술 오류만 재시도한다.
 
 결제 월의 29~31일이 없으면 말일로 보정한 뒤 `Asia/Seoul` 기준 한국 영업일 달력을 적용한다. 그 날짜가 주말 또는 공휴일이면 다음 한국 영업일까지 순연한다. 주말은 계산하고 공휴일·대체공휴일·임시공휴일은 `korean_public_holiday`에 연도별로 저장한다. 데이터 원본은 [한국천문연구원 특일 정보 OpenAPI](https://www.data.go.kr/dataset/15012690/openapi.do)와 [관공서의 공휴일에 관한 규정](https://www.law.go.kr/lsInfoP.do?lsId=002404)이다. 확정된 `due_on`은 과거 명세에 저장한다.
@@ -238,7 +242,7 @@ where occurred_on >= :startDate
 
 따라서 일반 이체와 카드대금 정산은 새로운 subtype이 추가되어도 소비 통계에 들어오지 않는다.
 
-자산 현황의 총자산·총부채·순자산은 `status=ALL` 자산의 `asset_current_balance.current_balance_won` 부호를 기준으로 프론트에서 선형 계산하고, 화면 그룹·그룹 합계·활성 개수는 그중 `ACTIVE`만 사용한다. 따라서 보관으로 현재 장부 가치나 과거 통계가 사라지지 않는다. 이번 달과 다음 달 카드 결제 금액은 활성·보관을 포함해 기존 명세 projection을 다음과 같은 bounded batch query로 함께 읽어 보관 카드의 남은 정산도 숨기지 않는다.
+자산 현황의 총자산·총부채·순자산은 `status=ALL` 자산의 `asset_current_balance.current_balance_won` 부호를 기준으로 프론트에서 선형 계산하고, 화면 그룹·그룹 합계·활성 개수는 그중 `ACTIVE`만 사용한다. 따라서 사용 종료로 현재 장부 가치나 과거 통계가 사라지지 않는다. 카드 결제 정보는 활성 신용카드 ID만 기존 명세 projection에서 조회해 카드·결제일별 미결제액을 합친 뒤 가장 이른 두 결제일을 반환하며 별도 합계 테이블을 두지 않는다.
 
 ```sql
 select card_asset_id,
@@ -255,7 +259,7 @@ where book_id = :bookId
 group by card_asset_id;
 ```
 
-`:cardAssetIds`는 전체 조회에 포함된 활성·보관 신용카드 ID로 제한하고 미결제 상태인 `OPEN`, `FINALIZED`만 골라 `(card_asset_id, status, due_on)` 인덱스를 활용한다. `payment_amount_won`은 OPEN 명세의 유효 charge 원금(환불 charge 배분 차감) 또는 FINALIZED·PAID의 확정 snapshot(환불 차감)에서 환불로 돌려준 금액을 제외한 유효 선결제·정규 결제를 뺀 남은 금액이다. 화면 전용 누적 합계, materialized view, Redis cache를 추가하지 않는다. 월 경계는 `Asia/Seoul`의 `LocalDate` 반개구간으로 전달하고 비카드·결과가 없는 카드는 application layer에서 두 값 모두 0으로 채운다. 현재 ordinary view의 charge/payment CTE는 장기 이력이 커지면 전체 aggregate가 병목이 될 수 있으므로 query time과 rows를 관찰하고, 실제 병목이 확인되면 outer index를 추가하기보다 먼저 대상 statement ID를 제한한 뒤 charge/payment를 집계하도록 projection SQL을 재작성한다.
+`:cardAssetIds`는 조회 결과의 활성 신용카드 ID로 제한하고 미결제 상태인 `OPEN`, `FINALIZED`만 고른다. 사용 종료 카드는 API의 두 결제 예정 금액을 0으로 반환하되 과거 명세 상세의 남은 금액은 유지한다. `payment_amount_won`은 OPEN 명세의 유효 charge 원금 또는 FINALIZED·PAID의 확정 snapshot에서 유효 결제를 뺀 남은 금액이다.
 
 핵심 인덱스:
 
@@ -313,7 +317,7 @@ DB가 강제할 것:
 
 UI 경고면 충분한 것:
 
-- 잔액이 남은 자산 보관
+- 잔액이 남은 자산 사용 종료
 - 미결제 명세가 남은 카드 보관
 - 소유자와 거래 주체가 다른 입력
 - 평소보다 큰 지출
