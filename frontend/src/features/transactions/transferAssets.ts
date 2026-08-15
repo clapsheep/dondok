@@ -1,16 +1,16 @@
 import type { Asset } from '../assets/api'
 import type { LedgerMember } from '../membership/api'
 
-export function transferAccountAssets<T extends Pick<Asset, 'systemCode'>>(
+export function transferEligibleAssets<T extends Pick<Asset, 'systemCode'>>(
   assets: readonly T[],
 ): T[] {
-  return assets.filter((asset) => asset.systemCode === 'BANK')
+  return assets.filter((asset) => asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS')
 }
 
 type OwnedTransferAccount = Pick<Asset, 'name' | 'ownershipScope' | 'ownerMemberId'>
 type TransferMember = Pick<LedgerMember, 'memberId' | 'displayName' | 'currentUser'>
 
-export function transferAccountLabel(
+export function transferAssetLabel(
   asset: OwnedTransferAccount,
   members: readonly TransferMember[],
 ): string {

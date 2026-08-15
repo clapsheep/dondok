@@ -85,7 +85,7 @@ test('공동 분류를 추가·수정하고 사용 중 삭제하면 거래를 �
   await page.goto(`/?view=daily&month=${month}`)
   const remapped = transactionRow(page, fallbackName)
   await expect(remapped).toContainText(`-${amount.toLocaleString('ko-KR')}원`)
-  await expect(remapped.getByRole('link', { name: `${fallbackName} 거래 수정` })).toBeVisible()
+  await expect(remapped.getByRole('link', { name: `${fallbackName} 거래 상세` })).toBeVisible()
   expect(await hasPageOverflow(page)).toBe(false)
 })
 
@@ -122,7 +122,7 @@ function categoryButton(page: Page, name: string) {
 }
 
 function transactionRow(page: Page, label: string) {
-  return page.getByRole('listitem').filter({ has: page.getByRole('link', { name: `${label} 거래 수정` }) })
+  return page.getByRole('listitem').filter({ has: page.getByRole('link', { name: `${label} 거래 상세` }) })
 }
 
 async function expectCategoryDraftAcrossWidths(page: Page, input: Locator, value: string, selectedCategory: string) {

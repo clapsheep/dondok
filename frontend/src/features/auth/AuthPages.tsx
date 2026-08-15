@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, LoaderCircle, Mail } from 'lucide-react'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
@@ -106,9 +106,17 @@ export function CheckEmailPage() {
 export function VerifyEmailPage() {
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
-  const verification = useMutation({ mutationFn: () => api<void>('/api/auth/email-verifications', { method: 'POST', body: jsonBody({ token }) }) })
-  useEffect(() => { if (token && verification.isIdle) verification.mutate() }, [token, verification])
-  return <AuthLayout title={verification.isSuccess ? '인증이 완료됐어요' : '이메일을 확인하고 있어요'} description={verification.isSuccess ? '이제 로그인해서 돈독을 시작할 수 있어요.' : '잠시만 기다려 주세요.'}>{verification.isPending ? <LoaderCircle className="mx-auto animate-spin text-forest-700 dark:text-forest-100" size={38} /> : verification.isSuccess ? <StatusIcon icon={<CheckCircle2 size={30} />} /> : <ErrorMessage error={token ? verification.error : new Error('인증 링크에 필요한 정보가 없어요.')} />}<Button asChild size="large" className="mt-7 w-full"><Link to="/login">로그인</Link></Button></AuthLayout>
+  const verification = useQuery({
+    queryKey: ['email-verification', token],
+    queryFn: async () => {
+      await api<void>('/api/auth/email-verifications', { method: 'POST', body: jsonBody({ token }) })
+      return true
+    },
+    enabled: Boolean(token),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+  return <AuthLayout title={verification.isSuccess ? '인증이 완료됐어요' : '이메일을 확인하고 있어요'} description={verification.isSuccess ? '이제 로그인해서 돈독을 시작할 수 있어요.' : '잠시만 기다려 주세요.'}>{!token ? <ErrorMessage error={new Error('인증 링크에 필요한 정보가 없어요.')} /> : verification.isPending ? <LoaderCircle className="mx-auto animate-spin text-forest-700 dark:text-forest-100" size={38} /> : verification.isSuccess ? <StatusIcon icon={<CheckCircle2 size={30} />} /> : <ErrorMessage error={verification.error} />}<Button asChild size="large" className="mt-7 w-full"><Link to="/login">로그인</Link></Button></AuthLayout>
 }
 
 export function ForgotPasswordPage() {

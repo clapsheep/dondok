@@ -34,6 +34,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -45,7 +46,7 @@ public class TransactionService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int MAX_RANGE_DAYS = 366;
     private static final int MAX_INSTALLMENTS = 60;
-    private static final String TRANSFER_ACCOUNT_SYSTEM_CODE = "BANK";
+    private static final Set<String> TRANSFER_ASSET_SYSTEM_CODES = Set.of("BANK", "SAVINGS");
 
     private final TransactionJdbcRepository transactions;
     private final TransactionIdempotencyRepository idempotency;
@@ -139,6 +140,27 @@ public class TransactionService {
     }
 
     @Transactional(readOnly = true)
+    public TransactionPage transactionsForAsset(
+            UUID userId, UUID assetId, String encodedCursor, int limit
+    ) {
+        if (limit < 1 || limit > MAX_PAGE_SIZE) {
+            throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_PAGE_INVALID", "페이지 크기를 확인해 주세요.");
+        }
+        TransactionJdbcRepository.Cursor cursor;
+        try {
+            cursor = TransactionJdbcRepository.decodeCursor(encodedCursor);
+        } catch (IllegalArgumentException exception) {
+            throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_CURSOR_INVALID", "목록 커서가 올바르지 않습니다.");
+        }
+        LedgerMemberEntity member = currentMember(userId);
+        assets.findByIdAndBookId(assetId, member.getBookId())
+                .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "ASSET_NOT_FOUND", "자산을 찾을 수 없습니다."));
+        TransactionJdbcRepository.PageRows page = transactions.pageForAsset(
+                member.getBookId(), assetId, cursor, limit);
+        return new TransactionPage(page.items().stream().map(this::toView).toList(), page.nextCursor());
+    }
+
+    @Transactional(readOnly = true)
     public TransactionView transaction(UUID userId, UUID transactionId) {
         LedgerMemberEntity member = currentMember(userId);
         return requiredView(member.getBookId(), transactionId);
@@ -212,8 +234,8 @@ public class TransactionService {
             if (transfer.sourceAssetId().equals(transfer.destinationAssetId())) {
                 throw error(HttpStatus.BAD_REQUEST, "TRANSFER_SAME_ASSET", "이체 출발과 도착 자산은 달라야 합니다.");
             }
-            AssetEntity source = requireTransferAccount(author.getBookId(), transfer.sourceAssetId());
-            AssetEntity destination = requireTransferAccount(
+            AssetEntity source = requireTransferAsset(author.getBookId(), transfer.sourceAssetId());
+            AssetEntity destination = requireTransferAsset(
                     author.getBookId(), transfer.destinationAssetId());
             write = write(transactionId, author, transfer, TransactionType.TRANSFER, TransferSubtype.NORMAL,
                     null, performerId, null, List.of(
@@ -355,8 +377,8 @@ public class TransactionService {
                 throw error(HttpStatus.BAD_REQUEST, "TRANSFER_SAME_ASSET",
                         "이체 출발과 도착 자산은 달라야 합니다.");
             }
-            AssetEntity source = requireTransferAccount(bookId, command.sourceAssetId());
-            AssetEntity destination = requireTransferAccount(bookId, command.destinationAssetId());
+            AssetEntity source = requireTransferAsset(bookId, command.sourceAssetId());
+            AssetEntity destination = requireTransferAsset(bookId, command.destinationAssetId());
             return new TransactionMutation(null, null, List.of(
                     new TransactionJdbcRepository.PostingWrite(source.getId(), -command.amountWon()),
                     new TransactionJdbcRepository.PostingWrite(destination.getId(), command.amountWon())), null);
@@ -489,12 +511,12 @@ public class TransactionService {
                         "같은 가계부의 활성 자산을 선택해 주세요."));
     }
 
-    private AssetEntity requireTransferAccount(UUID bookId, UUID assetId) {
+    private AssetEntity requireTransferAsset(UUID bookId, UUID assetId) {
         AssetEntity asset = requireAsset(bookId, assetId);
         AssetTypeEntity type = requireAssetType(bookId, asset.getAssetTypeId());
-        if (!TRANSFER_ACCOUNT_SYSTEM_CODE.equals(type.getSystemCode())) {
-            throw error(HttpStatus.BAD_REQUEST, "TRANSFER_BANK_ACCOUNT_REQUIRED",
-                    "이체에는 같은 가계부의 활성 계좌만 선택할 수 있어요.");
+        if (!TRANSFER_ASSET_SYSTEM_CODES.contains(type.getSystemCode())) {
+            throw error(HttpStatus.BAD_REQUEST, "TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED",
+                    "이체에는 같은 가계부의 활성 계좌 또는 적금만 선택할 수 있어요.");
         }
         return asset;
     }

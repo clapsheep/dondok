@@ -1,12 +1,8 @@
 import type { Transaction } from './api'
 
 export function transactionRowDestination(transaction: Transaction) {
-  if (transaction.managementType === 'GENERAL') return `/transactions/${transaction.transactionId}`
   if (transaction.managementType === 'CARD_PURCHASE') return `/transactions/${transaction.transactionId}/card-purchase`
-  if (transaction.managementType === 'CARD_REFUND' && transaction.relatedPurchaseTransactionId) {
-    return `/transactions/${transaction.relatedPurchaseTransactionId}/card-purchase`
-  }
-  return undefined
+  return `/transactions/${transaction.transactionId}`
 }
 
 export function transactionRowAmountPrefix(transaction: Transaction) {
@@ -25,8 +21,7 @@ export function transactionRowTone(transaction: Transaction) {
 export function transactionRowAccessibleName(transaction: Transaction, label: string, amount: string) {
   const type = transactionTypeLabel(transaction)
   const statistics = transaction.excludedFromStatistics ? ', 집계 제외' : ''
-  if (transaction.managementType === 'GENERAL') return `${label} 거래 수정, ${type} ${amount}${statistics}`
-  return `${label}, ${type} ${amount}${statistics}, 원 카드 구매 상세`
+  return `${label} 거래 상세, ${type} ${amount}${statistics}`
 }
 
 export function transactionTypeLabel(transaction: Transaction) {

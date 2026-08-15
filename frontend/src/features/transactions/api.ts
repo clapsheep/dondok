@@ -174,6 +174,7 @@ export const transactionKeys = {
   all: ['transactions'] as const,
   calendar: (month: string, performedByMemberId?: string) => ['transactions', 'calendar', month, performedByMemberId ?? 'all'] as const,
   list: (from: string, toExclusive: string, performedByMemberId?: string) => ['transactions', 'list', from, toExclusive, performedByMemberId ?? 'all'] as const,
+  assetList: (assetId: string) => ['transactions', 'asset-list', assetId] as const,
   detail: (transactionId: string) => ['transactions', 'detail', transactionId] as const,
   cardPurchaseManagement: (transactionId: string) => ['transactions', 'card-purchase-management', transactionId] as const,
 }
@@ -189,6 +190,11 @@ export const transactionApi = {
     if (cursor) params.set('cursor', cursor)
     if (performedByMemberId) params.set('performedByMemberId', performedByMemberId)
     return api<TransactionPage>(`/api/transactions?${params}`)
+  },
+  listForAsset: ({ assetId, cursor, limit = 30 }: { assetId: string; cursor?: string | null; limit?: number }) => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (cursor) params.set('cursor', cursor)
+    return api<TransactionPage>(`/api/assets/${assetId}/transactions?${params}`)
   },
   detail: (transactionId: string) => api<Transaction>(`/api/transactions/${transactionId}`),
   create: (input: CreateTransactionInput, idempotencyKey: string) => api<Transaction>('/api/transactions', {

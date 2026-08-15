@@ -97,9 +97,9 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
   await expectAssetSummary(page, '순자산', formatWon(seed.netWorthWon))
 
-  await page.goto(`/assets/${seed.hardDeleteAssetId}`)
+  await page.goto(`/assets/${seed.hardDeleteAssetId}/edit`)
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
-  const deleteTrigger = page.getByRole('button', { name: '정리 결과 확인' })
+  const deleteTrigger = page.getByRole('button', { name: '처리 방법 확인' })
   await deleteTrigger.click()
   let dialog = page.getByRole('dialog', { name: '자산 완전 삭제' })
   await expect(dialog).toBeVisible()
@@ -110,7 +110,7 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(deleteTrigger).toBeFocused()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(`/assets/${seed.hardDeleteAssetId}`)
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/assets/${seed.hardDeleteAssetId}/edit`)
 
   await deleteTrigger.click()
   dialog = page.getByRole('dialog', { name: '자산 완전 삭제' })
@@ -138,14 +138,14 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await expectStatisticsValue(page, '수입', `+${formatWon(seed.incomeWon)}`)
   await expectStatisticsValue(page, '순액', `+${formatWon(seed.incomeWon)}`)
 
-  await page.goto(`/assets/${seed.archiveAssetId}`)
+  await page.goto(`/assets/${seed.archiveAssetId}/edit`)
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
-  await page.getByRole('button', { name: '정리 결과 확인' }).click()
+  await page.getByRole('button', { name: '처리 방법 확인' }).click()
   dialog = page.getByRole('dialog', { name: '자산 보관' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText('연결된 거래 이력', { exact: true }).locator('..')).toContainText('2건')
   await expect(dialog.getByText('현재 잔액', { exact: true }).locator('..')).toContainText(formatWon(seed.netWorthWon))
-  await expect(dialog.getByRole('list', { name: '자산 정리 주의사항' })).toContainText('순자산에 계속 포함')
+  await expect(dialog.getByRole('list', { name: '자산 삭제 또는 보관 주의사항' })).toContainText('순자산에 계속 포함')
   const archiveResponse = page.waitForResponse((response) => response.request().method() === 'DELETE'
     && new URL(response.url()).pathname === `/api/assets/${seed.archiveAssetId}`)
   await dialog.getByRole('button', { name: '자산 보관', exact: true }).click()
@@ -171,11 +171,12 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await expect(archivedLink).toContainText(formatWon(seed.netWorthWon))
   await archivedLink.click()
   await expect(page.getByRole('heading', { name: seed.archiveAssetName, exact: true })).toBeVisible()
-  await expect(page.getByLabel('보관 자산 정보')).toContainText('현재 잔액 · 순자산 포함')
-  await expect(page.getByRole('status')).toContainText('보관 자산은 읽기 전용이에요.')
+  await expect(page.getByText('계좌 · 보관됨', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('현재 잔액', { exact: true }).locator('..')).toContainText(formatWon(seed.netWorthWon))
+  await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toBeVisible()
   await expect(page.locator('form')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '변경 저장' })).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: '자산 정리' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '자산 편집' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '자산 삭제 또는 보관' })).toHaveCount(0)
 
   await page.goto('/transactions/new')
   await expect(page.getByRole('heading', { name: '거래 기록' })).toBeVisible()
@@ -187,9 +188,9 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await expectStatisticsValue(page, '수입', `+${formatWon(seed.incomeWon)}`)
   await expectStatisticsValue(page, '순액', `+${formatWon(seed.incomeWon)}`)
 
-  await page.goto(`/assets/${seed.defaultAccountId}`)
+  await page.goto(`/assets/${seed.defaultAccountId}/edit`)
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
-  const blockerTrigger = page.getByRole('button', { name: '정리 결과 확인' })
+  const blockerTrigger = page.getByRole('button', { name: '처리 방법 확인' })
   await blockerTrigger.click()
   dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: '먼저 연결을 변경해 주세요' })).toBeVisible()
@@ -201,7 +202,7 @@ test('무이력 자산은 삭제하고 이력 자산은 보관해 순자산·통
   await page.goBack()
   await expect(dialog).toHaveCount(0)
   await expect(blockerTrigger).toBeFocused()
-  await expect.poll(() => new URL(page.url()).pathname).toBe(`/assets/${seed.defaultAccountId}`)
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/assets/${seed.defaultAccountId}/edit`)
   expect(await hasPageOverflow(page)).toBe(false)
 })
 
@@ -218,11 +219,11 @@ test('다른 세션이 preview 뒤 이력을 만들면 412로 거부하고 draft
     requestIds: seed.requestIds,
   })
 
-  await page.goto(`/assets/${seed.assetId}`)
+  await page.goto(`/assets/${seed.assetId}/edit`)
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   const memoDraft = `저장하지 않은 자산 메모 ${Date.now().toString().slice(-6)}`
   await page.getByLabel('메모 (선택)', { exact: true }).fill(memoDraft)
-  await page.getByRole('button', { name: '정리 결과 확인' }).click()
+  await page.getByRole('button', { name: '처리 방법 확인' }).click()
   let dialog = page.getByRole('dialog', { name: '자산 완전 삭제' })
   await expect(dialog.getByText('연결된 거래 이력', { exact: true }).locator('..')).toContainText('0건')
 
@@ -248,7 +249,7 @@ test('다른 세션이 preview 뒤 이력을 만들면 412로 거부하고 draft
     await attachConflictEvidence(testInfo, staleResponse, problem)
 
     dialog = page.getByRole('dialog', { name: '자산 완전 삭제' })
-    const staleAlert = dialog.getByRole('alert').filter({ hasText: '정리 결과가 달라졌어요' })
+    const staleAlert = dialog.getByRole('alert').filter({ hasText: '처리 방법이 달라졌어요' })
     await expect(staleAlert).toBeVisible()
     await expect(staleAlert).toBeFocused()
     await expect(page.getByLabel('메모 (선택)', { exact: true })).toHaveValue(memoDraft)
@@ -458,7 +459,7 @@ async function readAssetState(page: Page, assetId: string) {
 async function expectRemovalDialogAcrossViewports(page: Page, dialog: Locator, finalAction: '자산 완전 삭제' | '자산 보관') {
   const marker = `qc-${Date.now()}-${Math.floor(Math.random() * 10_000)}`
   await dialog.evaluate((node, value) => { node.setAttribute('data-qc-removal-dialog', value) }, marker)
-  const close = dialog.getByRole('button', { name: '자산 정리 닫기' })
+  const close = dialog.getByRole('button', { name: '자산 삭제 또는 보관 창 닫기' })
   await close.focus()
   for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.setViewportSize(viewport)

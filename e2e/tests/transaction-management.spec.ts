@@ -4,6 +4,53 @@ import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
 import { selectTransactionCategory } from './support/transactions'
 
+test('모바일 자산 상세는 최신순 거래를 월별로 나누고 거래 상세와 자산 편집으로 이어진다', async ({ page, request }) => {
+  test.skip(test.info().project.name !== 'mobile-chrome', '모바일 자산 원장 스크롤 계약은 대표 모바일 브라우저에서 검증합니다.')
+  const suffix = `${test.info().workerIndex}-${Date.now().toString().slice(-6)}`
+  const assetName = `모바일 원장 계좌 ${suffix}`
+  const latestDescription = `QC 자산 최신 ${suffix}`
+  const olderDescription = `QC 자산 이전 ${suffix}`
+
+  await registerAndLogin(page, request, `자산 원장 사용자 ${suffix}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  await page.goto('/assets/new')
+  await submitQuickAsset(page, {
+    typeName: '계좌',
+    name: assetName,
+    amount: '300000',
+    expectedName: assetName,
+    expectedAmount: '300,000원',
+  })
+  const seeded = await seedAssetLedgerTransactions(page, assetName, [
+    { occurredOn: '2026-08-12', amountWon: 18_000, description: latestDescription },
+    { occurredOn: '2026-07-28', amountWon: 7_000, description: olderDescription },
+  ])
+
+  await page.goto('/assets')
+  await page.getByRole('link', { name: new RegExp(`^${escapeRegExp(assetName)},`) }).click()
+  await expect(page).toHaveURL(new RegExp(`/assets/${seeded.assetId}$`))
+  await expect(page.getByRole('heading', { name: assetName, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2026년 8월', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: '2026년 7월', exact: true })).toHaveCount(1)
+  const rows = page.getByRole('listitem')
+  await expect(rows.nth(0)).toContainText(latestDescription)
+  await expect(rows.nth(1)).toContainText(olderDescription)
+  const editAsset = page.getByRole('link', { name: '자산 편집' })
+  await expectTouchTarget(editAsset, '자산 편집')
+  expect(await hasPageOverflow(page)).toBe(false)
+
+  await page.getByRole('link', { name: `${latestDescription} 거래 상세` }).click()
+  await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
+  await expect(page.getByText('-18,000원', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '기록 편집' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '기록 삭제' })).toBeVisible()
+  await page.getByRole('link', { name: '거래 목록으로' }).click()
+  await editAsset.click()
+  await expect(page).toHaveURL(new RegExp(`/assets/${seeded.assetId}/edit$`))
+  await expect(page.getByRole('heading', { name: '자산 편집' })).toBeVisible()
+})
+
 test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계에서 삭제할 수 있다', async ({ page, request }) => {
   const suffix = `${test.info().workerIndex}-${Date.now().toString().slice(-6)}`
   const before = `QC 수정 전 ${suffix}`
@@ -15,8 +62,13 @@ test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계
 
   const originalRow = transactionRow(page, before)
   await expect(originalRow).toContainText('-17,000원')
-  await originalRow.getByRole('link', { name: `${before} 거래 수정` }).click()
+  await originalRow.getByRole('link', { name: `${before} 거래 상세` }).click()
+  await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
+  await page.getByRole('link', { name: '기록 편집' }).click()
   await expect(page.getByRole('heading', { name: '거래 수정' })).toBeVisible()
+  if ((page.viewportSize()?.width ?? 1280) < 768) {
+    await expect(page.getByRole('link', { name: '거래 목록으로', exact: true })).toBeVisible()
+  }
   await expect(page.getByLabel('거래 종류')).toHaveText('지출')
   await expect(page.getByRole('button', { name: '수입', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '이체', exact: true })).toHaveCount(0)
@@ -32,14 +84,13 @@ test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계
   await expect(updatedRow).toContainText('-24,000원')
   await expect(transactionRow(page, before)).toHaveCount(0)
 
-  await updatedRow.getByRole('link', { name: `${after} 거래 수정` }).click()
-  await expect(page.getByRole('heading', { name: '거래 수정' })).toBeVisible()
-  await expect(page.getByLabel('금액')).toHaveValue('24,000')
-  await expect(page.getByLabel('내용 (선택)')).toHaveValue(after)
+  await updatedRow.getByRole('link', { name: `${after} 거래 상세` }).click()
+  await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
+  await expect(page.getByText('-24,000원', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '기록 삭제' }).click()
-  await expect(page.getByRole('heading', { name: '거래 삭제' })).toBeVisible()
-  await expect(page.getByText('자산 잔액을 되돌리고 해당 월의 수입·지출 통계에서 제외합니다.', { exact: true })).toBeVisible()
-  const deleteButton = page.getByRole('button', { name: '거래 삭제', exact: true })
+  await expect(page.getByRole('heading', { name: '이 거래를 삭제할까요?' })).toBeVisible()
+  await expect(page.getByText('자산 잔액을 되돌리고 달력과 통계에서도 제거합니다.', { exact: true })).toBeVisible()
+  const deleteButton = page.getByRole('button', { name: '삭제하기', exact: true })
   await expectTouchTarget(deleteButton, '거래 삭제')
   await deleteButton.click()
 
@@ -62,7 +113,8 @@ test('계좌 지출은 신용카드 구매로 정정하고 이전 계좌 잔액�
     assetName: '거래 관리 계좌',
   })
 
-  await transactionRow(page, before).getByRole('link', { name: `${before} 거래 수정` }).click()
+  await transactionRow(page, before).getByRole('link', { name: `${before} 거래 상세` }).click()
+  await page.getByRole('link', { name: '기록 편집' }).click()
   await expect(page.getByRole('heading', { name: '거래 수정' })).toBeVisible()
   await expect(page.getByLabel('할부 개월')).toHaveCount(0)
   await selectAsset(page, '결제 자산', '신용카드')
@@ -123,7 +175,7 @@ test('계좌 지출은 신용카드 구매로 정정하고 이전 계좌 잔액�
   expect(ledger.statements.reduce((sum, statement) => sum + statement.grossAmountWon, 0)).toBe(30_000)
   expect(ledger.statements.reduce((sum, statement) => sum + statement.remainingAmountWon, 0)).toBe(30_000)
 
-  await correctedRow.getByRole('link', { name: new RegExp(`${after}.*지출.*원 카드 구매 상세`) }).click()
+  await correctedRow.getByRole('link', { name: `${after} 거래 상세` }).click()
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
   await expect(page.getByText('결제 방식', { exact: true }).locator('..')).toContainText('3개월 할부')
   expect(await hasPageOverflow(page)).toBe(false)
@@ -138,9 +190,10 @@ test('두 독립 세션의 같은 거래 수정은 오래된 저장을 거부하
   const account = await registerAndLogin(page, request, `충돌 관리자 ${suffix}`)
   await prepareLedgerWithBank(page)
   await createExpense(page, { amount: '31000', description: original })
-  await transactionRow(page, original).getByRole('link', { name: `${original} 거래 수정` }).click()
+  await transactionRow(page, original).getByRole('link', { name: `${original} 거래 상세` }).click()
+  await page.getByRole('link', { name: '기록 편집' }).click()
   const detailUrl = page.url()
-  const detailApiPath = `/api${new URL(detailUrl).pathname}`
+  const detailApiPath = `/api${new URL(detailUrl).pathname.replace(/\/edit$/, '')}`
 
   const other = await loginInIndependentContext(browser, page, account, testInfo)
   try {
@@ -202,8 +255,55 @@ async function createExpense(page: Page, transaction: { amount: string; descript
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
 }
 
+async function seedAssetLedgerTransactions(page: Page, assetName: string, inputs: Array<{ occurredOn: string; amountWon: number; description: string }>) {
+  return page.evaluate(async ({ assetName, inputs }) => {
+    const requiredJson = async <T,>(path: string): Promise<T> => {
+      const response = await fetch(path, { credentials: 'include' })
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`)
+      return response.json() as Promise<T>
+    }
+    const csrf = await requiredJson<{ headerName: string; token: string }>('/api/auth/csrf')
+    const current = await requiredJson<{ ledger: { members: Array<{ memberId: string; currentUser: boolean }> } }>('/api/ledger-books/current')
+    const assets = await requiredJson<Array<{ assetId: string; name: string }>>('/api/assets')
+    const categories = await requiredJson<Array<{ categoryId: string; systemCode: string | null }>>('/api/categories?kind=EXPENSE')
+    const asset = assets.find((item) => item.name === assetName)
+    const member = current.ledger.members.find((item) => item.currentUser)
+    const category = categories.find((item) => item.systemCode === 'FOOD') ?? categories[0]
+    if (!asset || !member || !category) throw new Error('자산 원장 seed 대상을 찾지 못했습니다.')
+    for (const input of inputs) {
+      const response = await fetch('/api/transactions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          [csrf.headerName]: csrf.token,
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          type: 'EXPENSE',
+          occurredOn: input.occurredOn,
+          amountWon: input.amountWon,
+          categoryId: category.categoryId,
+          assetId: asset.assetId,
+          performedByMemberId: member.memberId,
+          description: input.description,
+          installmentCount: 1,
+          excludedFromStatistics: false,
+        }),
+      })
+      if (!response.ok) throw new Error(`거래 seed returned ${response.status}`)
+    }
+    return { assetId: asset.assetId }
+  }, { assetName, inputs })
+}
+
 function transactionRow(page: Page, label: string) {
-  return page.getByRole('listitem').filter({ has: page.getByRole('link', { name: `${label} 거래 수정` }) })
+  return page.getByRole('listitem').filter({ has: page.getByRole('link', { name: `${label} 거래 상세` }) })
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 async function loginInIndependentContext(

@@ -167,17 +167,55 @@ public class TransactionJdbcRepository {
             arguments.add(cursor.id());
         }
         arguments.add(limit + 1);
-        String sql = """
-                with selected as (
-                    select transaction.id, transaction.occurred_on, transaction.created_at
-                      from ledger_transaction transaction
-                     where transaction.book_id = ? and transaction.occurred_on >= ?
-                       and transaction.occurred_on < ? and transaction.deleted_at is null
-                       and transaction.transaction_type in ('INCOME', 'EXPENSE', 'TRANSFER')
+        String selection = """
+                select transaction.id, transaction.occurred_on, transaction.created_at
+                  from ledger_transaction transaction
+                 where transaction.book_id = ? and transaction.occurred_on >= ?
+                   and transaction.occurred_on < ? and transaction.deleted_at is null
+                   and transaction.transaction_type in ('INCOME', 'EXPENSE', 'TRANSFER')
                 """ + performerClause + cursorClause + """
-                     order by transaction.occurred_on desc, transaction.created_at desc,
-                              transaction.id desc
-                     limit ?
+                 order by transaction.occurred_on desc, transaction.created_at desc,
+                          transaction.id desc
+                 limit ?
+                """;
+        return page(selection, arguments, limit);
+    }
+
+    public PageRows pageForAsset(UUID bookId, UUID assetId, Cursor cursor, int limit) {
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(bookId);
+        arguments.add(assetId);
+        arguments.add(assetId);
+        String cursorClause = "";
+        if (cursor != null) {
+            cursorClause = " and (transaction.occurred_on, transaction.created_at, transaction.id) < (?, ?, ?)";
+            arguments.add(Date.valueOf(cursor.occurredOn()));
+            arguments.add(Timestamp.from(cursor.createdAt()));
+            arguments.add(cursor.id());
+        }
+        arguments.add(limit + 1);
+        String selection = """
+                select transaction.id, transaction.occurred_on, transaction.created_at
+                  from ledger_transaction transaction
+                 where transaction.book_id = ? and transaction.deleted_at is null
+                   and transaction.transaction_type in ('INCOME', 'EXPENSE', 'TRANSFER')
+                   and (transaction.primary_asset_id = ? or exists (
+                       select 1
+                         from transaction_posting selected_posting
+                        where selected_posting.book_id = transaction.book_id
+                          and selected_posting.transaction_id = transaction.id
+                          and selected_posting.asset_id = ?
+                   ))
+                """ + cursorClause + """
+                 order by transaction.occurred_on desc, transaction.created_at desc,
+                          transaction.id desc
+                 limit ?
+                """;
+        return page(selection, arguments, limit);
+    }
+
+    private PageRows page(String selection, List<Object> arguments, int limit) {
+        String sql = "with selected as (\n" + selection + """
                 )
                 select transaction.id transaction_id, transaction.transaction_type,
                        transaction.transfer_subtype, transaction.occurred_on, transaction.amount_won,

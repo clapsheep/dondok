@@ -108,9 +108,9 @@ export function AssetFormPage({ ledger }: { ledger: LedgerBook }) {
   const remoteDeleted = Boolean(editing && detail.data && detail.error instanceof ApiError && detail.error.status === 404)
 
   return (
-    <AppShell ledgerNavigation>
+    <AppShell ledgerNavigation mobileHeader={editing && assetId ? { title: '자산 편집', backTo: `/assets/${assetId}`, backLabel: '자산 거래 내역으로' } : undefined}>
       <section className="py-5 md:py-8">
-        <Button asChild variant="ghost"><Link to="/assets"><ArrowLeft size={17} />자산 목록</Link></Button>
+        <Button asChild variant="ghost" className={editing ? 'hidden md:inline-flex' : undefined}><Link to={editing && assetId ? `/assets/${assetId}` : '/assets'}><ArrowLeft size={17} />{editing ? '자산 거래 내역' : '자산 목록'}</Link></Button>
         {pending ? (
           <div className="grid min-h-[28rem] place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600 dark:text-forest-100" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">자산 정보를 준비하는 중…</p></div></div>
         ) : unavailable || !types.data || !assets.data || (editing && !detail.data) ? (
@@ -119,7 +119,7 @@ export function AssetFormPage({ ledger }: { ledger: LedgerBook }) {
             <Button className="mt-4" variant="secondary" onClick={() => { types.refetch(); assets.refetch(); if (editing) detail.refetch() }}>다시 불러오기</Button>
           </div>
         ) : !editing && assets.data.length >= ASSET_LIMIT ? (
-          <div className="mt-6 border-y border-[var(--line)] py-10 text-center"><p className="font-semibold">활성 자산을 50개까지 모두 등록했어요.</p><p className="mt-2 text-sm text-[var(--muted)]">기존 자산을 정리한 뒤 다시 등록해 주세요.</p><Button asChild className="mt-5" variant="secondary"><Link to="/assets">목록으로 돌아가기</Link></Button></div>
+          <div className="mt-6 border-y border-[var(--line)] py-10 text-center"><p className="font-semibold">활성 자산을 50개까지 모두 등록했어요.</p><p className="mt-2 text-sm text-[var(--muted)]">기존 자산을 삭제하거나 보관한 뒤 다시 등록해 주세요.</p><Button asChild className="mt-5" variant="secondary"><Link to="/assets">목록으로 돌아가기</Link></Button></div>
         ) : editing && assetId && detail.data ? (
           <ExistingAssetContent
             key={assetId}
@@ -185,7 +185,7 @@ function AssetDesktopList({ assets, selectedAssetId }: { assets: Asset[]; select
       <div className="flex items-center justify-between gap-2 px-2 py-2"><h2 className="font-semibold">자산 목록</h2><Button asChild variant="ghost" size="icon"><Link to="/assets/new" aria-label="자산 추가"><WalletCards size={18} /></Link></Button></div>
       <nav className="mt-1 divide-y divide-[var(--line)] border-t border-[var(--line)]">
         {assets.map((asset) => (
-          <Link key={asset.assetId} to={`/assets/${asset.assetId}`} aria-current={asset.assetId === selectedAssetId ? 'page' : undefined} className={`block border-l-2 px-3 py-3 text-sm transition-colors ${asset.assetId === selectedAssetId ? 'border-forest-600 text-forest-800 dark:text-forest-100' : 'border-transparent text-[var(--muted)] hover:text-forest-800 dark:hover:text-white'}`}>
+          <Link key={asset.assetId} to={`/assets/${asset.assetId}/edit`} aria-current={asset.assetId === selectedAssetId ? 'page' : undefined} className={`block border-l-2 px-3 py-3 text-sm transition-colors ${asset.assetId === selectedAssetId ? 'border-forest-600 text-forest-800 dark:text-forest-100' : 'border-transparent text-[var(--muted)] hover:text-forest-800 dark:hover:text-white'}`}>
             <span className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-semibold">{asset.name}</span><span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{asset.assetTypeName}</span></span><span className="shrink-0 font-semibold tabular-nums">{formatWon(asset.currentBalanceWon)}</span></span>
           </Link>
         ))}
@@ -543,13 +543,13 @@ function AssetRemovalSection({ asset, disabled }: { asset: Asset; disabled: bool
     void queryClient.invalidateQueries({ queryKey: transactionKeys.all })
     navigate('/assets', { replace: true, state: { assetRemoved: { disposition: result.disposition, name: result.name } } })
   }, [navigate, queryClient])
-  const navigateToBlockingAsset = useCallback((assetId: string) => navigate(`/assets/${assetId}`), [navigate])
+  const navigateToBlockingAsset = useCallback((assetId: string) => navigate(`/assets/${assetId}/edit`), [navigate])
 
   return (
     <section className="mt-10 border-t border-[var(--line)] pt-6" aria-labelledby="asset-removal-title">
-      <h2 id="asset-removal-title" className="text-lg font-semibold">자산 정리</h2>
-      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">서버가 거래 이력을 확인해 완전 삭제 또는 보관 결과를 먼저 보여드려요.</p>
-      <Button className="mt-3" type="button" variant="ghost" disabled={disabled || !online} onClick={(event) => { trigger.current = event.currentTarget; setOpen(true) }}><Archive size={17} />정리 결과 확인</Button>
+      <h2 id="asset-removal-title" className="text-lg font-semibold">자산 삭제 또는 보관</h2>
+      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">거래 이력이 없으면 삭제하고, 이력이 있으면 과거 기록을 유지한 채 보관해요.</p>
+      <Button className="mt-3" type="button" variant="ghost" disabled={disabled || !online} onClick={(event) => { trigger.current = event.currentTarget; setOpen(true) }}><Archive size={17} />처리 방법 확인</Button>
       {open ? <AssetRemovalDialog assetId={asset.assetId} onRequestClose={close} onApplied={applied} onNavigateToAsset={navigateToBlockingAsset} /> : null}
     </section>
   )
@@ -658,24 +658,24 @@ function AssetRemovalDialog({ assetId, onRequestClose, onApplied, onNavigateToAs
     >
       <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6">
         <header className="flex items-start justify-between gap-4 border-b border-[var(--line)] pb-4">
-          <div><DialogTitle id="asset-removal-dialog-title">{value ? removalTitle(value.disposition) : '자산 정리 결과 확인'}</DialogTitle><DialogDescription id="asset-removal-dialog-description" className="mt-2">{value ? `‘${value.name}’ 자산의 현재 상태를 기준으로 확인합니다.` : '서버에서 자산의 거래와 연결 상태를 확인하고 있어요.'}</DialogDescription></div>
-          <Button className="shrink-0" type="button" size="icon" variant="ghost" aria-label="자산 정리 닫기" disabled={removeAsset.isPending} onClick={requestClose}><X size={19} /></Button>
+          <div><DialogTitle id="asset-removal-dialog-title">{value ? removalTitle(value.disposition) : '처리 방법 확인'}</DialogTitle><DialogDescription id="asset-removal-dialog-description" className="mt-2">{value ? `‘${value.name}’ 자산의 현재 상태를 기준으로 확인합니다.` : '서버에서 자산의 거래와 연결 상태를 확인하고 있어요.'}</DialogDescription></div>
+          <Button className="shrink-0" type="button" size="icon" variant="ghost" aria-label="자산 삭제 또는 보관 창 닫기" disabled={removeAsset.isPending} onClick={requestClose}><X size={19} /></Button>
         </header>
 
         <div className="py-5">
-          {preview.isPending ? <p className="inline-flex min-h-24 items-center gap-2 text-sm text-[var(--muted)]" role="status"><LoaderCircle className="animate-spin" size={18} />정리 결과를 확인하는 중…</p> : preview.isError && !value ? <div role="alert"><p>{preview.error instanceof ApiError && preview.error.status === 404 ? '이 자산을 더 이상 찾을 수 없어요.' : '자산 정리 결과를 불러오지 못했어요.'}</p><Button className="mt-3" type="button" variant="secondary" onClick={() => preview.refetch()}><RotateCcw size={17} />다시 확인</Button></div> : value ? (
+          {preview.isPending ? <p className="inline-flex min-h-24 items-center gap-2 text-sm text-[var(--muted)]" role="status"><LoaderCircle className="animate-spin" size={18} />처리 방법을 확인하는 중…</p> : preview.isError && !value ? <div role="alert"><p>{preview.error instanceof ApiError && preview.error.status === 404 ? '이 자산을 더 이상 찾을 수 없어요.' : '처리 방법을 불러오지 못했어요.'}</p><Button className="mt-3" type="button" variant="secondary" onClick={() => preview.refetch()}><RotateCcw size={17} />다시 확인</Button></div> : value ? (
             <>
               <p className="font-semibold">{removalDescription(value.disposition)}</p>
               <dl className="mt-4 grid gap-2 border-y border-[var(--line)] py-3 text-sm min-[28rem]:grid-cols-2">
                 <div><dt className="text-[var(--muted)]">현재 잔액</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(value.currentBalanceWon)}</dd></div>
                 <div><dt className="text-[var(--muted)]">연결된 거래 이력</dt><dd className="mt-1 font-semibold tabular-nums">{value.historyTransactionCount}건</dd></div>
               </dl>
-              {warnings.length ? <ul className="mt-4 grid gap-2 text-sm" aria-label="자산 정리 주의사항">{warnings.map((warning) => <li className="border-l-4 border-amber-500 px-3 py-1" key={warning}>{warning}</li>)}</ul> : null}
-              {blocked ? <section className="mt-5 border-t border-[var(--line)] pt-4" aria-labelledby="asset-removal-blocked-title"><h3 id="asset-removal-blocked-title" className="font-semibold">먼저 연결을 변경해 주세요</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">아래 자산에서 이 자산을 결제·이체 계좌로 사용 중이에요. 연결 설정을 바꾼 뒤 다시 확인해 주세요.</p><ul className="mt-3 divide-y divide-[var(--line-subtle)] border-y border-[var(--line)]">{value.blockingLinks.map((link) => <li key={`${link.kind}-${link.assetId}`}><Link className="flex min-h-11 items-center gap-2 py-2 text-sm transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100" to={`/assets/${link.assetId}`} onClick={(event) => navigateToAsset(event, link.assetId)}><Link2 className="shrink-0 text-[var(--muted)]" size={17} /><span className="min-w-0"><strong className="block break-words">{link.assetName}</strong><span className="text-xs text-[var(--muted)]">{blockingLinkKindLabel(link.kind)} · 설정 열기</span></span></Link></li>)}</ul></section> : null}
-              {applyIssue === 'PREVIEW_STALE' ? <div ref={applyIssueAlert} className="mt-5 border-l-4 border-amber-500 px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">정리 결과가 달라졌어요</p><p className="mt-1 text-sm leading-6">작성 중인 자산 정보는 그대로 두었습니다. 최신 내용을 확인한 뒤 다시 실행해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 내용 다시 확인</Button></div> : null}
-              {applyIssue === 'NEW_BLOCKER' ? <div ref={applyIssueAlert} className="mt-5 border-l-4 border-amber-500 px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">새 연결이 생겨 자산을 정리할 수 없어요</p><p className="mt-1 text-sm leading-6">다른 자산이 이 자산을 결제·이체 계좌로 사용하기 시작했어요. 최신 연결을 확인하고 먼저 변경해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 연결 확인</Button></div> : null}
-              {!online ? <p className="mt-5 border-l-4 border-amber-500 px-4 py-2 text-sm" role="status">오프라인 상태예요. 연결되면 정리 결과를 다시 확인하고 실행할 수 있어요.</p> : null}
-              {applyError ? <p className="mt-5 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{applyError instanceof Error ? applyError.message : '자산을 정리하지 못했어요.'}</p> : null}
+              {warnings.length ? <ul className="mt-4 grid gap-2 text-sm" aria-label="자산 삭제 또는 보관 주의사항">{warnings.map((warning) => <li className="border-l-4 border-amber-500 px-3 py-1" key={warning}>{warning}</li>)}</ul> : null}
+              {blocked ? <section className="mt-5 border-t border-[var(--line)] pt-4" aria-labelledby="asset-removal-blocked-title"><h3 id="asset-removal-blocked-title" className="font-semibold">먼저 연결을 변경해 주세요</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">아래 자산에서 이 자산을 결제·이체 계좌로 사용 중이에요. 연결 설정을 바꾼 뒤 다시 확인해 주세요.</p><ul className="mt-3 divide-y divide-[var(--line-subtle)] border-y border-[var(--line)]">{value.blockingLinks.map((link) => <li key={`${link.kind}-${link.assetId}`}><Link className="flex min-h-11 items-center gap-2 py-2 text-sm transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100" to={`/assets/${link.assetId}/edit`} onClick={(event) => navigateToAsset(event, link.assetId)}><Link2 className="shrink-0 text-[var(--muted)]" size={17} /><span className="min-w-0"><strong className="block break-words">{link.assetName}</strong><span className="text-xs text-[var(--muted)]">{blockingLinkKindLabel(link.kind)} · 설정 열기</span></span></Link></li>)}</ul></section> : null}
+              {applyIssue === 'PREVIEW_STALE' ? <div ref={applyIssueAlert} className="mt-5 border-l-4 border-amber-500 px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">처리 방법이 달라졌어요</p><p className="mt-1 text-sm leading-6">작성 중인 자산 정보는 그대로 두었습니다. 최신 내용을 확인한 뒤 다시 실행해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 내용 다시 확인</Button></div> : null}
+              {applyIssue === 'NEW_BLOCKER' ? <div ref={applyIssueAlert} className="mt-5 border-l-4 border-amber-500 px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">새 연결이 생겨 자산을 삭제하거나 보관할 수 없어요</p><p className="mt-1 text-sm leading-6">다른 자산이 이 자산을 결제·이체 계좌로 사용하기 시작했어요. 최신 연결을 확인하고 먼저 변경해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 연결 확인</Button></div> : null}
+              {!online ? <p className="mt-5 border-l-4 border-amber-500 px-4 py-2 text-sm" role="status">오프라인 상태예요. 연결되면 처리 방법을 다시 확인하고 실행할 수 있어요.</p> : null}
+              {applyError ? <p className="mt-5 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{applyError instanceof Error ? applyError.message : '자산을 삭제하거나 보관하지 못했어요.'}</p> : null}
             </>
           ) : null}
         </div>

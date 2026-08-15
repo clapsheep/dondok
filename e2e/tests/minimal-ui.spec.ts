@@ -95,6 +95,7 @@ test('가입·초대·홈·자산·설정·거래 폼은 카드 대신 구분선
   await expect(page.getByRole('status')).toContainText('자산을 등록했어요.')
   await expectMinimalSurface(page, '자산 등록 직후 목록')
   await assetRow(page, '미니멀 계좌').getByRole('link').click()
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expectMinimalSurface(page, '자산 상세 폼')
 

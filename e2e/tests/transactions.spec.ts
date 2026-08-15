@@ -17,12 +17,31 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
 
   await expect(page.getByRole('heading', { name: '구성원', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
+  const homeHeader = page.locator('[data-home-header]')
+  if ((page.viewportSize()?.width ?? 768) < 768) {
+    await expect(homeHeader, '모바일 홈은 가계부 제목과 기록·새로고침 header 공간을 차지하지 않아야 합니다').toBeHidden()
+    await pullHomeToRefresh(page)
+  } else {
+    await expect(homeHeader, '넓은 화면은 가계부 문맥과 명시적 새로고침을 유지해야 합니다').toBeVisible()
+    await expect(homeHeader.getByRole('button', { name: '최신 거래 확인' })).toBeVisible()
+    await expect(homeHeader.getByRole('link', { name: '기록', exact: true }), '기록은 화면 크기와 관계없이 날짜 상세에서 시작해야 합니다').toHaveCount(0)
+  }
   await page.getByRole('link', { name: '자산', exact: true }).click()
   await page.getByRole('link', { name: '자산 추가' }).click()
   await createBankAsset(page, '생활비 계좌', '1000000')
-  await page.getByRole('link', { name: '자산 목록' }).click()
+  await page.getByRole('link', { name: '자산', exact: true }).click()
   await page.getByRole('link', { name: '자산 추가' }).click()
   await createBankAsset(page, '현금 지갑', '100000')
+  await page.getByRole('link', { name: '자산', exact: true }).click()
+  await page.getByRole('link', { name: '자산 추가' }).click()
+  await submitQuickAsset(page, {
+    typeName: '적금',
+    name: '여행 적금',
+    amount: '0',
+    expectedName: '여행 적금',
+    expectedAmount: '0원',
+  })
 
   await recordNavigation(page).click()
   await expect(page.getByRole('heading', { name: '거래 기록', level: 1 })).toHaveCount(1)
@@ -104,27 +123,28 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await recordNavigation(page).click()
   await page.getByRole('button', { name: '이체', exact: true }).click()
   await expect(page.getByRole('radiogroup', { name: '누가 옮겼나요?' })).toBeVisible()
-  const sourceAccount = page.getByLabel('보내는 계좌')
-  const destinationAccount = page.getByLabel('받는 계좌')
-  const sourcePicker = await openAssetPicker(page, '보내는 계좌')
+  const sourceAccount = page.getByLabel('보내는 자산')
+  const destinationAccount = page.getByLabel('받는 자산')
+  const sourcePicker = await openAssetPicker(page, '보내는 자산')
   await expect(sourcePicker.picker.getByRole('button', { name: /^생활비 계좌,/ })).toBeVisible()
   await expect(sourcePicker.picker.getByRole('button', { name: /^현금 지갑,/ })).toBeVisible()
+  await expect(sourcePicker.picker.getByRole('button', { name: /^여행 적금,/ })).toBeVisible()
   await expect(sourcePicker.picker.locator('[data-asset-option]')).not.toHaveCount(0)
-  expect(await sourcePicker.picker.locator('[data-asset-option]').evaluateAll((options) => options.every((option) => option.getAttribute('data-asset-system-code') === 'BANK'))).toBe(true)
+  expect(await sourcePicker.picker.locator('[data-asset-option]').evaluateAll((options) => options.every((option) => ['BANK', 'SAVINGS'].includes(option.getAttribute('data-asset-system-code') ?? '')))).toBe(true)
   await page.keyboard.press('Escape')
   await page.getByLabel('금액').fill('30000')
-  await selectAsset(page, '보내는 계좌', '생활비 계좌')
-  await selectAsset(page, '받는 계좌', '현금 지갑')
+  await selectAsset(page, '보내는 자산', '생활비 계좌')
+  await selectAsset(page, '받는 자산', '여행 적금')
   await expect(sourceAccount).toContainText('나')
   await expect(destinationAccount).toContainText('나')
-  await page.getByLabel('내용 (선택)').fill('QC 자산 이체')
-  const balancesBeforeTransfer = await currentAssetBalances(page, ['생활비 계좌', '현금 지갑'])
+  await page.getByLabel('내용 (선택)').fill('QC 적금 납입')
+  const balancesBeforeTransfer = await currentAssetBalances(page, ['생활비 계좌', '여행 적금'])
   await page.getByRole('button', { name: '기록 저장' }).click()
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
 
   await appNavigation(page, '자산').click()
   await expect(balanceAssetRow(page, '생활비 계좌', formatWon(balancesBeforeTransfer['생활비 계좌'] - 30_000)), '이체 직후 출금 계좌가 정확히 감소해야 합니다').toBeVisible()
-  await expect(balanceAssetRow(page, '현금 지갑', formatWon(balancesBeforeTransfer['현금 지갑'] + 30_000)), '이체 직후 입금 계좌가 정확히 증가해야 합니다').toBeVisible()
+  await expect(balanceAssetRow(page, '여행 적금', formatWon(balancesBeforeTransfer['여행 적금'] + 30_000)), '적금 납입 직후 적금 잔액이 정확히 증가해야 합니다').toBeVisible()
   await appNavigation(page, '홈').click()
 
   await page.getByRole('button', { name: '월간 달력' }).click()
@@ -161,6 +181,13 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(selectedExcludedExpense.getByText('집계 제외', { exact: true })).toBeVisible()
 
   const dayDialog = page.getByRole('dialog')
+  const recordSelectedDay = dayDialog.getByRole('link', { name: /에 거래 기록$/ })
+  await expect(recordSelectedDay).toBeVisible()
+  await recordSelectedDay.click()
+  await expect(page).toHaveURL(/\/transactions\/new$/)
+  await expect(page.getByLabel('날짜', { exact: true })).toHaveAttribute('data-value', today)
+  await page.goBack()
+  await expect(page.getByRole('region', { name: `${today} 거래 상세` })).toBeVisible()
   await assertDayDetailLayout(page, dayDialog, 390)
   const previousDay = shiftDate(today, -1)
   await dayDialog.getByRole('button', { name: '이전 날' }).click()
@@ -209,12 +236,12 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(page.getByText('QC 공동 수입', { exact: true })).toBeVisible()
   await expect(page.getByText('QC 공동 지출', { exact: true })).toBeVisible()
   await expect(page.getByText('QC 집계 제외 지출', { exact: true })).toBeVisible()
-  await expect(page.getByText('QC 자산 이체', { exact: true })).toBeVisible()
+  await expect(page.getByText('QC 적금 납입', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 수입').getByText('+200,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 지출').getByText('-50,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 집계 제외 지출').getByText('-7,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 집계 제외 지출').getByText('집계 제외', { exact: true })).toBeVisible()
-  await expect(transactionRow(page, 'QC 자산 이체').getByText('30,000원', { exact: true })).toBeVisible()
+  await expect(transactionRow(page, 'QC 적금 납입').getByText('30,000원', { exact: true })).toBeVisible()
   await expect(transactionRow(page, 'QC 공동 지출').locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '거')
 
   expect(listRequests.length).toBeGreaterThanOrEqual(2)
@@ -223,6 +250,7 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(page.locator('main li').first()).toHaveCSS('border-radius', '0px')
 
   await transactionRow(page, 'QC 공동 지출').getByRole('link').click()
+  await page.getByRole('link', { name: '기록 편집' }).click()
   await expect(transactionCategoryTrigger(page)).toContainText(addedCategoryName)
 })
 
@@ -235,6 +263,7 @@ async function createBankAsset(page: Page, name: string, openingBalance: string)
     expectedAmount: `${Number(openingBalance).toLocaleString('ko-KR')}원`,
   })
   await row.getByRole('link').click()
+  await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue(name)
 }
@@ -253,6 +282,28 @@ function appNavigation(page: Page, label: '홈' | '기록' | '자산') {
 
 function transactionRow(page: Page, description: string) {
   return page.getByRole('listitem').filter({ hasText: description })
+}
+
+async function pullHomeToRefresh(page: Page) {
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const home = page.locator('[data-home-ledger]')
+  const indicator = page.locator('[data-pull-to-refresh]')
+  const dispatchTouch = (type: 'touchstart' | 'touchmove' | 'touchend', clientY?: number) => home.evaluate((element, detail) => {
+    const event = new Event(detail.type, { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'touches', { value: detail.clientY === undefined ? [] : [{ clientY: detail.clientY }] })
+    element.dispatchEvent(event)
+  }, { type, clientY })
+
+  await dispatchTouch('touchstart', 100)
+  await dispatchTouch('touchmove', 260)
+  await expect(indicator).toContainText('놓아서 새로고침')
+
+  const refreshed = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'GET' && url.pathname === '/api/transactions/calendar'
+  })
+  await dispatchTouch('touchend')
+  await refreshed
 }
 
 async function expectBottomDrawerOnMobile(page: Page, dialog: Locator) {
@@ -306,6 +357,7 @@ async function assertDraftAndFocusAcrossWidths(page: Page, description: string) 
 }
 
 async function expectTransactionFormLayout(page: Page, width: number) {
+  const continuousFlow = page.locator('[data-transaction-fields]')
   const fieldRect = (locator: Locator) => locator.evaluate((element) => {
     const wrapper = element.closest('[data-slot="field"], [data-slot="money-field"]') ?? element.parentElement
     if (!wrapper) throw new Error('거래 Field wrapper를 찾지 못했습니다.')
@@ -324,13 +376,19 @@ async function expectTransactionFormLayout(page: Page, width: number) {
   expect(Math.abs(amount.width - date.width), `${width}px 금액과 날짜는 같은 전체 폭을 사용해야 합니다`).toBeLessThanOrEqual(1)
   expect(Math.abs(amount.controlHeight - date.controlHeight), `${width}px 금액과 날짜 control 높이가 같아야 합니다`).toBeLessThanOrEqual(1)
   expect(asset.top, `${width}px 자산은 분류 다음 독립 행에 있어야 합니다`).toBeGreaterThanOrEqual(category.bottom - 1)
+  expect(await continuousFlow.evaluate((element) => [...element.children].filter((child) => {
+    const style = getComputedStyle(child)
+    return parseFloat(style.borderTopWidth) > 0 || parseFloat(style.borderBottomWidth) > 0
+  }).length), `${width}px 관련 없는 입력을 두 개씩 묶는 반복 구분선이 없어야 합니다`).toBe(0)
+  if (width >= 1024) expect(amount.width, `${width}px 데스크톱 입력 열은 과도하게 늘어나지 않아야 합니다`).toBeLessThanOrEqual(640)
 
   const mobileContextHeader = page.locator('[data-mobile-context-header]')
-  const pageBackLink = page.locator('[data-page-back-link]')
+  const pageBackLink = page.getByRole('link', { name: '가계부로 돌아가기', exact: true })
   const desktopSummary = page.locator('[data-transaction-desktop-summary]')
-  await expect(pageBackLink, `${width}px 거래 입력 본문에 중복 가계부 복귀 링크를 만들면 안 됩니다`).toHaveCount(0)
+  await expect(pageBackLink, `${width}px 하단 기록 탭으로 여는 새 거래 화면에 가계부 복귀 링크를 만들면 안 됩니다`).toHaveCount(0)
   if (width < 768) {
-    await expect(mobileContextHeader, `${width}px 거래 기록은 앱형 문맥 header를 사용해야 합니다`).toBeVisible()
+    await expect(mobileContextHeader, `${width}px 최상위 기록 탭에 뒤로가기용 문맥 header를 만들면 안 됩니다`).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: '거래 기록', level: 1 })).toBeVisible()
     await expect(desktopSummary).toBeHidden()
     const navGeometry = await page.locator('[data-mobile-navigation]').evaluate((element) => {
       const rect = element.getBoundingClientRect()

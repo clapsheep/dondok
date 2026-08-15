@@ -466,6 +466,37 @@ paths:
               schema: { $ref: "#/components/schemas/AssetRemovalPreview" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/assets/{assetId}/transactions:
+    parameters:
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: 자산과 연결된 거래 cursor 목록
+      description: 자산을 직접 선택한 거래와 해당 자산 잔액을 바꾼 posting을 최신 날짜 우선으로 한 번씩 반환한다. 보관 자산의 과거 거래도 조회할 수 있다.
+      operationId: getAssetTransactions
+      tags: [Transaction]
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: 서버가 발급한 날짜·생성 시각·ID 기반 opaque cursor
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        "200":
+          description: 해당 자산을 사용했거나 잔액에 반영된 최신순 거래 목록
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransactionPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /api/assets/{cardAssetId}/card-statements:
     parameters:
       - name: cardAssetId
@@ -1453,8 +1484,8 @@ components:
           required: [sourceAssetId, destinationAssetId]
           properties:
             type: { type: string, const: TRANSFER }
-            sourceAssetId: { type: string, format: uuid, description: "같은 가계부의 활성 BANK 계좌 자산 ID" }
-            destinationAssetId: { type: string, format: uuid, description: "출발 계좌와 다른 활성 BANK 계좌 자산 ID" }
+            sourceAssetId: { type: string, format: uuid, description: "같은 가계부의 활성 BANK 계좌 또는 SAVINGS 적금 자산 ID" }
+            destinationAssetId: { type: string, format: uuid, description: "출발 자산과 다른 활성 BANK 계좌 또는 SAVINGS 적금 자산 ID" }
     UpdateTransactionRequest:
       type: object
       required: [type, occurredOn, amountWon, performedByMemberId, expectedVersion]
@@ -1470,8 +1501,8 @@ components:
           maximum: 60
           default: 1
           description: EXPENSE의 결제 자산을 신용카드로 변경할 때 사용하며 생략하면 일시불로 처리한다.
-        sourceAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 활성 BANK 계좌 자산 ID" }
-        destinationAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 출발과 다른 활성 BANK 계좌 자산 ID" }
+        sourceAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 활성 BANK 계좌 또는 SAVINGS 적금 자산 ID" }
+        destinationAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 출발과 다른 활성 BANK 계좌 또는 SAVINGS 적금 자산 ID" }
         performedByMemberId: { type: string, format: uuid }
         description: { type: string, maxLength: 500 }
         expectedVersion: { type: integer, format: int64, minimum: 0 }

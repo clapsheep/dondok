@@ -130,6 +130,8 @@ erDiagram
 
 사용자가 수입·지출 또는 카드 구매·환불에 `excluded_from_statistics=true`를 저장하면 위 posting과 카드 업무 행은 바꾸지 않고 canonical `ledger_financial_activity` view에서만 제외한다. 따라서 자산 잔액과 원장 이력은 유지되며 월간 달력·분류 통계·연간 흐름은 같은 조건을 공유한다. 일반 이체·카드 정산·선결제는 거래 유형 자체가 view 대상이 아니므로 이 flag를 사용하지 않는다.
 
+일반 이체의 출발·도착은 application 계약에서 활성 `BANK` 또는 `SAVINGS` 자산으로 제한한다. 계좌→적금과 적금→계좌도 별도 거래 유형이나 적금 전용 table 없이 같은 합계 0 posting 쌍을 사용한다.
+
 `asset.balance_anchor_won`은 `asset.opened_on` 시작 시점의 선언된 기준일 잔액이다. 기준일 이전 거래도 허용하고 통계·원장 이력에는 포함하지만 잔액에는 다시 합산하지 않는다. `asset_current_balance`는 기준일 잔액에 기준일 당일 이후의 삭제되지 않은 비-`OPENING_BALANCE` posting만 더한다. 기존 `OPENING_BALANCE` 거래는 API 호환과 카드 opening 업무 이력을 위해 유지하지만 잔액 view에서 중복 합산하지 않는다. V18은 기존 opening posting과 기준일 이전 유효 posting을 기준일 잔액으로 backfill해 배포 전후 현재 잔액을 보존한다. `card_charge.absorbed_by_balance_anchor=true`인 기준일 이전 구매도 명세 원금에서는 제외하며, 이후 환불 allocation은 카드의 `OPENING_BALANCE` 명세를 줄여 카드 잔액과 결제 예정액을 함께 맞춘다.
 
 사람 관련 값도 분리한다.
@@ -217,7 +219,7 @@ erDiagram
 
 기본 화면에는 멤버·거래 주체·자산 소유자 필터를 자동 적용하지 않고 가계부 전체를 보여준다. 개인/공동/멤버별 통계는 사용자가 명시적으로 필터를 선택했을 때만 계산한다.
 
-MVP 통계는 선택 월 수입·지출·순액과 카테고리 비중, 선택 월이 속한 연도의 1~12월 수입·지출 합계를 제공한다. 일별 거래는 통계에서 중복 집계하지 않고 홈의 일별 원장에서 조회한다. 거래 목록은 날짜·ID 기반 cursor pagination으로 필요한 범위만 조회하고, 달력·통계는 시작일과 종료일이 있는 bounded query만 허용한다. 홈의 구성원별 보기는 선택한 경우에만 `performed_by_member_id = ?`를 bounded 달력 projection과 cursor 목록 SQL에 추가하고, 전체 보기에는 nullable `OR` 조건을 만들지 않는다. JPA `LAZY` 연관관계를 순회해 목록을 만드는 대신 projection과 명시적 SQL로 N+1과 전체 원장 로드를 피한다.
+MVP 통계는 선택 월 수입·지출·순액과 카테고리 비중, 선택 월이 속한 연도의 1~12월 수입·지출 합계를 제공한다. 일별 거래는 통계에서 중복 집계하지 않고 홈의 일별 원장에서 조회한다. 거래 목록은 날짜·생성 시각·ID 기반 cursor pagination으로 필요한 범위만 조회하고, 달력·통계는 시작일과 종료일이 있는 bounded query만 허용한다. 자산 원장은 `primary_asset_id = ?` 또는 `transaction_posting.asset_id = ?`인 거래만 같은 cursor로 조회하고 `ix_ledger_transaction_primary_asset_history`, `ix_transaction_posting_asset_balance`, `ix_ledger_transaction_daily`를 조합해 전체 원장을 애플리케이션 메모리로 올리지 않는다. 홈의 구성원별 보기는 선택한 경우에만 `performed_by_member_id = ?`를 bounded 달력 projection과 cursor 목록 SQL에 추가하고, 전체 보기에는 nullable `OR` 조건을 만들지 않는다. JPA `LAZY` 연관관계를 순회해 목록을 만드는 대신 projection과 명시적 SQL로 N+1과 전체 원장 로드를 피한다.
 
 월간 통계는 `excluded_from_statistics=false`인 수입·지출만 담는 `ledger_financial_activity`가 노출하는 `primary_asset_id`를 자산 소유 marker 필터에 사용한다. 체크카드 지출도 실제 posting 계좌가 아니라 사용자가 선택한 체크카드의 소유 marker로 귀속하고, 개인 소유는 `asset.owner_member_id`, 공동 소유는 `asset.ownership_scope = 'JOINT'`의 현재 값을 적용한다. 거래 주체·자산 소유자·분류 필터는 모두 같은 가계부에 속하는지 먼저 확인한 뒤 AND로 조합한다. 선택 월 합계·분류는 월 범위 `GROUPING SETS`, 연간 막대는 같은 연도의 `date_trunc('month')` group query로 제한한다. 두 query는 read-only repeatable-read transaction에서 같은 MVCC snapshot을 공유하고 application layer는 누락된 달만 0으로 채워 항상 12개를 반환한다. 실제 실행 계획에서 병목이 확인되기 전에는 새 통계 전용 인덱스나 materialized view를 추가하지 않는다.
 
@@ -305,7 +307,7 @@ DB가 강제할 것:
 - 단일 가계부 membership과 가계부 전체 삭제 경계
 - 명세 잠금 후 남은 금액 이하의 부분 선결제
 - 활성 자산 50개 제한과 동시 생성 경쟁
-- 자산 정리 preview 이후 이력·잔액·출금원 연결 변경과 archive 자원의 수정·신규 사용
+- 자산 삭제·보관 preview 이후 이력·잔액·출금원 연결 변경과 archive 자원의 수정·신규 사용
 
 UI 경고면 충분한 것:
 

@@ -108,6 +108,67 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
+    void assetLedgerIncludesPrimaryAssetAndPostingSidesOnceWithCursorOrdering() {
+        Fixture fixture = fixture();
+        AssetService.AssetView sourceAccount = createStandardAsset(
+                fixture, "BANK", "보내는 계좌", 500_000, "asset-ledger-source");
+        AssetService.AssetView destinationAccount = createStandardAsset(
+                fixture, "BANK", "받는 계좌", 0, "asset-ledger-destination");
+        AssetService.AssetView unrelatedAccount = createStandardAsset(
+                fixture, "BANK", "관계없는 계좌", 0, "asset-ledger-unrelated");
+        AssetService.AssetView debitCard = assetService.create(
+                fixture.userId(), "asset-ledger-debit-card",
+                new AssetService.AssetCommand(
+                        assetType(fixture.userId(), "DEBIT_CARD"), AssetOwnershipScope.PERSONAL,
+                        fixture.memberId(), "생활비 체크카드", LocalDate.of(2026, 7, 1), null, 0,
+                        null, new AssetService.DebitCardSettingsCommand(sourceAccount.assetId()), null));
+        UUID food = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+        UUID income = category(fixture.userId(), CategoryKind.INCOME, "OTHER");
+
+        TransactionService.TransactionView transfer = transactionService.create(
+                fixture.userId(), "asset-ledger-transfer",
+                new TransactionService.CreateTransfer(
+                        LocalDate.of(2026, 7, 20), 210_000,
+                        sourceAccount.assetId(), destinationAccount.assetId(),
+                        fixture.memberId(), "공동 계좌 이체"));
+        TransactionService.TransactionView debitExpense = transactionService.create(
+                fixture.userId(), "asset-ledger-debit-expense",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 3), 15_000, food, debitCard.assetId(),
+                        fixture.memberId(), "체크카드 장보기", 1));
+        transactionService.create(
+                fixture.userId(), "asset-ledger-unrelated-income",
+                new TransactionService.CreateIncome(
+                        LocalDate.of(2026, 9, 1), 50_000, income, unrelatedAccount.assetId(),
+                        fixture.memberId(), "관계없는 수입"));
+
+        TransactionService.TransactionPage first = transactionService.transactionsForAsset(
+                fixture.userId(), sourceAccount.assetId(), null, 1);
+        assertThat(first.items()).extracting(TransactionService.TransactionView::transactionId)
+                .containsExactly(debitExpense.transactionId());
+        assertThat(first.nextCursor()).isNotBlank();
+        TransactionService.TransactionPage remaining = transactionService.transactionsForAsset(
+                fixture.userId(), sourceAccount.assetId(), first.nextCursor(), 10);
+        assertThat(remaining.items()).extracting(TransactionService.TransactionView::transactionId)
+                .containsExactly(transfer.transactionId());
+        assertThat(remaining.nextCursor()).isNull();
+
+        assertThat(transactionService.transactionsForAsset(
+                fixture.userId(), debitCard.assetId(), null, 10).items())
+                .extracting(TransactionService.TransactionView::transactionId)
+                .containsExactly(debitExpense.transactionId());
+        assertThat(transactionService.transactionsForAsset(
+                fixture.userId(), destinationAccount.assetId(), null, 10).items())
+                .extracting(TransactionService.TransactionView::transactionId)
+                .containsExactly(transfer.transactionId());
+
+        assertThatThrownBy(() -> transactionService.transactionsForAsset(
+                fixture.userId(), UUID.randomUUID(), null, 10))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo("ASSET_NOT_FOUND"));
+    }
+
+    @Test
     void calendarAndLedgerRowsCanBeFilteredByEconomicPerformer() {
         Fixture fixture = fixture();
         UUID partnerMemberId = addMember(fixture.bookId(), "함께 쓰는 사람");
@@ -499,7 +560,7 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
-    void normalTransferRejectsNonBankSourceAndDestinationAssets() {
+    void normalTransferRejectsSourceAndDestinationOutsideAccountsAndSavings() {
         Fixture fixture = fixture();
         AssetService.AssetView firstBank = createStandardAsset(
                 fixture, "BANK", "첫 계좌", 100_000, "transfer-bank-first");
@@ -515,7 +576,7 @@ class TransactionServiceIntegrationTest {
                         fixture.memberId(), "현금 출발")))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.getErrorCode())
-                                .isEqualTo("TRANSFER_BANK_ACCOUNT_REQUIRED"));
+                                .isEqualTo("TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED"));
         assertThat(count("""
                 select count(*) from ledger_transaction
                  where book_id = ? and source_type = 'MANUAL'
@@ -540,7 +601,7 @@ class TransactionServiceIntegrationTest {
                         valid.description(), valid.version())))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.getErrorCode())
-                                .isEqualTo("TRANSFER_BANK_ACCOUNT_REQUIRED"));
+                                .isEqualTo("TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED"));
         assertThat(transactionService.transaction(fixture.userId(), valid.transactionId()).version())
                 .isEqualTo(valid.version());
         assertThat(transactionService.transaction(fixture.userId(), valid.transactionId()).postings())
@@ -553,7 +614,7 @@ class TransactionServiceIntegrationTest {
                         fixture.memberId(), "현금 도착")))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.getErrorCode())
-                                .isEqualTo("TRANSFER_BANK_ACCOUNT_REQUIRED"));
+                                .isEqualTo("TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED"));
     }
 
     @Test
@@ -706,30 +767,35 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
-    void normalTransferUpdateAndDeleteKeepTwoSidedPostingAndStayOutOfStatistics() {
+    void normalTransferBetweenBankAndSavingsKeepsTwoSidedPostingAndStaysOutOfStatistics() {
         Fixture fixture = fixture();
         AssetService.AssetView bank = createStandardAsset(
                 fixture, "BANK", "이체 계좌", 100_000, "transfer-update-bank");
-        AssetService.AssetView secondBank = createStandardAsset(
-                fixture, "BANK", "이체 보조 계좌", 0, "transfer-update-second-bank");
+        AssetService.AssetView savings = createStandardAsset(
+                fixture, "SAVINGS", "여행 적금", 0, "transfer-update-savings");
         TransactionService.TransactionView created = transactionService.create(
                 fixture.userId(), "transfer-update",
                 new TransactionService.CreateTransfer(
-                        LocalDate.of(2026, 7, 10), 20_000, bank.assetId(), secondBank.assetId(),
-                        fixture.memberId(), "첫 이체"));
+                        LocalDate.of(2026, 7, 10), 20_000, bank.assetId(), savings.assetId(),
+                        fixture.memberId(), "적금 납입"));
+
+        assertThat(assetService.asset(fixture.userId(), bank.assetId()).currentBalanceWon())
+                .isEqualTo(80_000);
+        assertThat(assetService.asset(fixture.userId(), savings.assetId()).currentBalanceWon())
+                .isEqualTo(20_000);
 
         TransactionService.TransactionView updated = transactionService.update(
                 fixture.userId(), created.transactionId(),
                 new TransactionService.UpdateCommand(
                         TransactionType.TRANSFER, LocalDate.of(2026, 7, 11), 30_000,
-                        null, null, secondBank.assetId(), bank.assetId(), fixture.memberId(),
-                        "반대 이체", created.version()));
+                        null, null, savings.assetId(), bank.assetId(), fixture.memberId(),
+                        "적금 인출", created.version()));
 
         assertThat(updated.postings()).extracting(TransactionService.PostingView::deltaWon)
                 .containsExactly(-30_000L, 30_000L);
         assertThat(assetService.asset(fixture.userId(), bank.assetId()).currentBalanceWon())
                 .isEqualTo(130_000);
-        assertThat(assetService.asset(fixture.userId(), secondBank.assetId()).currentBalanceWon())
+        assertThat(assetService.asset(fixture.userId(), savings.assetId()).currentBalanceWon())
                 .isEqualTo(-30_000);
         assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)).totalIncomeWon())
                 .isZero();
@@ -739,7 +805,7 @@ class TransactionServiceIntegrationTest {
         transactionService.delete(fixture.userId(), created.transactionId(), updated.version());
         assertThat(assetService.asset(fixture.userId(), bank.assetId()).currentBalanceWon())
                 .isEqualTo(100_000);
-        assertThat(assetService.asset(fixture.userId(), secondBank.assetId()).currentBalanceWon())
+        assertThat(assetService.asset(fixture.userId(), savings.assetId()).currentBalanceWon())
                 .isZero();
     }
 
