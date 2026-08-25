@@ -210,8 +210,8 @@ public class CardStatementService {
                     "카드 결제 기록을 찾을 수 없습니다.");
         }
         if (payment.cancelledAt() != null) {
-            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_ALREADY_CANCELLED",
-                    "이미 취소된 선결제입니다.");
+            throw error(HttpStatus.CONFLICT, "CARD_PAYMENT_ALREADY_CANCELLED",
+                    "이미 취소된 카드 결제입니다.");
         }
         if (payment.returnedAmountWon() > 0) {
             throw error(HttpStatus.CONFLICT, "CARD_PAYMENT_ACCOUNT_CORRECTION_REFUND_EXISTS",
@@ -238,11 +238,11 @@ public class CardStatementService {
     }
 
     @Transactional
-    public CardPrepaymentCancellationResult cancelPrepayment(
+    public CardPaymentCancellationResult cancelPayment(
             UUID userId,
             UUID statementId,
             UUID paymentId,
-            CancelPrepaymentCommand command
+            CancelPaymentCommand command
     ) {
         LedgerMemberEntity member = mutationGuard.lockCurrentMember(userId);
         StatementRow statement = repository.lockStatement(member.getBookId(), statementId);
@@ -258,26 +258,23 @@ public class CardStatementService {
                     "카드 결제 기록을 찾을 수 없습니다.");
         }
         if (payment.cancelledAt() != null) {
-            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_ALREADY_CANCELLED",
-                    "이미 취소된 선결제입니다.");
-        }
-        if (!"PREPAYMENT".equals(payment.paymentType())) {
-            throw error(HttpStatus.CONFLICT, "CARD_REGULAR_PAYMENT_CANCELLATION_NOT_ALLOWED",
-                    "자동 정산 결제는 선결제 취소로 되돌릴 수 없습니다.");
+            throw error(HttpStatus.CONFLICT, "CARD_PAYMENT_ALREADY_CANCELLED",
+                    "이미 취소된 카드 결제입니다.");
         }
         if (payment.returnedAmountWon() > 0) {
-            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_CANCELLATION_REFUND_EXISTS",
-                    "환불 금액이 반환된 선결제는 취소할 수 없습니다.");
+            throw error(HttpStatus.CONFLICT, "CARD_PAYMENT_CANCELLATION_REFUND_EXISTS",
+                    "환불 금액이 반환된 카드 결제는 취소할 수 없습니다.");
         }
-        if (repository.activeRegularPaymentExists(statementId)) {
+        if ("PREPAYMENT".equals(payment.paymentType())
+                && repository.activeRegularPaymentExists(statementId)) {
             throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_CANCELLATION_REGULAR_PAYMENT_EXISTS",
                     "이후 자동 정산이 완료되어 선결제를 취소할 수 없습니다.");
         }
         Instant now = clock.instant();
-        repository.cancelPrepayment(
+        repository.cancelPayment(
                 member.getBookId(), statementId, payment, member.getId(), today(),
                 statement.autoSettlementEnabled(), now);
-        return new CardPrepaymentCancellationResult(
+        return new CardPaymentCancellationResult(
                 detail(requiredStatement(member.getBookId(), statementId)),
                 paymentId, payment.settlementTransactionId());
     }
@@ -601,14 +598,14 @@ public class CardStatementService {
     ) {
     }
 
-    public record CardPrepaymentCancellationResult(
+    public record CardPaymentCancellationResult(
             CardStatementDetail statement,
             UUID cancelledPaymentId,
             UUID cancelledTransactionId
     ) {
     }
 
-    public record CancelPrepaymentCommand(long expectedVersion) {
+    public record CancelPaymentCommand(long expectedVersion) {
     }
 
     public record CorrectPaymentAccountCommand(

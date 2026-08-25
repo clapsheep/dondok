@@ -678,9 +678,9 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "412": { $ref: "#/components/responses/PreconditionFailed" }
     delete:
-      summary: 사용자가 기록한 카드 선결제 취소
-      description: PREPAYMENT 결제만 취소하며 결제 계좌·카드 posting, 명세 상태와 자동 정산 일정을 한 트랜잭션에서 복원한다. 환불 반환에 사용됐거나 이후 정규 결제가 생긴 선결제는 취소하지 않는다.
-      operationId: cancelCardStatementPrepayment
+      summary: 카드 선결제 또는 자동 정산 취소
+      description: PREPAYMENT 또는 REGULAR 결제를 취소하며 결제 계좌·카드 posting과 명세 상태를 한 트랜잭션에서 복원한다. 자동 정산 취소 시 해당 명세의 schedule은 CANCELLED로 유지해 다시 출금하지 않는다. 환불 반환에 사용된 결제와 이후 정규 결제가 생긴 선결제는 취소하지 않는다.
+      operationId: cancelCardStatementPayment
       tags: [CardStatement]
       security: [{ cookieAuth: [] }]
       parameters:
@@ -691,10 +691,10 @@ paths:
           schema: { type: integer, format: int64, minimum: 0 }
       responses:
         "200":
-          description: 선결제 취소 후 authoritative 명세
+          description: 카드 결제 취소 후 authoritative 명세
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/CardPrepaymentCancellationResult" }
+              schema: { $ref: "#/components/schemas/CardPaymentCancellationResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2004,7 +2004,7 @@ components:
         statement: { $ref: "#/components/schemas/CardStatementDetail" }
         payment: { $ref: "#/components/schemas/CardStatementPayment" }
         settlementTransaction: { $ref: "#/components/schemas/Transaction" }
-    CardPrepaymentCancellationResult:
+    CardPaymentCancellationResult:
       type: object
       required: [statement, cancelledPaymentId, cancelledTransactionId]
       properties:

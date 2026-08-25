@@ -46,8 +46,8 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [confirmCancelPrepayment, setConfirmCancelPrepayment] = useState(false)
-  const [prepaymentConflict, setPrepaymentConflict] = useState(false)
+  const [confirmCancelPayment, setConfirmCancelPayment] = useState(false)
+  const [paymentConflict, setPaymentConflict] = useState(false)
   const [conflict, setConflict] = useState(false)
   const [remoteDeleted, setRemoteDeleted] = useState(false)
   const remove = useMutation({
@@ -61,11 +61,11 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
     },
     onError: (error) => void handleRemoveError(error),
   })
-  const cancelPrepayment = useMutation({
+  const cancelPayment = useMutation({
     mutationFn: () => {
       const payment = transaction.cardPayment
-      if (!payment) throw new Error('선결제 연결 정보를 찾을 수 없습니다.')
-      return cardStatementApi.cancelPrepayment(
+      if (!payment) throw new Error('카드 결제 연결 정보를 찾을 수 없습니다.')
+      return cardStatementApi.cancelPayment(
         payment.statementId,
         payment.paymentId,
         payment.statementVersion,
@@ -77,24 +77,24 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
       void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType: 'none' })
       void queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType: 'none' })
       void queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType: 'none' })
-      navigate(returnTo, { replace: true, state: { prepaymentCancelled: true } })
+      navigate(returnTo, { replace: true, state: transaction.cardPayment?.paymentType === 'REGULAR' ? { automaticSettlementCancelled: true } : { prepaymentCancelled: true } })
     },
     onError: async (error) => {
       if (!(error instanceof ApiError)) return
       if (error.status === 404) {
-        setConfirmCancelPrepayment(false)
+        setConfirmCancelPayment(false)
         setRemoteDeleted(true)
         return
       }
       if (error.status !== 412) return
-      setPrepaymentConflict(true)
+      setPaymentConflict(true)
       await queryClient.fetchQuery({
         queryKey: transactionKeys.detail(transaction.transactionId),
         queryFn: () => transactionApi.detail(transaction.transactionId),
         staleTime: 0,
       }).catch((latestError) => {
         if (latestError instanceof ApiError && latestError.status === 404) {
-          setConfirmCancelPrepayment(false)
+          setConfirmCancelPayment(false)
           setRemoteDeleted(true)
         }
       })
@@ -121,9 +121,10 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
     }
   }
   const editable = transaction.managementType === 'GENERAL'
-  const userPrepayment = transaction.managementType === 'SYSTEM'
-    && transaction.transferSubtype === 'CARD_PREPAYMENT'
-    && transaction.cardPayment?.paymentType === 'PREPAYMENT'
+  const cancellableCardPayment = transaction.managementType === 'SYSTEM'
+    && transaction.cardPayment
+    && ['PREPAYMENT', 'REGULAR'].includes(transaction.cardPayment.paymentType)
+  const automaticSettlement = cancellableCardPayment && transaction.cardPayment?.paymentType === 'REGULAR'
   const type = transactionTypeLabel(transaction)
   const amountTone = transaction.managementType === 'CARD_REFUND' || transaction.type === 'INCOME'
     ? 'text-[var(--income)]'
@@ -159,10 +160,10 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
         </dl>
 
         {transaction.managementType === 'CARD_REFUND' && transaction.relatedPurchaseTransactionId ? <section className="border-b border-[var(--line)] py-5"><p className="text-sm leading-6 text-[var(--muted)]">카드 환불은 원 구매와 결제 계좌 반환 내역을 함께 관리해요.</p><Button asChild className="mt-3" variant="secondary"><Link to={`/transactions/${transaction.relatedPurchaseTransactionId}/card-purchase`} state={{ returnTo }}>원 카드 구매 보기</Link></Button></section> : null}
-        {userPrepayment ? (
-          <section className="border-b border-[var(--line)] py-5" aria-label="선결제 관리">
-            <p className="text-sm leading-6 text-[var(--muted)]">직접 기록한 카드 선결제예요. 취소하면 출금 계좌 잔액이 복원되고 카드 미결제 금액이 다시 늘어납니다.</p>
-            {transaction.cardPayment!.returnedAmountWon > 0 ? <p className="mt-3 text-sm text-amber-900 dark:text-[#ffe3a3]">이 선결제로 반환된 환불 금액이 있어 바로 취소할 수 없어요.</p> : <Button className="mt-4" type="button" variant="destructive" disabled={!online} onClick={() => { setConfirmCancelPrepayment(true); setPrepaymentConflict(false); cancelPrepayment.reset() }}><Trash2 size={17} />선결제 취소</Button>}
+        {cancellableCardPayment ? (
+          <section className="border-b border-[var(--line)] py-5" aria-label="카드 결제 관리">
+            <p className="text-sm leading-6 text-[var(--muted)]">{automaticSettlement ? '자동 정산 기록이에요. 삭제하면 이 명세는 자동으로 다시 정산되지 않아요.' : '직접 기록한 카드 선결제예요.'} 취소하면 결제 계좌 잔액이 복원되고 카드 미결제 금액이 다시 늘어납니다.</p>
+            {transaction.cardPayment!.returnedAmountWon > 0 ? <p className="mt-3 text-sm text-amber-900 dark:text-[#ffe3a3]">이 결제로 반환된 환불 금액이 있어 바로 취소할 수 없어요.</p> : <Button className="mt-4" type="button" variant="destructive" disabled={!online} onClick={() => { setConfirmCancelPayment(true); setPaymentConflict(false); cancelPayment.reset() }}><Trash2 size={17} />{automaticSettlement ? '자동 정산 삭제' : '선결제 취소'}</Button>}
           </section>
         ) : transaction.managementType === 'SYSTEM' ? <p className="border-b border-[var(--line)] py-5 text-sm leading-6 text-[var(--muted)]">카드 자동 정산처럼 시스템이 생성한 기록은 연결된 카드 명세에서 관리하므로 직접 편집하거나 삭제할 수 없어요.</p> : null}
 
@@ -176,12 +177,12 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
           </section>
         ) : null}
       </section>
-      <Dialog open={confirmCancelPrepayment} onOpenChange={(open) => { if (!open && !cancelPrepayment.isPending) setConfirmCancelPrepayment(false) }}>
+      <Dialog open={confirmCancelPayment} onOpenChange={(open) => { if (!open && !cancelPayment.isPending) setConfirmCancelPayment(false) }}>
         <DialogContent className="max-w-md">
-          <DialogTitle>선결제를 취소할까요?</DialogTitle>
-          <DialogDescription className="mt-2">{formatDate(transaction.occurredOn)}에 기록한 {formatWon(transaction.amountWon)} 선결제를 취소합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.</DialogDescription>
-          {prepaymentConflict ? <p className="mt-4 border-l-4 border-amber-500 px-3 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="alert">다른 변경이 먼저 저장되어 최신 결제 상태를 불러왔어요. 내용을 확인하고 다시 취소해 주세요.</p> : cancelPrepayment.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{cancelPrepayment.error.message}</p> : null}
-          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPrepayment.isPending} onClick={() => setConfirmCancelPrepayment(false)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPrepayment.isPending || !transaction.cardPayment} onClick={() => { setPrepaymentConflict(false); cancelPrepayment.mutate() }}>{cancelPrepayment.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}선결제 취소</Button></div>
+          <DialogTitle>{automaticSettlement ? '자동 정산을 삭제할까요?' : '선결제를 취소할까요?'}</DialogTitle>
+          <DialogDescription className="mt-2">{formatDate(transaction.occurredOn)}에 기록한 {formatWon(transaction.amountWon)} {automaticSettlement ? '자동 정산을 삭제' : '선결제를 취소'}합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.{automaticSettlement ? ' 이 명세는 자동으로 다시 정산되지 않습니다.' : ''}</DialogDescription>
+          {paymentConflict ? <p className="mt-4 border-l-4 border-amber-500 px-3 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="alert">다른 변경이 먼저 저장되어 최신 결제 상태를 불러왔어요. 내용을 확인하고 다시 취소해 주세요.</p> : cancelPayment.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{cancelPayment.error.message}</p> : null}
+          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPayment.isPending} onClick={() => setConfirmCancelPayment(false)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPayment.isPending || !transaction.cardPayment} onClick={() => { setPaymentConflict(false); cancelPayment.mutate() }}>{cancelPayment.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}{automaticSettlement ? '자동 정산 삭제' : '선결제 취소'}</Button></div>
         </DialogContent>
       </Dialog>
     </AppShell>

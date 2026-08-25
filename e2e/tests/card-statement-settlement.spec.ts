@@ -43,6 +43,78 @@ test.afterEach(async ({ page }, testInfo) => {
   })
 })
 
+test('자동 정산 거래를 삭제하면 계좌와 카드 잔액을 복원하고 다시 정산하지 않는다', async ({ page, request }, testInfo) => {
+  test.setTimeout(180_000)
+  const purchaseDate = monthsAgoInSeoul(2)
+  const cardName = `자동 정산 카드 ${Date.now().toString().slice(-6)}`
+  const account = await registerAndLogin(page, request, `자동 정산 삭제 QC ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  const automatic = await createAutomaticSettlementCard(page, cardName, monthsAgoInSeoul(3))
+
+  await createCardPurchase(page, {
+    amount: '100000',
+    occurredOn: purchaseDate,
+    description: `QC 자동 정산 삭제 ${Date.now().toString().slice(-6)}`,
+    cardName,
+  })
+  const readAutomaticPayment = () => page.evaluate(async (cardAssetId) => {
+    const listResponse = await fetch(`/api/assets/${cardAssetId}/card-statements?limit=20&includePaid=true`, { credentials: 'include' })
+    if (!listResponse.ok) throw new Error(`card statements returned ${listResponse.status}`)
+    const list = await listResponse.json() as { items: Array<{ statementId: string }> }
+    const statementId = list.items[0]?.statementId
+    if (!statementId) return null
+    const detailResponse = await fetch(`/api/card-statements/${statementId}`, { credentials: 'include' })
+    if (!detailResponse.ok) throw new Error(`card statement returned ${detailResponse.status}`)
+    const detail = await detailResponse.json() as {
+      statementId: string
+      payments: Array<{ paymentType: string; settlementTransactionId: string }>
+    }
+    const payment = detail.payments.find((candidate) => candidate.paymentType === 'REGULAR')
+    return payment ? { statementId: detail.statementId, transactionId: payment.settlementTransactionId } : null
+  }, automatic.cardAssetId)
+
+  await expect.poll(readAutomaticPayment, {
+    timeout: 90_000,
+    intervals: [1_000, 2_000, 5_000],
+    message: '결제일이 지난 명세가 worker에서 자동 정산되어야 합니다',
+  }).not.toBeNull()
+  const payment = await readAutomaticPayment()
+  if (!payment) throw new Error('automatic settlement payment was not found after polling')
+  expect(await assetBalances(page, [automatic.accountAssetId, automatic.cardAssetId])).toEqual({
+    [automatic.accountAssetId]: -100_000,
+    [automatic.cardAssetId]: 0,
+  })
+
+  await page.goto(`/transactions/${payment.transactionId}`)
+  await expect(page.getByRole('heading', { name: '거래 상세', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '자동 정산 삭제', exact: true }).click()
+  const cancellation = page.getByRole('dialog', { name: '자동 정산을 삭제할까요?' })
+  await expect(cancellation).toContainText('이 명세는 자동으로 다시 정산되지 않습니다.')
+  await cancellation.getByRole('button', { name: '자동 정산 삭제', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('자동 정산을 삭제하고')
+  expect(await assetBalances(page, [automatic.accountAssetId, automatic.cardAssetId])).toEqual({
+    [automatic.accountAssetId]: 0,
+    [automatic.cardAssetId]: -100_000,
+  })
+  const noReappearanceBefore = Date.now() + 65_000
+  await expect.poll(async () => {
+    if (await readAutomaticPayment()) return 'reappeared'
+    return Date.now() >= noReappearanceBefore ? 'stable' : 'waiting'
+  }, {
+    timeout: 70_000,
+    intervals: [5_000],
+    message: '삭제한 자동 정산은 다음 worker 주기에도 다시 생성되지 않아야 합니다',
+  }).toBe('stable')
+
+  await attachSeedManifest(testInfo, page, account.loginId, {
+    flow: 'cancel-automatic-settlement', purchaseDate,
+    statementId: payment.statementId,
+    cardAssetId: automatic.cardAssetId,
+    accountAssetId: automatic.accountAssetId,
+  })
+})
+
 test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남은 결제·통계 제외를 확인한다', async ({ page, request }, testInfo) => {
   const month = currentMonthInSeoul()
   const purchaseDate = todayInSeoul()
@@ -255,7 +327,7 @@ test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 
   }
 })
 
-async function createCardPurchase(page: Page, purchase: { amount: string; occurredOn: string; description: string }) {
+async function createCardPurchase(page: Page, purchase: { amount: string; occurredOn: string; description: string; cardName?: string }) {
   await page.goto('/transactions/new')
   await expect(page.getByRole('heading', { name: '거래 기록' })).toBeVisible()
   await page.getByLabel('금액').fill(purchase.amount)
@@ -263,11 +335,67 @@ async function createCardPurchase(page: Page, purchase: { amount: string; occurr
   const category = transactionCategoryTrigger(page)
   await expect(category).toContainText('식비')
   await selectTransactionCategory(page, '식비')
-  await selectAsset(page, '결제 자산', '신용카드')
+  await selectAsset(page, '결제 자산', purchase.cardName ?? '신용카드')
   await page.getByLabel('할부 개월').fill('1')
   await page.getByLabel('내용 (선택)').fill(purchase.description)
   await page.getByRole('button', { name: '기록 저장' }).click()
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
+}
+
+async function createAutomaticSettlementCard(page: Page, name: string, openedOn: string) {
+  return page.evaluate(async ({ cardName, cardOpenedOn }) => {
+    type AssetType = { assetTypeId: string; systemCode: string }
+    type Member = { memberId: string; currentUser: boolean }
+    type Asset = { assetId: string; systemCode: string }
+    const read = async <T,>(path: string): Promise<T> => {
+      const response = await fetch(path, { credentials: 'include' })
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`)
+      return response.json() as Promise<T>
+    }
+    const [csrf, types, current, assets] = await Promise.all([
+      read<{ headerName: string; token: string }>('/api/auth/csrf'),
+      read<AssetType[]>('/api/asset-types'),
+      read<{ ledger: { members: Member[] } }>('/api/ledger-books/current'),
+      read<Asset[]>('/api/assets'),
+    ])
+    const cardType = types.find((type) => type.systemCode === 'CREDIT_CARD')
+    const member = current.ledger.members.find((candidate) => candidate.currentUser)
+    const account = assets.find((asset) => asset.systemCode === 'BANK')
+    if (!cardType || !member || !account) throw new Error('automatic settlement card prerequisites were not found')
+    const response = await fetch('/api/assets', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        [csrf.headerName]: csrf.token,
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        assetTypeId: cardType.assetTypeId,
+        ownershipScope: 'PERSONAL',
+        ownerMemberId: member.memberId,
+        financialInstitutionCode: null,
+        cardIssuerCode: 'OTHER',
+        name: cardName,
+        openedOn: cardOpenedOn,
+        memo: null,
+        openingBalanceWon: 0,
+        cardSettings: {
+          statementClosingDay: 14,
+          paymentDay: 25,
+          paymentMonthOffset: 1,
+          settlementAssetId: account.assetId,
+          autoSettlementEnabled: true,
+        },
+        debitCardSettings: null,
+        savingsSettings: null,
+      }),
+    })
+    if (!response.ok) throw new Error(`/api/assets returned ${response.status}: ${await response.text()}`)
+    const card = await response.json() as { assetId: string }
+    return { cardAssetId: card.assetId, accountAssetId: account.assetId }
+  }, { cardName: name, cardOpenedOn: openedOn })
 }
 
 async function openDefaultCardStatement(page: Page) {
@@ -461,6 +589,12 @@ function currentMonthInSeoul() {
 
 function todayInSeoul() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+}
+
+function monthsAgoInSeoul(months: number) {
+  const date = new Date(`${todayInSeoul()}T12:00:00+09:00`)
+  date.setUTCMonth(date.getUTCMonth() - months)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(date)
 }
 
 async function hasPageOverflow(page: Page) {

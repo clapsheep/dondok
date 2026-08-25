@@ -166,8 +166,8 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
     },
   })
 
-  const cancelPrepaymentMutation = useMutation({
-    mutationFn: ({ paymentId, expectedVersion }: { paymentId: string; expectedVersion: number }) => cardStatementApi.cancelPrepayment(
+  const cancelPaymentMutation = useMutation({
+    mutationFn: ({ paymentId, expectedVersion }: { paymentId: string; expectedVersion: number }) => cardStatementApi.cancelPayment(
       statement.statementId,
       paymentId,
       expectedVersion,
@@ -180,7 +180,7 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
       void queryClient.invalidateQueries({ queryKey: assetKeys.all })
       setWorkflow(createStatementPrepaymentWorkflow<CardStatementPrepaymentPreview>(snapshot(result.statement)))
       setCancellingPayment(undefined)
-      setSuccess('선결제를 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.')
+      setSuccess(`${cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산' : '선결제'}을 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.`)
     },
     onError: async (error) => {
       if (!(error instanceof ApiError) || error.status !== 412) return
@@ -281,8 +281,8 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
             setAccountCorrectionConflict(false)
             correctPaymentAccountMutation.mutate({ ...editingPayment, expectedVersion: authoritative.version })
           }}
-          onCancelPrepayment={(payment) => {
-            cancelPrepaymentMutation.reset()
+          onCancelPayment={(payment) => {
+            cancelPaymentMutation.reset()
             setSuccess(undefined)
             setCancellingPayment(payment)
           }}
@@ -318,12 +318,12 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
         <MutationError error={previewMutation.error} hidden={Boolean(workflow.conflict || workflow.remoteMissing)} fallback="선결제 영향을 계산하지 못했어요." />
         <MutationError error={applyMutation.error} hidden={Boolean(workflow.conflict || workflow.remoteMissing)} fallback="선결제를 기록하지 못했어요." />
       </section>
-      <Dialog open={Boolean(cancellingPayment)} onOpenChange={(open) => { if (!open && !cancelPrepaymentMutation.isPending) setCancellingPayment(undefined) }}>
+      <Dialog open={Boolean(cancellingPayment)} onOpenChange={(open) => { if (!open && !cancelPaymentMutation.isPending) setCancellingPayment(undefined) }}>
         <DialogContent className="max-w-md">
-          <DialogTitle>선결제를 취소할까요?</DialogTitle>
-          <DialogDescription className="mt-2">{cancellingPayment ? `${formatDate(cancellingPayment.paidOn)}에 기록한 ${formatWon(cancellingPayment.amountWon)} 선결제를 취소합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.` : ''}</DialogDescription>
-          {cancelPrepaymentMutation.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{cancelPrepaymentMutation.error.message}</p> : null}
-          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPrepaymentMutation.isPending} onClick={() => setCancellingPayment(undefined)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPrepaymentMutation.isPending || !cancellingPayment} onClick={() => cancellingPayment && cancelPrepaymentMutation.mutate({ paymentId: cancellingPayment.paymentId, expectedVersion: authoritative.version })}>{cancelPrepaymentMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}선결제 취소</Button></div>
+          <DialogTitle>{cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산을 삭제할까요?' : '선결제를 취소할까요?'}</DialogTitle>
+          <DialogDescription className="mt-2">{cancellingPayment ? `${formatDate(cancellingPayment.paidOn)}에 기록한 ${formatWon(cancellingPayment.amountWon)} ${cancellingPayment.paymentType === 'REGULAR' ? '자동 정산을 삭제' : '선결제를 취소'}합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.${cancellingPayment.paymentType === 'REGULAR' ? ' 이 명세는 자동으로 다시 정산되지 않습니다.' : ''}` : ''}</DialogDescription>
+          {cancelPaymentMutation.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{cancelPaymentMutation.error.message}</p> : null}
+          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPaymentMutation.isPending} onClick={() => setCancellingPayment(undefined)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPaymentMutation.isPending || !cancellingPayment} onClick={() => cancellingPayment && cancelPaymentMutation.mutate({ paymentId: cancellingPayment.paymentId, expectedVersion: authoritative.version })}>{cancelPaymentMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}{cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산 삭제' : '선결제 취소'}</Button></div>
         </DialogContent>
       </Dialog>
     </AppShell>
@@ -352,7 +352,7 @@ function SummaryValue({ label, value, emphasized = false }: { label: string; val
   return <div><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className={`mt-1 font-semibold tabular-nums ${emphasized ? 'text-xl text-forest-800 dark:text-forest-100' : ''}`}>{value}</dd></div>
 }
 
-function PaymentHistory({ statement, assets, members, editing, online, pending, error, conflict, onEdit, onAssetChange, onCancel, onSave, onCancelPrepayment }: {
+function PaymentHistory({ statement, assets, members, editing, online, pending, error, conflict, onEdit, onAssetChange, onCancel, onSave, onCancelPayment }: {
   statement: CardStatementDetail
   assets: Asset[]
   members: LedgerBook['members']
@@ -365,7 +365,7 @@ function PaymentHistory({ statement, assets, members, editing, online, pending, 
   onAssetChange: (assetId: string) => void
   onCancel: () => void
   onSave: () => void
-  onCancelPrepayment: (payment: CardStatementPayment) => void
+  onCancelPayment: (payment: CardStatementPayment) => void
 }) {
   return (
     <section className="border-t border-[var(--line)] py-5" aria-labelledby="statement-payment-history-title">
@@ -375,7 +375,7 @@ function PaymentHistory({ statement, assets, members, editing, online, pending, 
           {statement.payments.map((payment) => (
             <li className="grid gap-2 py-3 @min-[32rem]:grid-cols-[minmax(0,1fr)_auto] @min-[32rem]:items-center" key={payment.paymentId}>
               <span><strong>{cardStatementPaymentTypeLabel(payment.paymentType)}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{formatDate(payment.paidOn)} · {payment.settlementAssetName}</span></span>
-              <div className="flex flex-wrap items-center gap-2 @min-[32rem]:justify-end"><span className="font-semibold tabular-nums">{formatWon(payment.effectiveAmountWon)}{payment.returnedAmountWon > 0 ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]">반환 {formatWon(payment.returnedAmountWon)}</span> : null}</span>{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onEdit(payment)} disabled={pending}><Landmark size={16} />출금 계좌 변경</Button> : null}{payment.paymentType === 'PREPAYMENT' && payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onCancelPrepayment(payment)} disabled={pending}><Trash2 size={16} />선결제 취소</Button> : null}</div>
+              <div className="flex flex-wrap items-center gap-2 @min-[32rem]:justify-end"><span className="font-semibold tabular-nums">{formatWon(payment.effectiveAmountWon)}{payment.returnedAmountWon > 0 ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]">반환 {formatWon(payment.returnedAmountWon)}</span> : null}</span>{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onEdit(payment)} disabled={pending}><Landmark size={16} />출금 계좌 변경</Button> : null}{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onCancelPayment(payment)} disabled={pending}><Trash2 size={16} />{payment.paymentType === 'REGULAR' ? '자동 정산 삭제' : '선결제 취소'}</Button> : null}</div>
               {editing?.paymentId === payment.paymentId ? (
                 <div className="border-t border-[var(--line-subtle)] pt-3 @min-[32rem]:col-span-2">
                   <p className="text-sm leading-6 text-[var(--muted)]">금액과 결제일은 그대로 두고 출금 계좌만 변경해요.</p>
