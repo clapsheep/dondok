@@ -202,7 +202,7 @@ OPEN -> FINALIZED -> PAID
 
 두 command는 같은 입력으로 preview를 먼저 생성하고 apply에 `expectedVersion`, preview token, idempotency key를 보낸다. apply는 구매→charge→statement→payment의 고정 순서로 잠그고 preview 이후 상태가 바뀌었으면 `412 CARD_PURCHASE_PREVIEW_STALE`로 저장 전체를 거부한다. 환불 배분은 영향받는 명세의 미결제분을 먼저 줄이고, 환불 후 유효 청구액을 초과하는 결제액만 `paid_on desc, id desc`의 실제 계좌로 반환한다. 같은 명세의 다른 구매 금액을 특정 구매의 결제액으로 임의 귀속시키지 않는다.
 
-`PrepayCardStatementUseCase`와 scheduler의 `SettleCardStatementUseCase`는 같은 statement payment domain service를 사용한다. 둘 다 statement를 잠그고 남은 금액을 다시 계산하며, 선결제는 요청 금액만큼 여러 번, 정규 결제는 남은 전액을 한 번 기록한다. 시간 테스트를 위해 `Clock`을 주입한다.
+`PrepayCardStatementUseCase`와 scheduler의 `SettleCardStatementUseCase`는 같은 statement payment domain service를 사용한다. 둘 다 statement를 잠그고 남은 금액을 다시 계산하며, 선결제는 요청 금액만큼 여러 번, 정규 결제는 남은 전액을 한 번 기록한다. 카드 결제 취소는 명세를 잠근 뒤 결제와 연결 거래를 감사 이력으로 남겨 soft delete하고 잔액과 명세를 함께 복원한다. 정규 자동 정산을 취소하면 해당 schedule을 `CANCELLED`로 남겨 worker 재실행을 막는다. 시간 테스트를 위해 `Clock`을 주입한다.
 
 선결제는 서버 preview 뒤 apply한다. preview token은 statement version, 남은 금액, 서버가 정한 `Asia/Seoul` 적용일, 요청 금액과 현재 설정 결제 계좌 ID를 묶으며 apply가 statement를 잠근 뒤 다시 계산한 값과 다르면 `412 CARD_STATEMENT_PREVIEW_STALE`로 전체 거부한다. 결제 계좌의 파생 잔액은 다른 정상 거래와 공존하므로 stale 기준으로 직렬화하지 않고 apply 시 최신 잔액을 authoritative 응답으로 돌려준다. 전액 선결제는 즉시 `PAID`로 마감하되 같은 명세의 구매 정정으로 미결제액이 다시 생기면 결제일 전은 `OPEN`, 결제일 이후는 `FINALIZED`로 재개한다.
 

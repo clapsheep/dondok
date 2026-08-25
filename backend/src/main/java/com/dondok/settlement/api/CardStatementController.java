@@ -88,15 +88,15 @@ public class CardStatementController {
     }
 
     @DeleteMapping("/card-statements/{statementId}/payments/{paymentId}")
-    CardStatementService.CardPrepaymentCancellationResult cancelPrepayment(
+    CardStatementService.CardPaymentCancellationResult cancelPayment(
             @AuthenticationPrincipal DondokPrincipal principal,
             @PathVariable UUID statementId,
             @PathVariable UUID paymentId,
             @RequestParam @Min(0) long expectedVersion
     ) {
-        return service.cancelPrepayment(
+        return service.cancelPayment(
                 principal.userId(), statementId, paymentId,
-                new CardStatementService.CancelPrepaymentCommand(expectedVersion));
+                new CardStatementService.CancelPaymentCommand(expectedVersion));
     }
 
     public record PrepaymentPreviewRequest(

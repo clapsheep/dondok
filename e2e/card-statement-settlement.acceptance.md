@@ -15,6 +15,7 @@
 | due worker, catch-up, 중복 실행 | 고정 Clock Backend integration | 자동 결제 결과를 명세·홈·자산 UI에서 읽는 smoke |
 | 자동 정산 toggle·결제 계좌 변경 | Asset/Card Backend integration | 자산 상세 설정 저장 후 pending schedule의 실행 계좌가 일치 |
 | 완료 결제의 잘못된 출금 계좌 정정 | Backend integration + 대표 UI E2E | 명세 금액·날짜는 유지되고 기존 계좌 복원·새 계좌 차감·결제 내역 표시가 함께 바뀜 |
+| 자동 정산 삭제 | Backend integration + 대표 UI E2E | 결제 계좌·카드 잔액과 미결제 명세를 복원하고 같은 schedule을 다시 실행하지 않음 |
 | 반응형 draft·focus·접근성 | Playwright | 390px, iPad, desktop에서 같은 draft와 행동 유지 |
 
 ## 확정 API 결속
@@ -24,6 +25,7 @@
 - preview: `POST /api/card-statements/{statementId}/prepayments/preview`에 `amountWon`, `expectedVersion`을 보낸다.
 - apply: `POST /api/card-statements/{statementId}/prepayments`에 같은 값과 `previewToken`, `Idempotency-Key`를 보낸다.
 - 결제 계좌 정정: `PUT /api/card-statements/{statementId}/payments/{paymentId}`에 `settlementAssetId`, `expectedVersion`을 보내며 금액·결제일은 입력받지 않는다.
+- 결제 취소: `DELETE /api/card-statements/{statementId}/payments/{paymentId}?expectedVersion=...`는 선결제와 자동 정산을 같은 원자적 command로 취소한다. 자동 정산 schedule은 `CANCELLED`로 남긴다.
 - 적용일은 사용자가 입력하지 않는다. preview의 `appliedOn`을 `Asia/Seoul` 기준 서버 오늘로 읽기 전용 표시하고 apply 결과의 `payment.paidOn`과 일치하는지 검증한다.
 - 계좌 잔액은 정상적인 다른 거래와 공존하므로 preview token stale 기준에서 제외한다. apply 응답의 최신 signed 잔액을 authoritative 결과로 사용한다.
 - 412에서 보존할 사용자 draft는 선결제 금액 하나다.
@@ -84,6 +86,13 @@
 - 같은 명세 version의 동시 정정만 성공하고 stale 요청은 `412`다. 다른 가계부·보관·결제 불가 자산은 거부한다.
 - 해당 결제를 기반으로 환불 반환 posting이 존재하면 부분 정정을 만들지 않고 `409 CARD_PAYMENT_ACCOUNT_CORRECTION_REFUND_EXISTS`로 거부한다.
 
+### B8. 자동 정산 삭제
+
+- 완료된 `REGULAR` payment를 취소하면 payment와 연결 거래를 감사 이력으로 남겨 soft delete하고 결제 계좌와 카드 posting을 함께 되돌린다.
+- 명세는 결제일 전이면 `OPEN`, 결제일 이후면 `FINALIZED`로 돌아가고 남은 결제는 취소 금액만큼 복원된다.
+- 해당 schedule은 `CANCELLED`로 남으며 worker를 다시 실행해도 새 정규 결제와 posting을 만들지 않는다.
+- 환불 반환이 연결됐거나 명세 version이 stale이면 전체 취소를 거부한다.
+
 ## Playwright 실제 사용자 흐름
 
 ### E1. 두 번의 부분 선결제와 음수 계좌
@@ -122,14 +131,23 @@
 3. 저장 응답 뒤 결제 기록에는 B가 보이고, 명세 금액·결제일·남은 결제는 그대로인지 확인한다.
 4. 자산 재조회에서 A는 복원되고 B가 결제액만큼 감소했는지 확인한다.
 
+### E5. 자동 정산 거래 삭제
+
+1. 과거 결제일의 자동 정산 명세를 준비하고 worker가 만든 거래 상세를 연다.
+2. `자동 정산 삭제` 확인에서 결제 계좌·카드 잔액 복원과 재정산 중단 결과를 확인한다.
+3. 삭제 뒤 계좌는 출금 전 잔액, 카드는 미결제 부채 잔액으로 돌아가는지 확인한다.
+4. worker 주기를 한 번 더 지나도 같은 명세의 정규 결제가 다시 생기지 않는지 확인한다.
+
 ## Playwright spec 구조
 
-확정된 API와 화면 role/label을 사용해 아래 두 개의 실행 테스트를 둔다.
+확정된 API와 화면 role/label을 사용해 아래 실행 테스트를 둔다.
 
-1. `같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남은 결제·통계 제외를 확인한다`
-2. `두 세션의 오래된 선결제 preview는 거부되고 draft를 최신 명세에 다시 계산한다`
+1. `자동 정산 거래를 삭제하면 계좌와 카드 잔액을 복원하고 다시 정산하지 않는다`
+2. `같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남은 결제·통계 제외를 확인한다`
+3. `완료된 선결제의 출금 계좌를 바꾸면 명세는 유지하고 두 계좌 잔액만 바로잡는다`
+4. `두 세션의 오래된 선결제 preview는 거부되고 draft를 최신 명세에 다시 계산한다`
 
-자동 정산 UI smoke는 운영에 노출되지 않는 고정 Clock seed가 E2E profile에 안전하게 제공될 때만 추가한다. worker concurrency·재기동·idempotency·0원 remaining은 브라우저에 중복 구현하지 않고 Backend integration 결과를 source of truth로 사용한다.
+worker concurrency·재기동·idempotency·0원 remaining은 브라우저에 중복 구현하지 않고 Backend integration 결과를 source of truth로 사용한다.
 
 ## 실패 증거와 실행
 

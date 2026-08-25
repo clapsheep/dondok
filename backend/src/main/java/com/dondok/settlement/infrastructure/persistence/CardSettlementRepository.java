@@ -197,7 +197,7 @@ public class CardSettlementRepository {
         return Boolean.TRUE.equals(exists);
     }
 
-    public void cancelPrepayment(
+    public void cancelPayment(
             UUID bookId,
             UUID statementId,
             PaymentRow payment,
@@ -210,7 +210,7 @@ public class CardSettlementRepository {
                 update card_statement_payment
                    set cancelled_at = ?, cancelled_by_member_id = ?
                  where book_id = ? and id = ? and statement_id = ?
-                   and payment_type = 'PREPAYMENT' and cancelled_at is null
+                   and cancelled_at is null
                 """, Timestamp.from(now), memberId, bookId, payment.paymentId(), statementId);
         int transactionUpdated = jdbcTemplate.update("""
                 update ledger_transaction
@@ -231,7 +231,17 @@ public class CardSettlementRepository {
                  where statement.book_id = ? and statement.id = ?
                 """, Date.valueOf(today), Date.valueOf(today), Timestamp.from(now),
                 Timestamp.from(now), bookId, statementId);
-        if (autoSettlementEnabled) {
+        if ("REGULAR".equals(payment.paymentType())) {
+            int scheduleUpdated = jdbcTemplate.update("""
+                    update card_payment_schedule
+                       set status = 'CANCELLED', last_error = null, next_retry_at = null,
+                           updated_at = ?, version = version + 1
+                     where book_id = ? and statement_id = ?
+                    """, Timestamp.from(now), bookId, statementId);
+            if (scheduleUpdated != 1) {
+                throw new IllegalStateException("automatic card payment schedule cancellation was incomplete");
+            }
+        } else if (autoSettlementEnabled) {
             jdbcTemplate.update("""
                     update card_payment_schedule
                        set status = 'SCHEDULED', last_error = null, next_retry_at = null,
@@ -240,7 +250,7 @@ public class CardSettlementRepository {
                     """, Timestamp.from(now), bookId, statementId);
         }
         if (paymentUpdated != 1 || transactionUpdated != 1 || statementUpdated != 1) {
-            throw new IllegalStateException("card prepayment cancellation was incomplete");
+            throw new IllegalStateException("card payment cancellation was incomplete");
         }
     }
 
