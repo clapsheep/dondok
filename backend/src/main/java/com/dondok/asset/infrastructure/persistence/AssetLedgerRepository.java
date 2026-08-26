@@ -402,7 +402,12 @@ public class AssetLedgerRepository {
         for (UUID statementId : statementIds) {
             Integer count = jdbcTemplate.queryForObject(
                     "select count(*) from card_charge where statement_id = ?", Integer.class, statementId);
-            if (count != null && count == 0) {
+            Boolean hasPayments = jdbcTemplate.queryForObject("""
+                    select exists(
+                        select 1 from card_statement_payment where statement_id = ?
+                    )
+                    """, Boolean.class, statementId);
+            if (count != null && count == 0 && !Boolean.TRUE.equals(hasPayments)) {
                 jdbcTemplate.update("delete from card_payment_schedule where statement_id = ?", statementId);
                 jdbcTemplate.update("delete from card_statement where id = ?", statementId);
             } else {
