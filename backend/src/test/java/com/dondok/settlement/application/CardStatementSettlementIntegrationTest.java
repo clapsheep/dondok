@@ -245,6 +245,69 @@ class CardStatementSettlementIntegrationTest {
     }
 
     @Test
+    void savingPaidOpeningBalanceCardPreservesSettlementAndDoesNotPayAgain() {
+        Fixture fixture = fixture(true, 200_000);
+        AssetService.AssetView cardWithOpeningBalance = assetService.update(
+                fixture.userId(), fixture.card().assetId(),
+                new AssetService.UpdateAssetCommand(
+                        new AssetService.AssetCommand(
+                                fixture.card().assetTypeId(), fixture.card().ownershipScope(),
+                                fixture.card().ownerMemberId(), fixture.card().name(),
+                                fixture.card().openedOn(), fixture.card().memo(), -100_000,
+                                new AssetService.CardSettingsCommand(
+                                        fixture.card().cardSettings().statementClosingDay(),
+                                        fixture.card().cardSettings().paymentDay(),
+                                        fixture.card().cardSettings().paymentMonthOffset(),
+                                        fixture.bank().assetId(), true)),
+                        fixture.card().version(), false));
+        UUID statementId = jdbcTemplate.queryForObject("""
+                select statement_id from card_charge
+                 where card_asset_id = ? and charge_origin = 'OPENING_BALANCE'
+                """, UUID.class, fixture.card().assetId());
+        UUID scheduleId = scheduleId(statementId);
+
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        assertThat(settlementService.settle(scheduleId))
+                .isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(100_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+
+        AssetService.AssetView savedAgain = assetService.update(
+                fixture.userId(), cardWithOpeningBalance.assetId(),
+                new AssetService.UpdateAssetCommand(
+                        new AssetService.AssetCommand(
+                                cardWithOpeningBalance.assetTypeId(),
+                                cardWithOpeningBalance.ownershipScope(),
+                                cardWithOpeningBalance.ownerMemberId(),
+                                cardWithOpeningBalance.name(), cardWithOpeningBalance.openedOn(),
+                                cardWithOpeningBalance.memo(),
+                                cardWithOpeningBalance.openingBalanceWon(),
+                                new AssetService.CardSettingsCommand(
+                                        cardWithOpeningBalance.cardSettings().statementClosingDay(),
+                                        cardWithOpeningBalance.cardSettings().paymentDay(),
+                                        cardWithOpeningBalance.cardSettings().paymentMonthOffset(),
+                                        fixture.bank().assetId(), true)),
+                        cardWithOpeningBalance.version(), false));
+
+        assertThat(savedAgain.openingBalanceWon()).isEqualTo(-100_000);
+        assertThat(queryLong("select count(*) from card_statement where id = ?", statementId)).isOne();
+        assertThat(queryLong("""
+                select count(*) from card_statement_payment
+                 where statement_id = ? and payment_type = 'REGULAR'
+                """, statementId)).isOne();
+        assertThat(scheduleId(statementId)).isEqualTo(scheduleId);
+        assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
+        assertThat(statements.statement(fixture.userId(), statementId).remainingAmountWon()).isZero();
+        assertThat(worker.runDueSettlements().paid()).isZero();
+        assertThat(queryLong("""
+                select count(*) from ledger_transaction
+                 where book_id = ? and source_type = 'CARD_AUTOPAY' and deleted_at is null
+                """, fixture.bookId())).isOne();
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(100_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+    }
+
+    @Test
     void correctsPaymentAccountWithoutChangingAmountDateOrStatementSettlement() {
         Fixture fixture = fixture(true, 200_000);
         AssetService.AssetView correctedBank = createBank(
