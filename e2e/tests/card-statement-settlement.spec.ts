@@ -346,22 +346,46 @@ async function createAutomaticSettlementCard(page: Page, name: string, openedOn:
   return page.evaluate(async ({ cardName, cardOpenedOn }) => {
     type AssetType = { assetTypeId: string; systemCode: string }
     type Member = { memberId: string; currentUser: boolean }
-    type Asset = { assetId: string; systemCode: string }
     const read = async <T,>(path: string): Promise<T> => {
       const response = await fetch(path, { credentials: 'include' })
       if (!response.ok) throw new Error(`${path} returned ${response.status}`)
       return response.json() as Promise<T>
     }
-    const [csrf, types, current, assets] = await Promise.all([
+    const [csrf, types, current] = await Promise.all([
       read<{ headerName: string; token: string }>('/api/auth/csrf'),
       read<AssetType[]>('/api/asset-types'),
       read<{ ledger: { members: Member[] } }>('/api/ledger-books/current'),
-      read<Asset[]>('/api/assets'),
     ])
     const cardType = types.find((type) => type.systemCode === 'CREDIT_CARD')
+    const bankType = types.find((type) => type.systemCode === 'BANK')
     const member = current.ledger.members.find((candidate) => candidate.currentUser)
-    const account = assets.find((asset) => asset.systemCode === 'BANK')
-    if (!cardType || !member || !account) throw new Error('automatic settlement card prerequisites were not found')
+    if (!cardType || !bankType || !member) throw new Error('automatic settlement card prerequisites were not found')
+    const accountResponse = await fetch('/api/assets', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        [csrf.headerName]: csrf.token,
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        assetTypeId: bankType.assetTypeId,
+        ownershipScope: 'PERSONAL',
+        ownerMemberId: member.memberId,
+        financialInstitutionCode: 'OTHER',
+        cardIssuerCode: null,
+        name: `${cardName} 결제 계좌`,
+        openedOn: cardOpenedOn,
+        memo: null,
+        openingBalanceWon: 0,
+        cardSettings: null,
+        debitCardSettings: null,
+        savingsSettings: null,
+      }),
+    })
+    if (!accountResponse.ok) throw new Error(`/api/assets returned ${accountResponse.status}: ${await accountResponse.text()}`)
+    const account = await accountResponse.json() as { assetId: string }
     const response = await fetch('/api/assets', {
       method: 'POST',
       credentials: 'include',
