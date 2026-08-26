@@ -134,7 +134,7 @@ erDiagram
 
 사용자가 수입·지출 또는 카드 구매·환불에 `excluded_from_statistics=true`를 저장하면 위 posting과 카드 업무 행은 바꾸지 않고 canonical `ledger_financial_activity` view에서만 제외한다. 따라서 자산 잔액과 원장 이력은 유지되며 월간 달력·분류 통계·연간 흐름은 같은 조건을 공유한다. 일반 이체·카드 정산·선결제는 거래 유형 자체가 view 대상이 아니므로 이 flag를 사용하지 않는다.
 
-일반 이체의 출발·도착은 application 계약에서 활성 `BANK` 또는 `SAVINGS` 자산으로 제한한다. 계좌→적금과 적금→계좌도 별도 거래 유형이나 적금 전용 table 없이 같은 합계 0 posting 쌍을 사용한다.
+일반 이체의 출발·도착은 application 계약에서 활성 `BANK`, `SAVINGS` 또는 `INVESTMENT` 자산으로 제한한다. 이들 사이의 납입·인출·자금 이동은 별도 거래 유형이나 전용 table 없이 같은 합계 0 posting 쌍을 사용한다.
 
 `asset.balance_anchor_won`은 `asset.opened_on` 시작 시점의 선언된 기준일 잔액이다. 기준일 이전 거래도 허용하고 통계·원장 이력에는 포함하지만 잔액에는 다시 합산하지 않는다. `asset_current_balance`는 기준일 잔액에 기준일 당일 이후의 삭제되지 않은 비-`OPENING_BALANCE` posting만 더한다. 기존 `OPENING_BALANCE` 거래는 API 호환과 카드 opening 업무 이력을 위해 유지하지만 잔액 view에서 중복 합산하지 않는다. V18은 기존 opening posting과 기준일 이전 유효 posting을 기준일 잔액으로 backfill해 배포 전후 현재 잔액을 보존한다. `card_charge.absorbed_by_balance_anchor=true`인 기준일 이전 구매도 명세 원금에서는 제외하며, 이후 환불 allocation은 카드의 `OPENING_BALANCE` 명세를 줄여 카드 잔액과 결제 예정액을 함께 맞춘다.
 
@@ -148,7 +148,7 @@ erDiagram
 
 작성자는 감사 정보이며 소비 통계는 `performed_by_member_id`를 기준으로 한다. 수입·지출·일반 이체의 거래 주체는 같은 가계부의 멤버 한 명을 필수로 지정하고 공동·분할 attribution scope는 만들지 않는다. 카드 정산·선결제는 결제 계좌가 자금 출처인 통계 제외 자산 이동이므로 거래 주체를 두지 않는다.
 
-사용자가 직접 만드는 `TRANSFER/NORMAL`의 두 posting 자산은 모두 활성 `asset_type.system_code=BANK` 계좌여야 한다. 두 계좌의 `owner_member_id`와 `ownership_scope`는 서로 같을 필요가 없고 소유 marker에 따른 FK 외 권한 제약을 추가하지 않는다. 이 유형 일관성은 여러 테이블을 조회해야 하므로 단순 DB `CHECK`로 중복하지 않고 transaction application service가 같은 가계부·활성 상태와 함께 검증한다. 카드 정산·선결제처럼 별도 subtype과 전용 command를 쓰는 시스템 이체는 각 정책이 허용 자산을 검증한다.
+사용자가 직접 만드는 `TRANSFER/NORMAL`의 두 posting 자산은 모두 활성 `asset_type.system_code`가 `BANK`, `SAVINGS`, `INVESTMENT` 중 하나여야 한다. 두 자산의 `owner_member_id`와 `ownership_scope`는 서로 같을 필요가 없고 소유 marker에 따른 FK 외 권한 제약을 추가하지 않는다. 이 유형 일관성은 여러 테이블을 조회해야 하므로 단순 DB `CHECK`로 중복하지 않고 transaction application service가 같은 가계부·활성 상태와 함께 검증한다. 카드 정산·선결제처럼 별도 subtype과 전용 command를 쓰는 시스템 이체는 각 정책이 허용 자산을 검증한다.
 
 자산 소유자를 다른 구성원으로 변경할 때 사용자가 동의하면 해당 자산의 삭제되지 않은 수입·지출 거래 `performed_by_member_id`를 새 소유자로 한 트랜잭션에서 bulk update한다. 이체·카드 정산은 통계 대상이 아니므로 자동 변경하지 않는다. 공동 소유로 바꾸면 공동 거래 주체가 없으므로 기존 거래 주체를 유지한다.
 

@@ -46,7 +46,7 @@ public class TransactionService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int MAX_RANGE_DAYS = 366;
     private static final int MAX_INSTALLMENTS = 60;
-    private static final Set<String> TRANSFER_ASSET_SYSTEM_CODES = Set.of("BANK", "SAVINGS");
+    private static final Set<String> TRANSFER_ASSET_SYSTEM_CODES = Set.of("BANK", "SAVINGS", "INVESTMENT");
 
     private final TransactionJdbcRepository transactions;
     private final TransactionIdempotencyRepository idempotency;
@@ -526,7 +526,7 @@ public class TransactionService {
         AssetTypeEntity type = requireAssetType(bookId, asset.getAssetTypeId());
         if (!TRANSFER_ASSET_SYSTEM_CODES.contains(type.getSystemCode())) {
             throw error(HttpStatus.BAD_REQUEST, "TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED",
-                    "이체에는 같은 가계부의 활성 계좌 또는 적금만 선택할 수 있어요.");
+                    "이체에는 같은 가계부의 활성 계좌, 적금 또는 주식 계좌만 선택할 수 있어요.");
         }
         return asset;
     }

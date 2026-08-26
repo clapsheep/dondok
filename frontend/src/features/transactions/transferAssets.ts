@@ -4,7 +4,10 @@ import type { LedgerMember } from '../membership/api'
 export function transferEligibleAssets<T extends Pick<Asset, 'systemCode'>>(
   assets: readonly T[],
 ): T[] {
-  return assets.filter((asset) => asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS')
+  return assets.filter((asset) =>
+    asset.systemCode === 'BANK'
+    || asset.systemCode === 'SAVINGS'
+    || asset.systemCode === 'INVESTMENT')
 }
 
 type OwnedTransferAccount = Pick<Asset, 'name' | 'ownershipScope' | 'ownerMemberId'>
