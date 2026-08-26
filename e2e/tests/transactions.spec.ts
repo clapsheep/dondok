@@ -96,6 +96,14 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
     expectedName: '여행 적금',
     expectedAmount: '0원',
   })
+  await page.getByRole('link', { name: '자산 추가' }).click()
+  await submitQuickAsset(page, {
+    typeName: '투자',
+    name: '주식 계좌',
+    amount: '100000',
+    expectedName: '주식 계좌',
+    expectedAmount: '100,000원',
+  })
 
   await recordNavigation(page).click()
   await expect(page.getByRole('heading', { name: '거래 기록', level: 1 })).toHaveCount(1)
@@ -183,21 +191,22 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   await expect(sourcePicker.picker.getByRole('button', { name: /^생활비 계좌,/ })).toBeVisible()
   await expect(sourcePicker.picker.getByRole('button', { name: /^현금 지갑,/ })).toBeVisible()
   await expect(sourcePicker.picker.getByRole('button', { name: /^여행 적금,/ })).toBeVisible()
+  await expect(sourcePicker.picker.getByRole('button', { name: /^주식 계좌,/ })).toBeVisible()
   await expect(sourcePicker.picker.locator('[data-asset-option]')).not.toHaveCount(0)
-  expect(await sourcePicker.picker.locator('[data-asset-option]').evaluateAll((options) => options.every((option) => ['BANK', 'SAVINGS'].includes(option.getAttribute('data-asset-system-code') ?? '')))).toBe(true)
+  expect(await sourcePicker.picker.locator('[data-asset-option]').evaluateAll((options) => options.every((option) => ['BANK', 'SAVINGS', 'INVESTMENT'].includes(option.getAttribute('data-asset-system-code') ?? '')))).toBe(true)
   await page.keyboard.press('Escape')
   await page.getByLabel('금액').fill('30000')
-  await selectAsset(page, '보내는 자산', '생활비 계좌')
+  await selectAsset(page, '보내는 자산', '주식 계좌')
   await selectAsset(page, '받는 자산', '여행 적금')
   await expect(sourceAccount).toContainText('나')
   await expect(destinationAccount).toContainText('나')
   await page.getByLabel('내용 (선택)').fill('QC 적금 납입')
-  const balancesBeforeTransfer = await currentAssetBalances(page, ['생활비 계좌', '여행 적금'])
+  const balancesBeforeTransfer = await currentAssetBalances(page, ['주식 계좌', '여행 적금'])
   await page.getByRole('button', { name: '기록 저장' }).click()
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
 
   await appNavigation(page, '자산').click()
-  await expect(balanceAssetRow(page, '생활비 계좌', formatWon(balancesBeforeTransfer['생활비 계좌'] - 30_000)), '이체 직후 출금 계좌가 정확히 감소해야 합니다').toBeVisible()
+  await expect(balanceAssetRow(page, '주식 계좌', formatWon(balancesBeforeTransfer['주식 계좌'] - 30_000)), '이체 직후 주식 계좌가 정확히 감소해야 합니다').toBeVisible()
   await expect(balanceAssetRow(page, '여행 적금', formatWon(balancesBeforeTransfer['여행 적금'] + 30_000)), '적금 납입 직후 적금 잔액이 정확히 증가해야 합니다').toBeVisible()
   await appNavigation(page, '홈').click()
 

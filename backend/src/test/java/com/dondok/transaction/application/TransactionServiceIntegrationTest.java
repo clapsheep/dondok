@@ -560,7 +560,7 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
-    void normalTransferRejectsSourceAndDestinationOutsideAccountsAndSavings() {
+    void normalTransferAllowsInvestmentAccountsAndRejectsOtherAssetTypes() {
         Fixture fixture = fixture();
         AssetService.AssetView firstBank = createStandardAsset(
                 fixture, "BANK", "첫 계좌", 100_000, "transfer-bank-first");
@@ -568,6 +568,21 @@ class TransactionServiceIntegrationTest {
                 fixture, "BANK", "둘째 계좌", 0, "transfer-bank-second");
         AssetService.AssetView cash = createStandardAsset(
                 fixture, "CASH", "보조 현금", 0, "transfer-cash");
+        AssetService.AssetView investment = createStandardAsset(
+                fixture, "INVESTMENT", "주식 계좌", 50_000, "transfer-investment");
+
+        TransactionService.TransactionView investmentTransfer = transactionService.create(
+                fixture.userId(), "transfer-investment-to-bank",
+                new TransactionService.CreateTransfer(
+                        LocalDate.of(2026, 7, 1), 10_000, investment.assetId(), secondBank.assetId(),
+                        fixture.memberId(), "주식 계좌 출금"));
+        assertThat(investmentTransfer.postings())
+                .extracting(TransactionService.PostingView::assetId)
+                .containsExactly(investment.assetId(), secondBank.assetId());
+        assertThat(assetService.asset(fixture.userId(), investment.assetId()).currentBalanceWon())
+                .isEqualTo(40_000);
+        assertThat(assetService.asset(fixture.userId(), secondBank.assetId()).currentBalanceWon())
+                .isEqualTo(10_000);
 
         assertThatThrownBy(() -> transactionService.create(
                 fixture.userId(), "transfer-cash-source",
@@ -580,11 +595,11 @@ class TransactionServiceIntegrationTest {
         assertThat(count("""
                 select count(*) from ledger_transaction
                  where book_id = ? and source_type = 'MANUAL'
-                """, fixture.bookId())).isZero();
+                """, fixture.bookId())).isOne();
         assertThat(assetService.asset(fixture.userId(), firstBank.assetId()).currentBalanceWon())
                 .isEqualTo(100_000);
         assertThat(assetService.asset(fixture.userId(), secondBank.assetId()).currentBalanceWon())
-                .isZero();
+                .isEqualTo(10_000);
         assertThat(assetService.asset(fixture.userId(), cash.assetId()).currentBalanceWon())
                 .isZero();
 

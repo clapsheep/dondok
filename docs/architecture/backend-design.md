@@ -120,7 +120,7 @@ public record CreateExpense(
 - 체크카드 구매: 선택 자산은 체크카드로 보존하고 연결 결제 계좌에 `-amount`
 - 카드 정산: 이체 policy + `CARD_SETTLEMENT`
 
-공개 일반 이체 command는 출발·도착 자산을 같은 가계부 범위에서 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 각각 `BANK` 또는 `SAVINGS`인지 검증한다. 소유 marker는 권한 검사에 사용하지 않으므로 현재 사용자, 다른 구성원, 공동 소유 계좌·적금 사이의 모든 조합을 허용한다. 아니면 `400 TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED`로 전체 요청을 거부한다. 계좌→적금 납입과 적금→계좌 인출도 같은 일반 이체 posting policy를 사용하며 통계에서 제외한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
+공개 일반 이체 command는 출발·도착 자산을 같은 가계부 범위에서 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 각각 `BANK`, `SAVINGS` 또는 `INVESTMENT`인지 검증한다. 소유 marker는 권한 검사에 사용하지 않으므로 현재 사용자, 다른 구성원, 공동 소유 계좌·적금·주식 계좌 사이의 모든 조합을 허용한다. 아니면 기존 호환 오류 코드 `400 TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED`로 전체 요청을 거부한다. 허용된 세 유형 사이의 납입·인출·자금 이동은 같은 일반 이체 posting policy를 사용하며 통계에서 제외한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
 
 자산 생성·수정의 `openingBalanceWon`과 `openedOn`은 호환 필드명이며 각각 기준일 잔액과 잔액 기준일을 뜻한다. application service는 선언값을 `asset.balance_anchor_won`에 함께 저장하고 기존 내부 `OPENING_BALANCE` 업무 이력도 동기화한다. 현재 잔액 read model은 기준일 잔액에 기준일 당일 이후 유효 posting만 합산하며 기준일 이전 거래는 통계·원장 이력에만 반영한다. 신용카드 구매 생성·정정은 구매일과 카드 잔액 기준일을 비교해 charge의 `absorbed_by_balance_anchor`를 결정하고, 자산 기준일 수정은 기존 구매 charge를 같은 DB 트랜잭션에서 다시 분류한 뒤 명세와 schedule을 재계산한다.
 

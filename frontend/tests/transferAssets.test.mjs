@@ -2,18 +2,19 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { transferAssetLabel, transferEligibleAssets } from '../src/features/transactions/transferAssets.ts'
 
-test('일반 이체 후보에는 활성 자산 중 계좌와 적금만 남긴다', () => {
+test('일반 이체 후보에는 활성 자산 중 계좌·적금·주식 계좌만 남긴다', () => {
   const assets = [
     { assetId: 'cash', systemCode: 'CASH', name: '현금' },
     { assetId: 'bank-1', systemCode: 'BANK', name: '생활비 계좌' },
     { assetId: 'card', systemCode: 'CREDIT_CARD', name: '신용카드' },
     { assetId: 'savings', systemCode: 'SAVINGS', name: '여행 적금' },
+    { assetId: 'investment', systemCode: 'INVESTMENT', name: '주식 계좌' },
     { assetId: 'overdraft', systemCode: 'BANK', name: '마이너스 통장' },
   ]
 
   assert.deepEqual(
     transferEligibleAssets(assets).map((asset) => asset.assetId),
-    ['bank-1', 'savings', 'overdraft'],
+    ['bank-1', 'savings', 'investment', 'overdraft'],
   )
 })
 
