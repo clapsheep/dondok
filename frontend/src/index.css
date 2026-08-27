@@ -110,7 +110,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 47.999rem) {
   .asset-picker-positioner,
-  .date-picker-positioner {
+  .date-picker-positioner,
+  .money-calculator-positioner {
     position: fixed !important;
     inset: auto 0 0 !important;
     width: auto !important;
