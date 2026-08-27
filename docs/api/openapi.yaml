@@ -854,6 +854,52 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/statistics/monthly/categories/{categoryId}/transactions:
+    get:
+      summary: 선택 월·분류의 통계 포함 거래 cursor 목록
+      operationId: getMonthlyStatisticsCategoryTransactions
+      tags: [Statistics]
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: month
+          in: query
+          required: true
+          schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
+        - name: performedByMemberId
+          in: query
+          required: false
+          description: 작성자가 아니라 실제 경제활동 주체로 필터링한다.
+          schema: { type: string, format: uuid }
+        - name: assetOwnerType
+          in: query
+          required: false
+          schema: { type: string, enum: [ALL, JOINT, MEMBER], default: ALL }
+        - name: assetOwnerMemberId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          description: 서버가 발급한 날짜·생성 시각·ID 기반 opaque cursor
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        "200":
+          description: 월간 통계와 같은 필터 및 집계 포함 규칙을 적용한 거래 목록
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatisticsCategoryTransactionPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /api/transactions/calendar:
     get:
       summary: 월 범위 날짜별 수입·지출 합계
@@ -2226,6 +2272,46 @@ components:
         categoryName: { type: string }
         kind: { type: string, enum: [INCOME, EXPENSE] }
         amountWon: { type: integer, format: int64 }
+    StatisticsCategoryTransactionPage:
+      type: object
+      required: [month, categoryId, categoryName, items, nextCursor]
+      properties:
+        month: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
+        categoryId: { type: string, format: uuid }
+        categoryName: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/StatisticsCategoryTransaction" }
+        nextCursor:
+          oneOf:
+            - { type: string }
+            - { type: "null" }
+    StatisticsCategoryTransaction:
+      type: object
+      required: [transactionId, occurredOn, kind, statisticsContributionWon, categoryName, assetId, assetName, performedByMemberId, performedByName]
+      properties:
+        transactionId: { type: string, format: uuid }
+        occurredOn: { type: string, format: date }
+        kind: { type: string, enum: [INCOME, EXPENSE] }
+        statisticsContributionWon:
+          type: integer
+          format: int64
+          description: 수입·지출 합계에 미치는 signed 순액이며 지출은 음수, 지출 환불은 양수다.
+        description:
+          oneOf:
+            - { type: string }
+            - { type: "null" }
+        categoryName: { type: string }
+        assetId: { type: string, format: uuid }
+        assetName: { type: string }
+        performedByMemberId:
+          oneOf:
+            - { type: string, format: uuid }
+            - { type: "null" }
+        performedByName:
+          oneOf:
+            - { type: string }
+            - { type: "null" }
     TransactionPage:
       type: object
       required: [items, nextCursor]

@@ -1,6 +1,6 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, UsersRound } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
@@ -13,7 +13,8 @@ import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { categoryApi, categoryKeys, type Category } from '../categories/api'
 import type { LedgerBook } from '../membership/api'
 import { StatisticsFilters } from './StatisticsFilters'
-import { statisticsApi, statisticsKeys, type MonthlyStatistics } from './api'
+import { CategoryTransactionDialog } from './CategoryTransactionDialog'
+import { statisticsApi, statisticsKeys, type MonthlyStatistics, type StatisticsCategoryAmount } from './api'
 import {
   activeStatisticsFilterCount,
   parseStatisticsUrl,
@@ -28,6 +29,8 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
   const [params, setParams] = useSearchParams()
+  const [selectedCategory, setSelectedCategory] = useState<StatisticsCategoryAmount | null>(null)
+  const selectedCategoryTrigger = useRef<HTMLButtonElement | null>(null)
   const currentMonth = currentMonthInSeoul()
   const currentMember = ledger.members.find((member) => member.currentUser) ?? ledger.members[0]!
   const memberIds = new Set(ledger.members.map((member) => member.memberId))
@@ -127,8 +130,22 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
             onRetry={() => statistics.refetch()}
             filtered={activeCount > 0}
             onClearFilters={() => replaceState({ ...urlState, owner: 'all', categoryId: null })}
+            onSelectCategory={(category, trigger) => {
+              selectedCategoryTrigger.current = trigger
+              setSelectedCategory(category)
+            }}
           />
         )}
+        <CategoryTransactionDialog
+          category={selectedCategory}
+          filters={filters}
+          returnTo={`/statistics?${canonicalSearch}`}
+          onOpenChange={(open) => {
+            if (open) return
+            setSelectedCategory(null)
+            requestAnimationFrame(() => selectedCategoryTrigger.current?.focus())
+          }}
+        />
       </section>
     </AppShell>
   )
@@ -195,7 +212,7 @@ function StatisticsMemberOption({ value, selected, label, accessibleLabel, avata
   )
 }
 
-function StatisticsContent({ statistics, direction, onDirectionChange, backgroundError, onRetry, filtered, onClearFilters }: {
+function StatisticsContent({ statistics, direction, onDirectionChange, backgroundError, onRetry, filtered, onClearFilters, onSelectCategory }: {
   statistics: MonthlyStatistics
   direction: StatisticsDirection
   onDirectionChange: (direction: StatisticsDirection) => void
@@ -203,6 +220,7 @@ function StatisticsContent({ statistics, direction, onDirectionChange, backgroun
   onRetry: () => void
   filtered: boolean
   onClearFilters: () => void
+  onSelectCategory: (category: StatisticsCategoryAmount, trigger: HTMLButtonElement) => void
 }) {
   const directionTotal = direction === 'expense' ? statistics.totals.expenseWon : statistics.totals.incomeWon
   const shares = categoryShares(statistics.categoryBreakdown, direction, directionTotal)
@@ -221,7 +239,7 @@ function StatisticsContent({ statistics, direction, onDirectionChange, backgroun
         </div>
       ) : null}
       <div className="mt-8 grid gap-10 @min-[54rem]:grid-cols-[minmax(18rem,2fr)_minmax(0,3fr)] @min-[54rem]:items-start @min-[54rem]:gap-8">
-        <CategoryBreakdown statistics={statistics} direction={direction} shares={shares} onDirectionChange={onDirectionChange} />
+        <CategoryBreakdown statistics={statistics} direction={direction} shares={shares} onDirectionChange={onDirectionChange} onSelectCategory={onSelectCategory} />
         <YearlyTrend statistics={statistics} />
       </div>
     </>
@@ -237,7 +255,7 @@ function StatisticsSummary({ statistics }: { statistics: MonthlyStatistics }) {
   return <dl className="mt-6 grid grid-cols-2 border-y border-[var(--line)] @min-[40rem]:grid-cols-3" aria-label="월간 수입 지출 순액 요약">{values.map((item, index) => <div className={`min-w-0 px-1 py-4 text-right xs:px-3 @min-[40rem]:px-5 ${index === 1 ? 'border-l border-[var(--line)]' : ''} ${index === 2 ? 'col-span-2 border-t border-[var(--line)] @min-[40rem]:col-span-1 @min-[40rem]:border-t-0 @min-[40rem]:border-l' : ''}`} key={item.label}><dt className="text-sm text-[var(--muted)]">{item.label}</dt><dd className={`mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-semibold tabular-nums ${index === 2 ? 'text-xl xs:text-2xl' : 'text-lg xs:text-xl'} ${item.tone}`} title={item.value}>{item.value}</dd></div>)}</dl>
 }
 
-function CategoryBreakdown({ statistics, direction, shares, onDirectionChange }: { statistics: MonthlyStatistics; direction: StatisticsDirection; shares: ReturnType<typeof categoryShares>; onDirectionChange: (direction: StatisticsDirection) => void }) {
+function CategoryBreakdown({ statistics, direction, shares, onDirectionChange, onSelectCategory }: { statistics: MonthlyStatistics; direction: StatisticsDirection; shares: ReturnType<typeof categoryShares>; onDirectionChange: (direction: StatisticsDirection) => void; onSelectCategory: (category: StatisticsCategoryAmount, trigger: HTMLButtonElement) => void }) {
   const [expanded, setExpanded] = useState(false)
   const directionTotal = direction === 'expense' ? statistics.totals.expenseWon : statistics.totals.incomeWon
   const label = direction === 'expense' ? '지출' : '수입'
@@ -259,9 +277,11 @@ function CategoryBreakdown({ statistics, direction, shares, onDirectionChange }:
         <ol id={`category-breakdown-${direction}`} className="mt-3 divide-y divide-[var(--line-subtle)] border-y border-[var(--line)]" aria-label={`${label} 분류 비중`}>
           {visibleShares.map((item) => {
             const sliceIndex = donutSlices.findIndex((slice) => slice.categoryIds.includes(item.categoryId))
-            return <li className="py-3" key={item.categoryId} data-category-id={item.categoryId}>
-              <div className="flex items-baseline justify-between gap-4 text-sm"><span className="flex min-w-0 items-center gap-2 break-words font-semibold">{sliceIndex >= 0 ? <CategoryTone index={sliceIndex} /> : null}{item.categoryName}</span><span className="shrink-0 text-right tabular-nums"><strong>{formatFlowWon(item.amountWon, direction)}</strong>{item.ratioPercent === null ? null : <span className="ml-2 text-xs text-[var(--muted)]">{formatRatio(item.ratioPercent)}</span>}</span></div>
-              {item.barPercent === null ? null : <div className="mt-2 h-1 overflow-hidden bg-[var(--line-subtle)]" aria-hidden="true"><div className={direction === 'expense' ? 'h-full bg-[var(--expense)]' : 'h-full bg-[var(--income)]'} style={{ width: `${item.barPercent}%` }} /></div>}
+            return <li key={item.categoryId} data-category-id={item.categoryId}>
+              <button type="button" className="block min-h-14 w-full px-1 py-3 text-left transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800" aria-label={`${item.categoryName} 거래 내역 보기`} onClick={(event) => onSelectCategory(item, event.currentTarget)}>
+                <span className="flex items-baseline justify-between gap-4 text-sm"><span className="flex min-w-0 items-center gap-2 break-words font-semibold">{sliceIndex >= 0 ? <CategoryTone index={sliceIndex} /> : null}{item.categoryName}</span><span className="shrink-0 text-right tabular-nums"><strong>{formatFlowWon(item.amountWon, direction)}</strong>{item.ratioPercent === null ? null : <span className="ml-2 text-xs text-[var(--muted)]">{formatRatio(item.ratioPercent)}</span>}</span></span>
+                {item.barPercent === null ? null : <span className="mt-2 block h-1 overflow-hidden bg-[var(--line-subtle)]" aria-hidden="true"><span className={`block h-full ${direction === 'expense' ? 'bg-[var(--expense)]' : 'bg-[var(--income)]'}`} style={{ width: `${item.barPercent}%` }} /></span>}
+              </button>
             </li>
           })}
         </ol>

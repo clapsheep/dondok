@@ -176,6 +176,26 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   expect(statisticsRequests.every((url) => !new URL(url).searchParams.has('from'))).toBe(true)
   expect(transactionListRequests).toHaveLength(0)
 
+  const transportDetailsResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'GET'
+      && url.pathname.endsWith('/transactions')
+      && url.pathname.includes('/api/statistics/monthly/categories/')
+      && url.searchParams.get('month') === seed.currentMonth
+      && !url.searchParams.has('performedByMemberId')
+  })
+  await page.getByRole('button', { name: '교통비 거래 내역 보기' }).click()
+  expect((await transportDetailsResponse).status()).toBe(200)
+  const categoryTransactions = page.getByRole('dialog', { name: '교통비 거래 내역' })
+  await expect(categoryTransactions.getByText(`${seed.currentMonth.slice(0, 4)}년 ${Number(seed.currentMonth.slice(5))}월 통계에 포함된 거래만 보여드려요.`, { exact: true })).toBeVisible()
+  const transactionList = categoryTransactions.getByRole('list', { name: '교통비 거래 내역' })
+  await expect(transactionList.getByText('통계 지출 B 공동 교통', { exact: true })).toBeVisible()
+  await expect(transactionList.getByText('-40,000원', { exact: true })).toBeVisible()
+  await expect(categoryTransactions.getByText('사용자 선택 통계 제외 지출', { exact: true })).toHaveCount(0)
+  await categoryTransactions.getByRole('button', { name: '거래 내역 닫기' }).click()
+  await expect(categoryTransactions).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '교통비 거래 내역 보기' })).toBeFocused()
+
   const incomeDirection = page.getByRole('group', { name: '분류 비중 방향' }).getByRole('button', { name: '수입', exact: true })
   await incomeDirection.click()
   await expect(incomeDirection).toHaveAttribute('aria-pressed', 'true')
@@ -253,6 +273,21 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expectStatisticsSummary(page, { income: '0원', expense: '-30,000원', net: '-30,000원' })
   await expect(page.getByRole('group', { name: '분류 비중 방향' }).getByRole('button', { name: '지출', exact: true })).toHaveAttribute('aria-pressed', 'true')
+
+  const filteredCategoryResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return response.request().method() === 'GET'
+      && url.pathname.includes(`/api/statistics/monthly/categories/${seed.foodCategoryId}/transactions`)
+      && url.searchParams.get('performedByMemberId') === seed.otherMemberId
+      && url.searchParams.get('assetOwnerType') === 'JOINT'
+  })
+  await page.getByRole('button', { name: '식비 거래 내역 보기' }).click()
+  expect((await filteredCategoryResponse).status()).toBe(200)
+  const filteredCategoryTransactions = page.getByRole('dialog', { name: '식비 거래 내역' })
+  await expect(filteredCategoryTransactions.getByText('통계 지출 B 공동 식비', { exact: true })).toBeVisible()
+  await expect(filteredCategoryTransactions.getByText('통계 지출 B 개인 식비', { exact: true })).toHaveCount(0)
+  await expect(filteredCategoryTransactions.getByText('통계 포함 카드 구매', { exact: true })).toHaveCount(0)
+  await filteredCategoryTransactions.getByRole('button', { name: '거래 내역 닫기' }).click()
 
   await page.getByRole('button', { name: '이전 달' }).click()
   await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(seed.previousMonth)

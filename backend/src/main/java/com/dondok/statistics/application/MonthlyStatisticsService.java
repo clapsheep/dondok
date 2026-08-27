@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class MonthlyStatisticsService {
+    private static final int MAX_CATEGORY_TRANSACTION_PAGE_SIZE = 100;
     private final StatisticsJdbcRepository statistics;
     private final LedgerMemberRepository members;
     private final CategoryRepository categories;
@@ -100,6 +101,56 @@ public class MonthlyStatisticsService {
                 categoryBreakdown, yearlyTrend, List.of());
     }
 
+    @Transactional(readOnly = true)
+    public CategoryTransactionPage categoryTransactions(
+            UUID userId,
+            YearMonth month,
+            UUID performedByMemberId,
+            AssetOwnerFilter.Type assetOwnerType,
+            UUID assetOwnerMemberId,
+            UUID categoryId,
+            String encodedCursor,
+            int limit
+    ) {
+        if (limit < 1 || limit > MAX_CATEGORY_TRANSACTION_PAGE_SIZE) {
+            throw error(HttpStatus.BAD_REQUEST, "STATISTICS_TRANSACTION_PAGE_INVALID",
+                    "페이지 크기를 확인해 주세요.");
+        }
+        LedgerMemberEntity currentMember = members.findByUserId(userId)
+                .orElseThrow(this::ledgerNotFound);
+        AssetOwnerFilter assetOwner = requireAssetOwnerFilter(assetOwnerType, assetOwnerMemberId);
+        requireMember(currentMember.getBookId(), performedByMemberId);
+        if (assetOwner.type() == AssetOwnerFilter.Type.MEMBER) {
+            requireMember(currentMember.getBookId(), assetOwner.memberId());
+        }
+        var category = categories.findByIdAndBookIdAndArchivedAtIsNull(
+                        categoryId, currentMember.getBookId())
+                .orElseThrow(() -> error(HttpStatus.BAD_REQUEST, "STATISTICS_CATEGORY_INVALID",
+                        "현재 가계부에서 사용할 수 있는 분류를 선택해 주세요."));
+        StatisticsJdbcRepository.Cursor cursor;
+        try {
+            cursor = StatisticsJdbcRepository.Cursor.decode(encodedCursor);
+        } catch (IllegalArgumentException exception) {
+            throw error(HttpStatus.BAD_REQUEST, "STATISTICS_TRANSACTION_CURSOR_INVALID",
+                    "거래 내역 커서가 올바르지 않습니다.");
+        }
+        LocalDate periodStart = month.atDay(1);
+        LocalDate periodEndExclusive = month.plusMonths(1).atDay(1);
+        StatisticsJdbcRepository.CategoryTransactionRows page = statistics.categoryTransactions(
+                currentMember.getBookId(), periodStart, periodEndExclusive,
+                performedByMemberId, assetOwner, category.getId(), cursor, limit);
+        return new CategoryTransactionPage(
+                month,
+                category.getId(),
+                category.getName(),
+                page.items().stream().map(row -> new CategoryTransaction(
+                        row.transactionId(), row.occurredOn(), row.kind().name(),
+                        row.statisticsContributionWon(), row.description(), row.categoryName(),
+                        row.assetId(), row.assetName(), row.performerId(), row.performerName()))
+                        .toList(),
+                page.nextCursor());
+    }
+
     private AssetOwnerFilter requireAssetOwnerFilter(
             AssetOwnerFilter.Type requestedType,
             UUID memberId
@@ -162,5 +213,28 @@ public class MonthlyStatisticsService {
     }
 
     public record DaySummary(LocalDate date, long incomeWon, long expenseWon, long netWon) {
+    }
+
+    public record CategoryTransactionPage(
+            YearMonth month,
+            UUID categoryId,
+            String categoryName,
+            List<CategoryTransaction> items,
+            String nextCursor
+    ) {
+    }
+
+    public record CategoryTransaction(
+            UUID transactionId,
+            LocalDate occurredOn,
+            String kind,
+            long statisticsContributionWon,
+            String description,
+            String categoryName,
+            UUID assetId,
+            String assetName,
+            UUID performedByMemberId,
+            String performedByName
+    ) {
     }
 }

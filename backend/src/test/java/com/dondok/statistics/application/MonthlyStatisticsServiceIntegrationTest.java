@@ -262,6 +262,62 @@ class MonthlyStatisticsServiceIntegrationTest {
     }
 
     @Test
+    void listsOnlyTransactionsContributingToTheSelectedMonthAndCategoryWithCursorPagination() {
+        Fixture fixture = fixture("분류 거래 내역 사용자");
+        AssetService.AssetView bank = asset(fixture.userId(), "BANK");
+        UUID food = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+        UUID medical = category(fixture.userId(), CategoryKind.EXPENSE, "MEDICAL");
+
+        TransactionService.TransactionView older = transactionService.create(
+                fixture.userId(), "category-details-older",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 7, 3), 10_000, food, bank.assetId(),
+                        fixture.memberId(), "오래된 식비", 1));
+        TransactionService.TransactionView newer = transactionService.create(
+                fixture.userId(), "category-details-newer",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 7, 20), 20_000, food, bank.assetId(),
+                        fixture.memberId(), "최근 식비", 1));
+        transactionService.create(
+                fixture.userId(), "category-details-excluded",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 7, 21), 999_999, food, bank.assetId(),
+                        fixture.memberId(), "집계 제외 식비", 1, true));
+        createExpense(fixture, "category-details-other", 30_000,
+                medical, bank.assetId(), fixture.memberId());
+        transactionService.create(
+                fixture.userId(), "category-details-next-month",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 1), 40_000, food, bank.assetId(),
+                        fixture.memberId(), "다음 달 식비", 1));
+
+        MonthlyStatisticsService.CategoryTransactionPage first =
+                statisticsService.categoryTransactions(
+                        fixture.userId(), YearMonth.of(2026, 7), fixture.memberId(),
+                        AssetOwnerFilter.Type.ALL, null, food, null, 1);
+
+        assertThat(first.items()).singleElement().satisfies(item -> {
+            assertThat(item.transactionId()).isEqualTo(newer.transactionId());
+            assertThat(item.occurredOn()).isEqualTo(LocalDate.of(2026, 7, 20));
+            assertThat(item.statisticsContributionWon()).isEqualTo(-20_000);
+            assertThat(item.description()).isEqualTo("최근 식비");
+            assertThat(item.categoryName()).isEqualTo("식비");
+            assertThat(item.assetName()).isEqualTo(bank.name());
+        });
+        assertThat(first.nextCursor()).isNotBlank();
+
+        MonthlyStatisticsService.CategoryTransactionPage second =
+                statisticsService.categoryTransactions(
+                        fixture.userId(), YearMonth.of(2026, 7), fixture.memberId(),
+                        AssetOwnerFilter.Type.ALL, null, food, first.nextCursor(), 1);
+
+        assertThat(second.items()).singleElement()
+                .extracting(MonthlyStatisticsService.CategoryTransaction::transactionId)
+                .isEqualTo(older.transactionId());
+        assertThat(second.nextCursor()).isNull();
+    }
+
+    @Test
     void rejectsInvalidFilterShapesAndCrossLedgerReferences() {
         Fixture first = fixture("첫 가계부");
         Fixture second = fixture("둘째 가계부");
