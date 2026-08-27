@@ -1754,6 +1754,11 @@ components:
             categoryId: { type: string, format: uuid }
             assetId: { type: string, format: uuid }
             installmentCount: { type: integer, minimum: 1, maximum: 60, default: 1 }
+            statisticsAmountWon:
+              type: integer
+              format: int64
+              minimum: 0
+              description: 대표 결제에서 달력·통계의 지출로 반영할 금액이다. 실제 결제액 이하이며 생략하면 amountWon과 같다.
             excludedFromStatistics:
               type: boolean
               default: false
@@ -1791,6 +1796,11 @@ components:
           type: boolean
           default: false
           description: INCOME·EXPENSE에서만 사용하며 true면 잔액은 반영하고 달력·통계 집계에서 제외한다.
+        statisticsAmountWon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: EXPENSE에서만 사용하며 대표 결제의 달력·통계 반영액이다. 실제 결제액 이하이며 생략하면 amountWon과 같다.
     TransactionCategory:
       type: object
       required: [categoryId, name]
@@ -1838,6 +1848,7 @@ components:
         - cardPayment
         - occurredOn
         - amountWon
+        - statisticsAmountWon
         - category
         - performedBy
         - createdBy
@@ -1871,6 +1882,11 @@ components:
             - { type: "null" }
         occurredOn: { type: string, format: date }
         amountWon: { type: integer, format: int64 }
+        statisticsAmountWon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 달력·통계에 기여하는 금액이다. 대표 지출이 아니면 amountWon과 같다.
         category:
           oneOf:
             - { $ref: "#/components/schemas/TransactionCategory" }
@@ -2080,12 +2096,13 @@ components:
         amountWon: { type: integer, format: int64, minimum: 1 }
     CardPurchaseRefund:
       type: object
-      required: [refundId, refundTransactionId, refundedOn, amountWon, excludedFromStatistics, unpaidCardReductionWon, accountReturns]
+      required: [refundId, refundTransactionId, refundedOn, amountWon, statisticsAmountWon, excludedFromStatistics, unpaidCardReductionWon, accountReturns]
       properties:
         refundId: { type: string, format: uuid }
         refundTransactionId: { type: string, format: uuid }
         refundedOn: { type: string, format: date }
         amountWon: { type: integer, format: int64, minimum: 1 }
+        statisticsAmountWon: { type: integer, format: int64, minimum: 0, description: 환불일 지출에서 차감하는 금액이다. }
         excludedFromStatistics: { type: boolean }
         unpaidCardReductionWon: { type: integer, format: int64, minimum: 0 }
         accountReturns:
@@ -2115,6 +2132,11 @@ components:
       properties:
         occurredOn: { type: string, format: date }
         amountWon: { type: integer, format: int64, minimum: 1 }
+        statisticsAmountWon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 대표 결제의 지출 반영 금액이며 실제 구매액 이하이다. 생략하면 amountWon과 같다.
         categoryId: { type: string, format: uuid }
         cardAssetId: { type: string, format: uuid }
         performedByMemberId: { type: string, format: uuid }
@@ -2148,6 +2170,11 @@ components:
       properties:
         refundedOn: { type: string, format: date }
         amountWon: { type: integer, format: int64, minimum: 1 }
+        statisticsAmountWon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 환불일 지출에서 차감할 금액이며 환불액과 원 구매의 남은 지출 반영액 이하여야 한다. 생략하면 amountWon과 같다.
         expectedVersion: { type: integer, format: int64, minimum: 0 }
         description: { type: string, maxLength: 500 }
         excludedFromStatistics:

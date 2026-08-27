@@ -13,6 +13,47 @@ type SeedResult = {
 
 test.use({ serviceWorkers: 'block' })
 
+test('대표 결제는 실제 자산 금액과 월 지출 반영액을 분리한다', async ({ page, request }) => {
+  await registerAndLogin(page, request, `대표 결제 ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
+
+  await page.goto('/transactions/new')
+  await page.getByLabel('금액', { exact: true }).fill('120000')
+  const representativeSwitch = page.getByRole('switch', { name: '대표로 결제했어요' })
+  await representativeSwitch.click()
+  await expect(representativeSwitch).toBeChecked()
+  await expect(page.getByText('자산에서는 실제 결제액이 빠지고, 달력과 통계에는 내 부담액만 지출로 반영돼요.')).toBeVisible()
+  const statisticsAmount = page.getByLabel('지출로 반영할 금액')
+  await statisticsAmount.fill('120001')
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  await expect(page.getByText('0원 이상 실제 결제 금액 이하로 입력해 주세요.')).toBeVisible()
+
+  await statisticsAmount.fill('40000')
+  await page.getByLabel('내용 (선택)').fill('QC 대표 결제 식사')
+  const createdResponse = page.waitForResponse((response) => response.url().endsWith('/api/transactions')
+    && response.request().method() === 'POST' && response.status() === 201)
+  await page.getByRole('button', { name: '기록 저장' }).click()
+  const created = await (await createdResponse).json() as {
+    transactionId: string
+    amountWon: number
+    statisticsAmountWon: number
+    postings: Array<{ deltaWon: number }>
+  }
+  expect(created.amountWon).toBe(120_000)
+  expect(created.statisticsAmountWon).toBe(40_000)
+  expect(created.postings.map((posting) => posting.deltaWon)).toEqual([-120_000])
+
+  await page.goto(`/transactions/${created.transactionId}`)
+  await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
+  await expect(page.getByText('-120,000원', { exact: true })).toBeVisible()
+  await expect(page.getByText('지출에는 40,000원 반영', { exact: true })).toBeVisible()
+
+  await page.goto(`/statistics?month=${todayInSeoul().slice(0, 7)}`)
+  const monthlySummary = page.getByLabel('월간 수입 지출 순액 요약')
+  await expect(monthlySummary.getByText('지출', { exact: true }).locator('..').getByText('-40,000원', { exact: true })).toBeVisible()
+})
+
 test('카드 선택기는 가장 가까운 결제 예정액을 보여준다', async ({ page, request }) => {
   await registerAndLogin(page, request, `카드 선택 금액 ${test.info().workerIndex}`)
   await page.route('**/api/assets', async (route) => {

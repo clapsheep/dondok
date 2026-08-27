@@ -106,7 +106,8 @@ public class TransactionController {
             @NotNull UUID performedByMemberId,
             @Size(max = 500) String description,
             Integer installmentCount,
-            Boolean excludedFromStatistics
+            Boolean excludedFromStatistics,
+            Long statisticsAmountWon
     ) {
         TransactionService.CreateCommand toCommand() {
             boolean statisticsExcluded = Boolean.TRUE.equals(excludedFromStatistics);
@@ -114,7 +115,7 @@ public class TransactionController {
                 case INCOME -> {
                     require(categoryId != null && assetId != null
                             && sourceAssetId == null && destinationAssetId == null
-                            && installmentCount == null);
+                            && installmentCount == null && statisticsAmountWon == null);
                     yield new TransactionService.CreateIncome(
                             occurredOn, amountWon, categoryId, assetId, performedByMemberId,
                             description, statisticsExcluded);
@@ -125,12 +126,13 @@ public class TransactionController {
                     yield new TransactionService.CreateExpense(
                             occurredOn, amountWon, categoryId, assetId, performedByMemberId,
                             description, installmentCount == null ? 1 : installmentCount,
-                            statisticsExcluded);
+                            statisticsExcluded,
+                            statisticsAmountWon == null ? amountWon : statisticsAmountWon);
                 }
                 case TRANSFER -> {
                     require(categoryId == null && assetId == null && installmentCount == null
                             && sourceAssetId != null && destinationAssetId != null
-                            && !statisticsExcluded);
+                            && !statisticsExcluded && statisticsAmountWon == null);
                     yield new TransactionService.CreateTransfer(
                             occurredOn, amountWon, sourceAssetId, destinationAssetId,
                             performedByMemberId, description);
@@ -158,10 +160,12 @@ public class TransactionController {
             @Size(max = 500) String description,
             Integer installmentCount,
             @NotNull @Min(0) Long expectedVersion,
-            Boolean excludedFromStatistics
+            Boolean excludedFromStatistics,
+            Long statisticsAmountWon
     ) {
         TransactionService.UpdateCommand toCommand() {
-            if (type != TransactionType.EXPENSE && installmentCount != null) {
+            if (type != TransactionType.EXPENSE
+                    && (installmentCount != null || statisticsAmountWon != null)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
                         "거래 유형에 맞는 입력값을 확인해 주세요.");
             }
@@ -169,7 +173,8 @@ public class TransactionController {
                     type, occurredOn, amountWon, categoryId, assetId, sourceAssetId,
                     destinationAssetId, performedByMemberId, description, expectedVersion,
                     Boolean.TRUE.equals(excludedFromStatistics),
-                    installmentCount == null ? 1 : installmentCount);
+                    installmentCount == null ? 1 : installmentCount,
+                    statisticsAmountWon == null ? amountWon : statisticsAmountWon);
         }
     }
 }

@@ -121,7 +121,7 @@ erDiagram
 
 ## 6. 거래와 posting
 
-`ledger_transaction`은 날짜, 금액, 카테고리, 거래 주체, 작성자와 사용자 선택 `excluded_from_statistics`를 저장한다. 기준일 시작값은 `asset.balance_anchor_won`, 그 이후 실제 잔액 변화는 `transaction_posting.delta_won`이 원본이다. 이체와 내부 `OPENING_BALANCE` 조정에는 카테고리를 두지 않는다. 집계 제외 기본값은 `false`라 기존 데이터와 이전 클라이언트가 만든 수입·지출은 계속 포함된다.
+`ledger_transaction`은 날짜, 실제 금액, 카테고리, 거래 주체, 작성자와 사용자 선택 `excluded_from_statistics`를 저장한다. 대표 지출만 nullable `statistics_amount_won`으로 달력·통계 반영액을 덮어쓸 수 있고 null이면 실제 `amount_won`을 사용한다. 값이 있으면 0 이상 실제 금액 이하인 지출만 허용한다. 기준일 시작값은 `asset.balance_anchor_won`, 그 이후 실제 잔액 변화는 `transaction_posting.delta_won`이 원본이다. 이체와 내부 `OPENING_BALANCE` 조정에는 카테고리를 두지 않는다. 집계 제외 기본값은 `false`라 기존 데이터와 이전 클라이언트가 만든 수입·지출은 계속 포함된다.
 
 | 거래 | Posting | 통계 |
 |---|---|---|
@@ -133,6 +133,8 @@ erDiagram
 | 카드대금 결제 | 은행 `-amount`, 카드 `+amount` | 제외 |
 
 사용자가 수입·지출 또는 카드 구매·환불에 `excluded_from_statistics=true`를 저장하면 위 posting과 카드 업무 행은 바꾸지 않고 canonical `ledger_financial_activity` view에서만 제외한다. 따라서 자산 잔액과 원장 이력은 유지되며 월간 달력·분류 통계·연간 흐름은 같은 조건을 공유한다. 일반 이체·카드 정산·선결제는 거래 유형 자체가 view 대상이 아니므로 이 flag를 사용하지 않는다.
+
+`ledger_financial_activity.statistics_amount_won`은 대표 지출 override와 실제 금액을 `coalesce`하고 카드 환불만 부호를 반대로 바꾼 canonical 기여액이다. posting·카드 charge에는 이 값을 사용하지 않는다. 환불 거래의 반영액은 원 구매에 남은 통계 반영액 이하로 application transaction에서 검증하며 DB는 개별 거래의 0 이상 실제 금액 이하 경계를 방어한다.
 
 일반 이체의 출발·도착은 application 계약에서 활성 `BANK`, `SAVINGS` 또는 `INVESTMENT` 자산으로 제한한다. 이들 사이의 납입·인출·자금 이동은 별도 거래 유형이나 전용 table 없이 같은 합계 0 posting 쌍을 사용한다.
 
