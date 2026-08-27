@@ -162,6 +162,56 @@ class CardPurchaseManagementServiceIntegrationTest {
     }
 
     @Test
+    void representativeCardPurchaseCorrectionAndRefundKeepActualAndStatisticsAmountsSeparate() {
+        Fixture fixture = fixture();
+        UUID category = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+        TransactionService.TransactionView purchase = transactionService.create(
+                fixture.userId(), "representative-managed-purchase",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 7, 20), 120_000, category, fixture.card().assetId(),
+                        fixture.memberId(), "대표 카드 결제", 1, false, 40_000));
+
+        CardPurchaseManagementService.CorrectionCommand correction =
+                new CardPurchaseManagementService.CorrectionCommand(
+                        purchase.occurredOn(), purchase.amountWon(), category,
+                        fixture.card().assetId(), fixture.memberId(), purchase.description(),
+                        1, purchase.version(), false, 35_000);
+        CardPurchaseManagementService.CardPurchaseCorrectionPreview correctionPreview =
+                managementService.previewCorrection(fixture.userId(), purchase.transactionId(), correction);
+        CardPurchaseManagementService.CardPurchaseManagementView corrected = managementService.correct(
+                fixture.userId(), purchase.transactionId(), "representative-managed-correction",
+                new CardPurchaseManagementService.CorrectionApplyCommand(
+                        correction.occurredOn(), correction.amountWon(), correction.categoryId(),
+                        correction.cardAssetId(), correction.performedByMemberId(), correction.description(),
+                        correction.installmentCount(), correction.expectedVersion(),
+                        correctionPreview.previewToken(), false, 35_000));
+
+        assertThat(corrected.purchase().amountWon()).isEqualTo(120_000);
+        assertThat(corrected.purchase().statisticsAmountWon()).isEqualTo(35_000);
+        assertThat(forecast(purchase.transactionId())).isEqualTo(120_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)).totalExpenseWon())
+                .isEqualTo(35_000);
+
+        CardPurchaseManagementService.RefundCommand refund =
+                new CardPurchaseManagementService.RefundCommand(
+                        LocalDate.of(2026, 7, 22), 120_000, corrected.purchase().version(),
+                        "대표 결제 전액 환불", false, 35_000);
+        CardPurchaseManagementService.CardPurchaseRefundPreview refundPreview =
+                managementService.previewRefund(fixture.userId(), purchase.transactionId(), refund);
+        CardPurchaseManagementService.CardPurchaseRefundResult result = managementService.refund(
+                fixture.userId(), purchase.transactionId(), "representative-managed-refund",
+                new CardPurchaseManagementService.RefundApplyCommand(
+                        refund.refundedOn(), refund.amountWon(), refund.expectedVersion(),
+                        refund.description(), refundPreview.previewToken(), false, 35_000));
+
+        assertThat(result.refundTransaction().amountWon()).isEqualTo(120_000);
+        assertThat(result.refundTransaction().statisticsAmountWon()).isEqualTo(35_000);
+        assertThat(assetBalance(fixture.card().assetId())).isZero();
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 7)).totalExpenseWon())
+                .isZero();
+    }
+
+    @Test
     void refundAfterAnchorReducesTheAnchoredCardBalanceAndItsPaymentDue() {
         Fixture fixture = fixture();
         TransactionService.TransactionView purchase = purchase(

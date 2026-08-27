@@ -290,6 +290,69 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
+    void representativeExpenseUsesActualAmountForAssetAndPersonalAmountForStatistics() {
+        Fixture fixture = fixture();
+        AssetService.AssetView bank = createStandardAsset(
+                fixture, "BANK", "대표 결제 계좌", 200_000, "representative-payment-bank");
+        UUID food = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+
+        TransactionService.TransactionView created = transactionService.create(
+                fixture.userId(), "representative-payment",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 12), 120_000, food, bank.assetId(),
+                        fixture.memberId(), "세 명 식사 대표 결제", 1, false, 40_000));
+
+        assertThat(created.amountWon()).isEqualTo(120_000);
+        assertThat(created.statisticsAmountWon()).isEqualTo(40_000);
+        assertThat(created.postings()).singleElement()
+                .extracting(TransactionService.PostingView::deltaWon).isEqualTo(-120_000L);
+        assertThat(assetService.asset(fixture.userId(), bank.assetId()).currentBalanceWon())
+                .isEqualTo(80_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 8)).totalExpenseWon())
+                .isEqualTo(40_000);
+        assertThat(queryLong("select statistics_amount_won from ledger_transaction where id = ?",
+                created.transactionId())).isEqualTo(40_000);
+    }
+
+    @Test
+    void representativeCardExpenseKeepsFullChargeAndRejectsStatisticsAmountAbovePayment() {
+        Fixture fixture = fixture();
+        AssetService.AssetView bank = createStandardAsset(
+                fixture, "BANK", "카드 결제 계좌", 200_000, "representative-card-bank");
+        AssetService.AssetView card = assetService.create(
+                fixture.userId(), "representative-card",
+                new AssetService.AssetCommand(
+                        assetType(fixture.userId(), "CREDIT_CARD"), AssetOwnershipScope.PERSONAL,
+                        fixture.memberId(), "대표 결제 카드", LocalDate.of(2026, 8, 1), null, 0,
+                        new AssetService.CardSettingsCommand(14, 25, 1, bank.assetId(), false)));
+        UUID food = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+
+        TransactionService.TransactionView created = transactionService.create(
+                fixture.userId(), "representative-card-payment",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 12), 120_000, food, card.assetId(),
+                        fixture.memberId(), "세 명 식사 카드 대표 결제", 3, false, 40_000));
+
+        assertThat(created.statisticsAmountWon()).isEqualTo(40_000);
+        assertThat(created.postings()).singleElement()
+                .extracting(TransactionService.PostingView::deltaWon).isEqualTo(-120_000L);
+        assertThat(queryLong("""
+                select sum(principal_amount_won) from card_charge where source_transaction_id = ?
+                """, created.transactionId())).isEqualTo(120_000);
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.of(2026, 8)).totalExpenseWon())
+                .isEqualTo(40_000);
+
+        assertThatThrownBy(() -> transactionService.create(
+                fixture.userId(), "invalid-representative-payment",
+                new TransactionService.CreateExpense(
+                        LocalDate.of(2026, 8, 12), 120_000, food, card.assetId(),
+                        fixture.memberId(), "잘못된 대표 결제", 1, false, 120_001)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo("STATISTICS_AMOUNT_INVALID"));
+    }
+
+    @Test
     void memberCanTransferBetweenBankAccountsOwnedByDifferentLedgerMembers() {
         Fixture fixture = fixture();
         UUID partnerMemberId = addMember(fixture.bookId(), "함께 관리하는 구성원");

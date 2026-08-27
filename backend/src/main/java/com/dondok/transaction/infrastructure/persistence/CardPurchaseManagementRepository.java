@@ -297,7 +297,10 @@ public class CardPurchaseManagementRepository {
                 purchase.bookId(), purchase.transactionId());
         List<RefundRow> refunds = jdbcTemplate.query("""
                 select refund.id, refund.refund_transaction_id, refund.refunded_on,
-                       refund.amount_won, refund_transaction.excluded_from_statistics,
+                       refund.amount_won,
+                       coalesce(refund_transaction.statistics_amount_won, refund_transaction.amount_won)
+                           statistics_amount_won,
+                       refund_transaction.excluded_from_statistics,
                        refund.amount_won - coalesce(returned.amount_won, 0) unpaid_card_reduction_won
                   from card_purchase_refund refund
                   join ledger_transaction refund_transaction
@@ -313,7 +316,8 @@ public class CardPurchaseManagementRepository {
                 """, (rs, rowNum) -> new RefundRow(
                 rs.getObject("id", UUID.class), rs.getObject("refund_transaction_id", UUID.class),
                 rs.getObject("refunded_on", LocalDate.class), rs.getLong("amount_won"),
-                rs.getBoolean("excluded_from_statistics"), rs.getLong("unpaid_card_reduction_won")),
+                rs.getLong("statistics_amount_won"), rs.getBoolean("excluded_from_statistics"),
+                rs.getLong("unpaid_card_reduction_won")),
                 purchase.bookId(), purchase.transactionId());
         List<RefundAccountRow> refundAccounts = jdbcTemplate.query("""
                 select allocation.refund_id, payment.settlement_asset_id,
@@ -339,6 +343,8 @@ public class CardPurchaseManagementRepository {
         List<PurchaseRow> rows = jdbcTemplate.query("""
                 select purchase.id, purchase.book_id, purchase.transaction_type,
                        purchase.source_type, purchase.occurred_on, purchase.amount_won,
+                       coalesce(purchase.statistics_amount_won, purchase.amount_won)
+                           statistics_amount_won,
                        purchase.category_id, purchase.performed_by_member_id,
                        purchase.primary_asset_id, purchase.description,
                        purchase.created_by_member_id, purchase.version,
@@ -356,6 +362,7 @@ public class CardPurchaseManagementRepository {
                 rs.getObject("id", UUID.class), rs.getObject("book_id", UUID.class),
                 TransactionType.valueOf(rs.getString("transaction_type")), rs.getString("source_type"),
                 rs.getObject("occurred_on", LocalDate.class), rs.getLong("amount_won"),
+                rs.getLong("statistics_amount_won"),
                 rs.getObject("category_id", UUID.class),
                 rs.getObject("performed_by_member_id", UUID.class),
                 rs.getObject("primary_asset_id", UUID.class), rs.getString("description"),
@@ -388,13 +395,15 @@ public class CardPurchaseManagementRepository {
                     id, book_id, transaction_type, transfer_subtype, occurred_on, amount_won,
                     category_id, performed_by_member_id, primary_asset_id, description,
                     source_type, source_id, excluded_from_statistics,
+                    statistics_amount_won,
                     created_by_member_id, updated_by_member_id,
                     created_at, updated_at, version
-                ) values (?, ?, 'EXPENSE', null, ?, ?, ?, ?, ?, ?, 'CARD_REFUND', ?, ?, ?, ?, ?, ?, 0)
+                ) values (?, ?, 'EXPENSE', null, ?, ?, ?, ?, ?, ?, 'CARD_REFUND', ?, ?, ?, ?, ?, ?, ?, 0)
                 """, refund.refundTransactionId(), refund.bookId(), Date.valueOf(refund.refundedOn()),
                 refund.amountWon(), refund.categoryId(), refund.performedByMemberId(),
                 refund.cardAssetId(), refund.description(), refund.refundId(),
-                refund.excludedFromStatistics(), refund.createdByMemberId(), refund.createdByMemberId(),
+                refund.excludedFromStatistics(), refund.statisticsAmountWon(),
+                refund.createdByMemberId(), refund.createdByMemberId(),
                 Timestamp.from(refund.now()), Timestamp.from(refund.now()));
         short lineNo = 1;
         for (TransactionJdbcRepository.PostingWrite posting : postings) {
@@ -516,12 +525,13 @@ public class CardPurchaseManagementRepository {
                 update ledger_transaction
                    set occurred_on = ?, amount_won = ?, category_id = ?,
                        performed_by_member_id = ?, primary_asset_id = ?, description = ?,
-                       excluded_from_statistics = ?,
+                       excluded_from_statistics = ?, statistics_amount_won = ?,
                        updated_by_member_id = ?, updated_at = ?, version = version + 1
                  where book_id = ? and id = ? and version = ? and deleted_at is null
                 """, Date.valueOf(write.occurredOn()), write.amountWon(), write.categoryId(),
                 write.performedByMemberId(), write.cardAssetId(), write.description(),
-                write.excludedFromStatistics(), write.updatedByMemberId(), Timestamp.from(write.now()), write.bookId(),
+                write.excludedFromStatistics(), write.statisticsAmountWon(),
+                write.updatedByMemberId(), Timestamp.from(write.now()), write.bookId(),
                 write.purchaseId(), write.expectedVersion());
         if (updated != 1) {
             throw new IllegalStateException("locked card purchase correction did not update its purchase");
@@ -656,6 +666,7 @@ public class CardPurchaseManagementRepository {
             String sourceType,
             LocalDate occurredOn,
             long amountWon,
+            long statisticsAmountWon,
             UUID categoryId,
             UUID performedByMemberId,
             UUID primaryAssetId,
@@ -739,6 +750,7 @@ public class CardPurchaseManagementRepository {
             UUID refundTransactionId,
             LocalDate refundedOn,
             long amountWon,
+            long statisticsAmountWon,
             boolean excludedFromStatistics,
             long unpaidCardReductionWon
     ) {
@@ -806,6 +818,7 @@ public class CardPurchaseManagementRepository {
             long amountWon,
             String description,
             boolean excludedFromStatistics,
+            long statisticsAmountWon,
             long expectedVersion,
             Instant now
     ) {
@@ -864,6 +877,7 @@ public class CardPurchaseManagementRepository {
             UUID performedByMemberId,
             String description,
             boolean excludedFromStatistics,
+            long statisticsAmountWon,
             int statementClosingDay,
             int paymentDay,
             int paymentMonthOffset,

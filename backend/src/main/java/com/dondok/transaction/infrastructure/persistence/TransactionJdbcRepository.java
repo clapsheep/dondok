@@ -34,14 +34,16 @@ public class TransactionJdbcRepository {
                 insert into ledger_transaction (
                     id, book_id, transaction_type, transfer_subtype, occurred_on, amount_won,
                     category_id, performed_by_member_id, primary_asset_id, description, source_type,
-                    excluded_from_statistics, created_by_member_id, updated_by_member_id,
+                    excluded_from_statistics, statistics_amount_won,
+                    created_by_member_id, updated_by_member_id,
                     created_at, updated_at, version
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', ?, ?, ?, ?, ?, 0)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', ?, ?, ?, ?, ?, ?, 0)
                 """, write.transactionId(), write.bookId(), write.type().name(),
                 write.transferSubtype() == null ? null : write.transferSubtype().name(),
                 Date.valueOf(write.occurredOn()), write.amountWon(), write.categoryId(),
                 write.performedByMemberId(), write.primaryAssetId(), write.description(),
-                write.excludedFromStatistics(), write.createdByMemberId(), write.createdByMemberId(),
+                write.excludedFromStatistics(), write.statisticsAmountWon(),
+                write.createdByMemberId(), write.createdByMemberId(),
                 Timestamp.from(write.now()), Timestamp.from(write.now()));
         short line = 1;
         for (PostingWrite posting : write.postings()) {
@@ -219,6 +221,7 @@ public class TransactionJdbcRepository {
                 )
                 select transaction.id transaction_id, transaction.transaction_type,
                        transaction.transfer_subtype, transaction.occurred_on, transaction.amount_won,
+                       coalesce(transaction.statistics_amount_won, transaction.amount_won) statistics_amount_won,
                        transaction.source_type, transaction.excluded_from_statistics,
                        transaction.description, transaction.version, transaction.created_at,
                        transaction.updated_at, category.id category_id, category.name category_name,
@@ -271,6 +274,7 @@ public class TransactionJdbcRepository {
         List<ReadRow> rows = jdbcTemplate.query("""
                 select transaction.id transaction_id, transaction.transaction_type,
                        transaction.transfer_subtype, transaction.occurred_on, transaction.amount_won,
+                       coalesce(transaction.statistics_amount_won, transaction.amount_won) statistics_amount_won,
                        transaction.source_type, transaction.excluded_from_statistics,
                        transaction.description, transaction.version, transaction.created_at,
                        transaction.updated_at, category.id category_id, category.name category_name,
@@ -367,12 +371,13 @@ public class TransactionJdbcRepository {
                 update ledger_transaction
                    set occurred_on = ?, amount_won = ?, category_id = ?,
                        performed_by_member_id = ?, primary_asset_id = ?, description = ?,
-                       excluded_from_statistics = ?,
+                       excluded_from_statistics = ?, statistics_amount_won = ?,
                        updated_by_member_id = ?, updated_at = ?, version = version + 1
                  where book_id = ? and id = ? and deleted_at is null and version = ?
                 """, Date.valueOf(write.occurredOn()), write.amountWon(), write.categoryId(),
                 write.performedByMemberId(), write.primaryAssetId(), write.description(),
-                write.excludedFromStatistics(), write.updatedByMemberId(), Timestamp.from(write.now()), write.bookId(),
+                write.excludedFromStatistics(), write.statisticsAmountWon(),
+                write.updatedByMemberId(), Timestamp.from(write.now()), write.bookId(),
                 write.transactionId(), write.expectedVersion());
         if (updated != 1) {
             throw new IllegalStateException("locked transaction update did not affect one row");
@@ -424,6 +429,7 @@ public class TransactionJdbcRepository {
                 rs.getString("transfer_subtype") == null ? null : TransferSubtype.valueOf(rs.getString("transfer_subtype")),
                 rs.getString("source_type"), rs.getBoolean("excluded_from_statistics"),
                 rs.getObject("occurred_on", LocalDate.class), rs.getLong("amount_won"),
+                rs.getLong("statistics_amount_won"),
                 rs.getString("description"), rs.getLong("version"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
                 rs.getObject("category_id", UUID.class), rs.getString("category_name"),
@@ -469,6 +475,7 @@ public class TransactionJdbcRepository {
                                    TransferSubtype transferSubtype, LocalDate occurredOn, long amountWon,
                                    UUID categoryId, UUID performedByMemberId, UUID primaryAssetId, String description,
                                    boolean excludedFromStatistics,
+                                   Long statisticsAmountWon,
                                    UUID createdByMemberId, Instant now, List<PostingWrite> postings) {
     }
     public record TransactionUpdateWrite(
@@ -481,6 +488,7 @@ public class TransactionJdbcRepository {
             UUID primaryAssetId,
             String description,
             boolean excludedFromStatistics,
+            Long statisticsAmountWon,
             UUID updatedByMemberId,
             long expectedVersion,
             Instant now,
@@ -495,7 +503,8 @@ public class TransactionJdbcRepository {
     }
     public record ReadRow(UUID transactionId, TransactionType type, TransferSubtype transferSubtype,
                           String sourceType, boolean excludedFromStatistics,
-                          LocalDate occurredOn, long amountWon, String description, long version,
+                          LocalDate occurredOn, long amountWon, long statisticsAmountWon,
+                          String description, long version,
                           Instant createdAt, Instant updatedAt, UUID categoryId, String categoryName,
                           UUID relatedPurchaseTransactionId,
                           UUID performerId, String performerName, UUID creatorId, String creatorName,

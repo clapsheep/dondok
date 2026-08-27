@@ -230,6 +230,8 @@ audit에는 영향 건수와 날짜 범위를 한 건으로 남긴다. command�
 
 사용자 수입·지출 command는 `excludedFromStatistics`를 함께 받고 응답에도 반환한다. 이 값은 posting 생성과 자산 잔액 계산에 관여하지 않고 `ledger_financial_activity` 포함 여부만 제어한다. 신용카드 구매 정정과 환불 preview/apply command도 같은 값을 preview token·idempotency hash에 포함해 확인 뒤 다른 집계 상태가 저장되는 것을 막는다. 이전 클라이언트가 필드를 생략하면 `false`로 처리하고 일반 이체에는 `true`를 허용하지 않는다.
 
+지출 command는 선택 `statisticsAmountWon`도 받고 생략 시 실제 `amountWon`으로 정규화한다. 0원 이상 실제 결제액 이하만 허용하며 posting, 체크카드 연결 계좌와 카드 charge·명세에는 `amountWon`, 달력·통계 read model에는 `statisticsAmountWon`을 사용한다. 일반 수정과 카드 정정은 version·preview token·idempotency hash에 반영액을 포함한다. 카드 환불도 실제 환불액과 지출 차감액을 분리하고, 원 구매의 반영액에서 기존 환불 차감 누계를 뺀 범위를 넘으면 전체 요청을 거부한다.
+
 ## 8. 자산 삭제·보관 유스케이스
 
 `PreviewAssetRemovalUseCase`는 OpenAPI 0.8의 `GET /api/assets/{assetId}/removal-preview`에서 다음 authoritative 결과를 한 번에 반환한다.

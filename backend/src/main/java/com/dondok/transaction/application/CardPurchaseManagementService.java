@@ -119,6 +119,7 @@ public class CardPurchaseManagementService {
         AnchorSettlement anchor = repository.findAnchorSettlement(
                 member.getBookId(), graph.purchase().cardAssetId(), false);
         RefundPlan plan = refundPlan(graph, anchor, command.amountWon());
+        requireRefundStatisticsAmount(graph, command.amountWon(), command.statisticsAmountWon());
         return new CardPurchaseRefundPreview(
                 refundPreviewToken(graph, anchor, command), graph.purchase().version(),
                 graph.refundableAmountWon(), plan.unpaidCardReductionWon(),
@@ -156,6 +157,7 @@ public class CardPurchaseManagementService {
         String currentToken = refundPreviewToken(graph, anchor, command.toPreviewCommand());
         requirePreviewToken(command.previewToken(), currentToken);
         RefundPlan plan = refundPlan(graph, anchor, command.amountWon());
+        requireRefundStatisticsAmount(graph, command.amountWon(), command.statisticsAmountWon());
         UUID refundId = UuidV7.next();
         UUID refundTransactionId = UuidV7.next();
         repository.insertRefund(
@@ -164,7 +166,8 @@ public class CardPurchaseManagementService {
                         graph.purchase().cardAssetId(), graph.purchase().categoryId(),
                         graph.purchase().performedByMemberId(), member.getId(),
                         command.refundedOn(), command.amountWon(), stripToNull(command.description()),
-                        command.excludedFromStatistics(), command.expectedVersion(), now),
+                        command.excludedFromStatistics(), command.statisticsAmountWon(),
+                        command.expectedVersion(), now),
                 plan.chargeAllocations(), plan.paymentAllocations(),
                 plan.accountReturns(), plan.unpaidCardReductionWon());
         idempotency.complete(userId, REFUND_SCOPE, idempotencyKey, refundTransactionId, 201, now);
@@ -223,6 +226,7 @@ public class CardPurchaseManagementService {
                 purchaseId, member.getBookId(), command.cardAssetId(), command.occurredOn(),
                 command.amountWon(), command.categoryId(), command.performedByMemberId(),
                 stripToNull(command.description()), command.excludedFromStatistics(),
+                command.statisticsAmountWon(),
                 context.statementClosingDay(), context.paymentDay(),
                 context.paymentMonthOffset(), command.expectedVersion(), member.getId(), now,
                 context.absorbedByBalanceAnchor(),
@@ -419,10 +423,21 @@ public class CardPurchaseManagementService {
             throw error(HttpStatus.BAD_REQUEST, "INSTALLMENT_INVALID",
                     "할부 개월 수와 금액을 확인해 주세요.");
         }
+        if (command.statisticsAmountWon() < 0
+                || command.statisticsAmountWon() > command.amountWon()) {
+            throw error(HttpStatus.BAD_REQUEST, "STATISTICS_AMOUNT_INVALID",
+                    "지출로 반영할 금액은 0원 이상 실제 결제액 이하여야 합니다.");
+        }
         long refundedAmountWon = graph.refunds().stream().mapToLong(RefundRow::amountWon).sum();
         if (command.amountWon() < refundedAmountWon) {
             throw error(HttpStatus.CONFLICT, "CARD_CORRECTION_BELOW_REFUNDED_AMOUNT",
                     "이미 환불한 누적 금액보다 구매 금액을 작게 정정할 수 없습니다.");
+        }
+        long refundedStatisticsAmountWon = graph.refunds().stream()
+                .mapToLong(RefundRow::statisticsAmountWon).sum();
+        if (command.statisticsAmountWon() < refundedStatisticsAmountWon) {
+            throw error(HttpStatus.CONFLICT, "CARD_CORRECTION_BELOW_REFUNDED_STATISTICS_AMOUNT",
+                    "이미 환불에서 차감한 지출 반영액보다 작게 정정할 수 없습니다.");
         }
         CategoryEntity category = (lockCategory
                 ? categories.findActiveForRead(command.categoryId(), bookId)
@@ -613,7 +628,8 @@ public class CardPurchaseManagementService {
                         payments.getOrDefault(statement.statementId(), List.of()))).toList(),
                 graph.refunds().stream().map(refund -> new CardRefundView(
                         refund.refundId(), refund.refundTransactionId(), refund.refundedOn(),
-                        refund.amountWon(), refund.excludedFromStatistics(), refund.unpaidCardReductionWon(),
+                        refund.amountWon(), refund.statisticsAmountWon(),
+                        refund.excludedFromStatistics(), refund.unpaidCardReductionWon(),
                         refundAccounts.getOrDefault(refund.refundId(), List.of()))).toList());
     }
 
@@ -639,6 +655,18 @@ public class CardPurchaseManagementService {
         return hash(graph.concurrencyState() + "|anchor|"
                 + (anchor == null ? "none" : anchor.concurrencyState())
                 + "|refund|" + command);
+    }
+
+    private void requireRefundStatisticsAmount(
+            PurchaseGraph graph, long amountWon, long statisticsAmountWon
+    ) {
+        long remainingStatisticsAmountWon = graph.purchase().statisticsAmountWon()
+                - graph.refunds().stream().mapToLong(RefundRow::statisticsAmountWon).sum();
+        if (statisticsAmountWon < 0 || statisticsAmountWon > amountWon
+                || statisticsAmountWon > remainingStatisticsAmountWon) {
+            throw error(HttpStatus.BAD_REQUEST, "STATISTICS_AMOUNT_INVALID",
+                    "지출에서 차감할 금액은 0원 이상 남은 지출 반영액 이하여야 합니다.");
+        }
     }
 
     private String correctionPreviewToken(
@@ -723,10 +751,16 @@ public class CardPurchaseManagementService {
             long amountWon,
             long expectedVersion,
             String description,
-            boolean excludedFromStatistics
+            boolean excludedFromStatistics,
+            long statisticsAmountWon
     ) {
         public RefundCommand(LocalDate refundedOn, long amountWon, long expectedVersion, String description) {
-            this(refundedOn, amountWon, expectedVersion, description, false);
+            this(refundedOn, amountWon, expectedVersion, description, false, amountWon);
+        }
+        public RefundCommand(LocalDate refundedOn, long amountWon, long expectedVersion,
+                             String description, boolean excludedFromStatistics) {
+            this(refundedOn, amountWon, expectedVersion, description,
+                    excludedFromStatistics, amountWon);
         }
     }
 
@@ -736,18 +770,27 @@ public class CardPurchaseManagementService {
             long expectedVersion,
             String description,
             String previewToken,
-            boolean excludedFromStatistics
+            boolean excludedFromStatistics,
+            long statisticsAmountWon
     ) {
         public RefundApplyCommand(
                 LocalDate refundedOn, long amountWon, long expectedVersion,
                 String description, String previewToken
         ) {
-            this(refundedOn, amountWon, expectedVersion, description, previewToken, false);
+            this(refundedOn, amountWon, expectedVersion, description, previewToken, false, amountWon);
+        }
+        public RefundApplyCommand(
+                LocalDate refundedOn, long amountWon, long expectedVersion,
+                String description, String previewToken, boolean excludedFromStatistics
+        ) {
+            this(refundedOn, amountWon, expectedVersion, description, previewToken,
+                    excludedFromStatistics, amountWon);
         }
 
         public RefundCommand toPreviewCommand() {
             return new RefundCommand(
-                    refundedOn, amountWon, expectedVersion, description, excludedFromStatistics);
+                    refundedOn, amountWon, expectedVersion, description, excludedFromStatistics,
+                    statisticsAmountWon);
         }
     }
 
@@ -760,7 +803,8 @@ public class CardPurchaseManagementService {
             String description,
             int installmentCount,
             long expectedVersion,
-            boolean excludedFromStatistics
+            boolean excludedFromStatistics,
+            long statisticsAmountWon
     ) {
         public CorrectionCommand(
                 LocalDate occurredOn, long amountWon, UUID categoryId, UUID cardAssetId,
@@ -768,7 +812,16 @@ public class CardPurchaseManagementService {
                 long expectedVersion
         ) {
             this(occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
-                    description, installmentCount, expectedVersion, false);
+                    description, installmentCount, expectedVersion, false, amountWon);
+        }
+        public CorrectionCommand(
+                LocalDate occurredOn, long amountWon, UUID categoryId, UUID cardAssetId,
+                UUID performedByMemberId, String description, int installmentCount,
+                long expectedVersion, boolean excludedFromStatistics
+        ) {
+            this(occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
+                    description, installmentCount, expectedVersion,
+                    excludedFromStatistics, amountWon);
         }
     }
 
@@ -782,7 +835,8 @@ public class CardPurchaseManagementService {
             int installmentCount,
             long expectedVersion,
             String previewToken,
-            boolean excludedFromStatistics
+            boolean excludedFromStatistics,
+            long statisticsAmountWon
     ) {
         public CorrectionApplyCommand(
                 LocalDate occurredOn, long amountWon, UUID categoryId, UUID cardAssetId,
@@ -790,13 +844,23 @@ public class CardPurchaseManagementService {
                 long expectedVersion, String previewToken
         ) {
             this(occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
-                    description, installmentCount, expectedVersion, previewToken, false);
+                    description, installmentCount, expectedVersion, previewToken, false, amountWon);
+        }
+        public CorrectionApplyCommand(
+                LocalDate occurredOn, long amountWon, UUID categoryId, UUID cardAssetId,
+                UUID performedByMemberId, String description, int installmentCount,
+                long expectedVersion, String previewToken, boolean excludedFromStatistics
+        ) {
+            this(occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
+                    description, installmentCount, expectedVersion, previewToken,
+                    excludedFromStatistics, amountWon);
         }
 
         public CorrectionCommand toPreviewCommand() {
             return new CorrectionCommand(
                     occurredOn, amountWon, categoryId, cardAssetId, performedByMemberId,
-                    description, installmentCount, expectedVersion, excludedFromStatistics);
+                    description, installmentCount, expectedVersion, excludedFromStatistics,
+                    statisticsAmountWon);
         }
     }
 
@@ -856,6 +920,7 @@ public class CardPurchaseManagementService {
             UUID refundTransactionId,
             LocalDate refundedOn,
             long amountWon,
+            long statisticsAmountWon,
             boolean excludedFromStatistics,
             long unpaidCardReductionWon,
             List<AccountReturnView> accountReturns

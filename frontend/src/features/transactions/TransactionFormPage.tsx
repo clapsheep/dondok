@@ -31,6 +31,7 @@ import { transferAssetLabel, transferEligibleAssets } from './transferAssets'
 import { CategoryPicker } from './CategoryPicker'
 import { readLastExpenseAssetId, rememberLastExpenseAsset } from './lastExpenseAsset'
 import { PerformerPicker } from './PerformerPicker'
+import { RepresentativePaymentFields } from './RepresentativePaymentFields'
 import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
 
 type Draft = {
@@ -45,6 +46,8 @@ type Draft = {
   description: string
   installmentCount: string
   excludedFromStatistics: boolean
+  representativePayment: boolean
+  statisticsAmountWon: string
 }
 
 type FieldErrors = Partial<Record<keyof Draft, string>>
@@ -395,6 +398,16 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
                 <CategoryPicker key={categoryKind} kind={categoryKind} categories={categories.data ?? []} value={categoryId} missingName={transaction?.category?.name} onChange={(value) => updateDraft('categoryId', value)} error={errors.categoryId} disabled={categories.isPending || categories.isError || pending || remoteDeleted} online={online} />
                 <AssetPicker id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} assets={assets} members={ledger.members} value={assetId} onChange={(value) => updateDraft('assetId', value)} missingSelection={transaction?.asset && !assets.some((asset) => asset.assetId === transaction.asset?.assetId) ? { assetId: transaction.asset.assetId, name: transaction.asset.name } : undefined} error={errors.assetId} required />
                 {isCardExpense ? <div className="w-full max-w-48"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
+                {draft.type === 'EXPENSE' ? (
+                  <RepresentativePaymentFields
+                    checked={draft.representativePayment}
+                    statisticsAmountWon={draft.statisticsAmountWon}
+                    onCheckedChange={(checked) => updateDraft('representativePayment', checked)}
+                    onStatisticsAmountChange={(value) => updateDraft('statisticsAmountWon', value)}
+                    error={errors.statisticsAmountWon}
+                    disabled={pending || remoteDeleted}
+                  />
+                ) : null}
                 <StatisticsExclusionSwitch
                   type={draft.type}
                   checked={draft.excludedFromStatistics}
@@ -462,7 +475,7 @@ function TransactionSummary({ title, draft, assets, categories, ledger }: { titl
     : assets.find((asset) => asset.assetId === id)?.name ?? '현재 목록에 없음'
   const categoryName = categories.find((category) => category.categoryId === draft.categoryId)?.name ?? '현재 목록에 없음'
   const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)
-  return <dl className="border-y border-[var(--line)] py-2"><dt className="font-semibold">{title}</dt><dd className="mt-1 text-[var(--muted)]">{draft.occurredOn} · {formatWon(Number(draft.amountWon) || 0)}</dd><dd className="mt-1 text-[var(--muted)]">{draft.type === 'TRANSFER' ? `${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `${categoryName} · ${assetName(draft.assetId)}`}</dd>{draft.type !== 'TRANSFER' && draft.excludedFromStatistics ? <dd className="mt-1 font-semibold text-[var(--muted)]">집계 제외</dd> : null}<dd className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[var(--muted)]"><MemberValue member={member} fallback="현재 구성원에 없음" /><span aria-hidden="true">·</span><span>{draft.description || '내용 없음'}</span></dd></dl>
+  return <dl className="border-y border-[var(--line)] py-2"><dt className="font-semibold">{title}</dt><dd className="mt-1 text-[var(--muted)]">{draft.occurredOn} · {formatWon(Number(draft.amountWon) || 0)}</dd><dd className="mt-1 text-[var(--muted)]">{draft.type === 'TRANSFER' ? `${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `${categoryName} · ${assetName(draft.assetId)}`}</dd>{draft.type === 'EXPENSE' && draft.representativePayment ? <dd className="mt-1 font-semibold text-[var(--muted)]">대표 결제 · 지출 반영 {formatWon(Number(draft.statisticsAmountWon) || 0)}</dd> : null}{draft.type !== 'TRANSFER' && draft.excludedFromStatistics ? <dd className="mt-1 font-semibold text-[var(--muted)]">집계 제외</dd> : null}<dd className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[var(--muted)]"><MemberValue member={member} fallback="현재 구성원에 없음" /><span aria-hidden="true">·</span><span>{draft.description || '내용 없음'}</span></dd></dl>
 }
 
 function TransactionDraftSummary({ draft, assets, categories, ledger }: { draft: Draft; assets: Asset[]; categories: Category[]; ledger: LedgerBook }) {
@@ -480,6 +493,7 @@ function TransactionDraftSummary({ draft, assets, categories, ledger }: { draft:
     <dl className="mt-3 border-y border-[var(--line)] py-4 text-sm">
       <div className="flex items-center justify-between gap-4"><dt className="text-[var(--muted)]">구분</dt><dd className="font-semibold">{typeLabel(draft.type)}</dd></div>
       <div className="mt-4"><dt className="text-[var(--muted)]">금액</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.03em] tabular-nums ${draft.type === 'EXPENSE' ? 'text-[var(--expense)]' : draft.type === 'INCOME' ? 'text-[var(--income)]' : 'text-[var(--transfer)]'}`}>{Number.isSafeInteger(amountWon) && amountWon > 0 ? formatWon(amountWon) : '금액 미입력'}</dd></div>
+      {draft.type === 'EXPENSE' && draft.representativePayment ? <div className="mt-4"><dt className="text-[var(--muted)]">지출 반영</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(Number(draft.statisticsAmountWon) || 0)}</dd></div> : null}
       <div className="mt-4"><dt className="text-[var(--muted)]">날짜</dt><dd className="mt-1 font-semibold tabular-nums">{draft.occurredOn || '선택 안 함'}</dd></div>
       <div className="mt-4"><dt className="text-[var(--muted)]">흐름</dt><dd className="mt-1 break-words font-semibold leading-6">{flow}</dd></div>
       {draft.type !== 'TRANSFER' ? <div className="mt-4"><dt className="text-[var(--muted)]">달력·통계</dt><dd className="mt-1 font-semibold">{draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}</dd></div> : null}
@@ -515,38 +529,45 @@ function parseDraft(draft: Draft, isCardExpense: boolean): { input?: CreateTrans
   }
   const installmentCount = Number(draft.installmentCount)
   if (isCardExpense && (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 60)) errors.installmentCount = '1개월부터 60개월 사이로 입력해 주세요.'
+  const statisticsAmountWon = draft.representativePayment
+    ? Number(draft.statisticsAmountWon.replaceAll(',', '').trim())
+    : amountWon
+  if (draft.type === 'EXPENSE' && draft.representativePayment
+      && (!Number.isSafeInteger(statisticsAmountWon) || statisticsAmountWon < 0 || statisticsAmountWon > amountWon)) {
+    errors.statisticsAmountWon = '0원 이상 실제 결제 금액 이하로 입력해 주세요.'
+  }
   if (hasFieldErrors(errors)) return { errors }
   const common = { occurredOn: draft.occurredOn, amountWon, performedByMemberId: draft.performedByMemberId, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) }
   if (draft.type === 'INCOME') return { errors, input: { ...common, type: 'INCOME', categoryId: draft.categoryId, assetId: draft.assetId, excludedFromStatistics: draft.excludedFromStatistics } }
-  if (draft.type === 'EXPENSE') return { errors, input: { ...common, type: 'EXPENSE', categoryId: draft.categoryId, assetId: draft.assetId, excludedFromStatistics: draft.excludedFromStatistics, ...(isCardExpense ? { installmentCount } : {}) } }
+  if (draft.type === 'EXPENSE') return { errors, input: { ...common, type: 'EXPENSE', categoryId: draft.categoryId, assetId: draft.assetId, excludedFromStatistics: draft.excludedFromStatistics, statisticsAmountWon, ...(isCardExpense ? { installmentCount } : {}) } }
   return { errors, input: { ...common, type: 'TRANSFER', sourceAssetId: draft.sourceAssetId, destinationAssetId: draft.destinationAssetId } }
 }
 
 function toUpdateInput(input: CreateTransactionInput, expectedVersion: number): UpdateTransactionInput {
   const common = { occurredOn: input.occurredOn, amountWon: input.amountWon, performedByMemberId: input.performedByMemberId, ...(input.description ? { description: input.description } : {}), expectedVersion }
   if (input.type === 'INCOME') return { ...common, type: 'INCOME', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics }
-  if (input.type === 'EXPENSE') return { ...common, type: 'EXPENSE', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics, ...(input.installmentCount ? { installmentCount: input.installmentCount } : {}) }
+  if (input.type === 'EXPENSE') return { ...common, type: 'EXPENSE', categoryId: input.categoryId, assetId: input.assetId, excludedFromStatistics: input.excludedFromStatistics, statisticsAmountWon: input.statisticsAmountWon, ...(input.installmentCount ? { installmentCount: input.installmentCount } : {}) }
   return { ...common, type: 'TRANSFER', sourceAssetId: input.sourceAssetId, destinationAssetId: input.destinationAssetId }
 }
 
 function draftFromTransaction(transaction: Transaction): Draft {
   const source = transaction.postings.find((posting) => posting.deltaWon < 0)?.assetId ?? ''
   const destination = transaction.postings.find((posting) => posting.deltaWon > 0)?.assetId ?? ''
-  return { type: transaction.type, amountWon: String(transaction.amountWon), occurredOn: transaction.occurredOn, categoryId: transaction.category?.categoryId ?? '', assetId: transaction.asset?.assetId ?? transaction.postings[0]?.assetId ?? '', sourceAssetId: source, destinationAssetId: destination, performedByMemberId: transaction.performedBy?.memberId ?? '', description: transaction.description ?? '', installmentCount: String(transaction.installmentCount ?? 1), excludedFromStatistics: transaction.excludedFromStatistics }
+  return { type: transaction.type, amountWon: String(transaction.amountWon), occurredOn: transaction.occurredOn, categoryId: transaction.category?.categoryId ?? '', assetId: transaction.asset?.assetId ?? transaction.postings[0]?.assetId ?? '', sourceAssetId: source, destinationAssetId: destination, performedByMemberId: transaction.performedBy?.memberId ?? '', description: transaction.description ?? '', installmentCount: String(transaction.installmentCount ?? 1), excludedFromStatistics: transaction.excludedFromStatistics, representativePayment: transaction.type === 'EXPENSE' && transaction.statisticsAmountWon !== transaction.amountWon, statisticsAmountWon: String(transaction.statisticsAmountWon) }
 }
 
 function validNavigationDraft(draft: Draft | undefined, memberId: string, initialDate?: string, initialAssetId?: string, initialSourceAssetId?: string): Draft {
-  if (draft && ['INCOME', 'EXPENSE', 'TRANSFER'].includes(draft.type)) return { ...draft, performedByMemberId: draft.performedByMemberId || memberId, excludedFromStatistics: draft.excludedFromStatistics === true }
+  if (draft && ['INCOME', 'EXPENSE', 'TRANSFER'].includes(draft.type)) return { ...draft, performedByMemberId: draft.performedByMemberId || memberId, excludedFromStatistics: draft.excludedFromStatistics === true, representativePayment: draft.representativePayment === true, statisticsAmountWon: draft.statisticsAmountWon ?? '' }
   const occurredOn = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : todayInSeoul()
-  return { type: 'EXPENSE', amountWon: '', occurredOn, categoryId: '', assetId: initialAssetId ?? '', sourceAssetId: initialSourceAssetId ?? '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1', excludedFromStatistics: false }
+  return { type: 'EXPENSE', amountWon: '', occurredOn, categoryId: '', assetId: initialAssetId ?? '', sourceAssetId: initialSourceAssetId ?? '', destinationAssetId: '', performedByMemberId: memberId, description: '', installmentCount: '1', excludedFromStatistics: false, representativePayment: false, statisticsAmountWon: '' }
 }
 
 function apiFieldErrors(error: ApiError): FieldErrors { const mapped: FieldErrors = {}; for (const item of error.fieldErrors) if (item.field in defaultDraftKeys) mapped[item.field as keyof Draft] = item.code; for (const [field, message] of Object.entries(error.errors ?? {})) if (field in defaultDraftKeys) mapped[field as keyof Draft] = message; return mapped }
-const defaultDraftKeys: Record<keyof Draft, true> = { type: true, amountWon: true, occurredOn: true, categoryId: true, assetId: true, sourceAssetId: true, destinationAssetId: true, performedByMemberId: true, description: true, installmentCount: true, excludedFromStatistics: true }
+const defaultDraftKeys: Record<keyof Draft, true> = { type: true, amountWon: true, occurredOn: true, categoryId: true, assetId: true, sourceAssetId: true, destinationAssetId: true, performedByMemberId: true, description: true, installmentCount: true, excludedFromStatistics: true, representativePayment: true, statisticsAmountWon: true }
 function transferSelection(id: string, accounts: Asset[]) { return accounts.some((asset) => asset.assetId === id) ? id : '' }
 function safeReturnTo(state: unknown, occurredOn?: string) { const value = (state as NavigationState | null)?.returnTo; return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : `/?view=daily&month=${(occurredOn ?? todayInSeoul()).slice(0, 7)}` }
 function transferAssetName(id: string, assets: Asset[], ledger: LedgerBook, fallback: string) { const asset = assets.find((item) => item.assetId === id); return asset ? transferAssetLabel(asset, ledger.members) : fallback }
-function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], ledger: LedgerBook) { const assetName = (id: string) => draft.type === 'TRANSFER' ? transferAssetName(id, assets, ledger, id) : assets.find((asset) => asset.assetId === id)?.name ?? id; const category = categories.find((item) => item.categoryId === draft.categoryId)?.name ?? draft.categoryId; const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)?.displayName ?? draft.performedByMemberId; return [`종류: ${typeLabel(draft.type)}`, `날짜: ${draft.occurredOn}`, `금액: ${draft.amountWon}원`, draft.type === 'TRANSFER' ? `자산: ${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `분류/자산: ${category} / ${assetName(draft.assetId)}`, ...(draft.type !== 'TRANSFER' ? [`달력·통계: ${draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}`] : []), `${performerPersonLabel(draft.type)}: ${member}`, `내용: ${draft.description}`].join('\n') }
+function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], ledger: LedgerBook) { const assetName = (id: string) => draft.type === 'TRANSFER' ? transferAssetName(id, assets, ledger, id) : assets.find((asset) => asset.assetId === id)?.name ?? id; const category = categories.find((item) => item.categoryId === draft.categoryId)?.name ?? draft.categoryId; const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)?.displayName ?? draft.performedByMemberId; return [`종류: ${typeLabel(draft.type)}`, `날짜: ${draft.occurredOn}`, `금액: ${draft.amountWon}원`, ...(draft.type === 'EXPENSE' && draft.representativePayment ? [`대표 결제 지출 반영: ${draft.statisticsAmountWon}원`] : []), draft.type === 'TRANSFER' ? `자산: ${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `분류/자산: ${category} / ${assetName(draft.assetId)}`, ...(draft.type !== 'TRANSFER' ? [`달력·통계: ${draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}`] : []), `${performerPersonLabel(draft.type)}: ${member}`, `내용: ${draft.description}`].join('\n') }
 function typeLabel(type: TransactionType) { return type === 'INCOME' ? '수입' : type === 'EXPENSE' ? '지출' : '이체' }
 function formatWon(value: number) { return `${new Intl.NumberFormat('ko-KR').format(Math.abs(value))}원` }
 function todayInSeoul() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()) }

@@ -29,6 +29,7 @@ import {
 } from './api'
 import { performerPersonLabel, performerQuestionLabel, performerSelectionError } from './performerLabels'
 import { PerformerPicker } from './PerformerPicker'
+import { RepresentativePaymentFields } from './RepresentativePaymentFields'
 import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
 
 export type CardPurchaseAction = 'detail' | 'correction' | 'refund'
@@ -42,6 +43,8 @@ type CorrectionDraft = {
   description: string
   installmentCount: string
   excludedFromStatistics: boolean
+  representativePayment: boolean
+  statisticsAmountWon: string
 }
 
 type RefundDraft = {
@@ -49,6 +52,7 @@ type RefundDraft = {
   amountWon: string
   description: string
   excludedFromStatistics: boolean
+  statisticsAmountWon: string
 }
 
 type FieldErrors<T> = Partial<Record<keyof T, string>>
@@ -300,6 +304,14 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
             <div className="md:col-span-2 lg:col-span-3"><PerformerPicker id="correctionPerformer" label={performerQuestionLabel('EXPENSE')} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending} /></div>
           </div>
           <TextAreaField id="correctionDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} error={errors.description} disabled={pending} />
+          <RepresentativePaymentFields
+            checked={draft.representativePayment}
+            statisticsAmountWon={draft.statisticsAmountWon}
+            onCheckedChange={(checked) => updateDraft('representativePayment', checked)}
+            onStatisticsAmountChange={(value) => updateDraft('statisticsAmountWon', value)}
+            error={errors.statisticsAmountWon}
+            disabled={pending}
+          />
           <StatisticsExclusionSwitch type="EXPENSE" checked={draft.excludedFromStatistics} onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)} disabled={pending} />
           <OfflineNotice online={online} />
           <MutationError error={previewMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="변경 영향을 계산하지 못했어요." />
@@ -345,7 +357,13 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
   const purchase = management.purchase
-  const [draft, setDraft] = useState<RefundDraft>(() => ({ refundedOn: todayInSeoul(), amountWon: String(management.refundableAmountWon), description: '', excludedFromStatistics: purchase.excludedFromStatistics }))
+  const [draft, setDraft] = useState<RefundDraft>(() => ({
+    refundedOn: todayInSeoul(),
+    amountWon: String(management.refundableAmountWon),
+    statisticsAmountWon: String(remainingRefundStatisticsAmount(management)),
+    description: '',
+    excludedFromStatistics: purchase.excludedFromStatistics,
+  }))
   const [baseVersion, setBaseVersion] = useState(purchase.version)
   const [errors, setErrors] = useState<FieldErrors<RefundDraft>>({})
   const [preview, setPreview] = useState<CardPurchaseRefundPreview>()
@@ -417,8 +435,22 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
     idempotency.current = undefined
   }
 
+  function updateRefundAmount(value: string) {
+    if (purchase.statisticsAmountWon === purchase.amountWon) {
+      setDraft((current) => ({ ...current, amountWon: value, statisticsAmountWon: value }))
+      setErrors((current) => ({ ...current, amountWon: undefined, statisticsAmountWon: undefined }))
+      setPreview(undefined)
+      previewMutation.reset()
+      applyMutation.reset()
+      idempotency.current = undefined
+      return
+    }
+    updateDraft('amountWon', value)
+  }
+
   function requestPreview(expectedVersion = baseVersion) {
-    const parsed = parseRefund(draft, expectedVersion, conflict?.latest.refundableAmountWon ?? management.refundableAmountWon)
+    const latest = conflict?.latest ?? management
+    const parsed = parseRefund(draft, expectedVersion, latest.refundableAmountWon, remainingRefundStatisticsAmount(latest))
     setErrors(parsed.errors)
     if (!parsed.input) {
       requestAnimationFrame(() => errorSummary.current?.focus())
@@ -430,7 +462,7 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!preview || !online || remoteMissing) return
-    const parsed = parseRefund(draft, baseVersion, preview.refundableAmountWon)
+    const parsed = parseRefund(draft, baseVersion, preview.refundableAmountWon, remainingRefundStatisticsAmount(management))
     setErrors(parsed.errors)
     if (!parsed.input) return
     idempotency.current = idempotency.current?.token === preview.previewToken
@@ -464,9 +496,12 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
         {management.refundableAmountWon <= 0 ? <NoRefundAvailable returnTo={returnTo} purchaseId={purchase.transactionId} /> : <form className="mt-5" onSubmit={submit} noValidate>
           {Object.values(errors).some(Boolean) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
           <div className="grid gap-4 border-b border-[var(--line)] pb-5 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
-            <MoneyField id="refundAmount" label="환불 금액" value={draft.amountWon} onValueChange={(value) => updateDraft('amountWon', value)} error={errors.amountWon} disabled={pending} required />
+            <MoneyField id="refundAmount" label="환불 금액" value={draft.amountWon} onValueChange={updateRefundAmount} error={errors.amountWon} disabled={pending} required />
             <Field id="refundDate" label="환불일" type="date" value={draft.refundedOn} onChange={(event) => updateDraft('refundedOn', event.target.value)} error={errors.refundedOn} disabled={pending} required />
           </div>
+          {purchase.statisticsAmountWon !== purchase.amountWon ? (
+            <MoneyField id="refundStatisticsAmount" className="mt-5 max-w-sm" label="지출에서 차감할 금액" value={draft.statisticsAmountWon} onValueChange={(value) => updateDraft('statisticsAmountWon', value)} hint={`남은 지출 반영액 ${formatWon(remainingRefundStatisticsAmount(conflict?.latest ?? management))} 이하로 입력해 주세요.`} error={errors.statisticsAmountWon} disabled={pending} required />
+          ) : null}
           <TextAreaField id="refundDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} error={errors.description} disabled={pending} />
           <StatisticsExclusionSwitch type="EXPENSE" checked={draft.excludedFromStatistics} onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)} disabled={pending} />
           <OfflineNotice online={online} />
@@ -480,7 +515,7 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
             <ImpactPreview ref={previewHeading} title="환불 반영 내용" preview={preview}>
               <dl className="mt-4 grid gap-2 text-sm min-[30rem]:grid-cols-2">
                 <Value label="환불일" value={draft.refundedOn} />
-                <Value label="달력·통계" value={draft.excludedFromStatistics ? '집계 제외' : `지출에서 +${formatWon(parseWon(draft.amountWon) ?? 0)} 차감`} />
+                <Value label="달력·통계" value={draft.excludedFromStatistics ? '집계 제외' : `지출에서 +${formatWon(parseNonNegativeWon(draft.statisticsAmountWon) ?? 0)} 차감`} />
               </dl>
               <Button type="submit" className="mt-5 w-full min-[22.5rem]:w-auto" size="large" disabled={!online || applyMutation.isPending}>
                 {applyMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}환불 기록
@@ -501,6 +536,7 @@ function PurchaseSummary({ management }: { management: CardPurchaseManagementVie
       <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
         <Value label="구매 날짜" value={purchase.occurredOn} />
         <Value label="구매 금액" value={formatWon(purchase.amountWon)} />
+        {purchase.statisticsAmountWon !== purchase.amountWon ? <Value label="지출 반영 금액" value={formatWon(purchase.statisticsAmountWon)} /> : null}
         <Value label="결제 카드" value={management.billingSnapshot.cardAssetName} />
         <Value label="분류" value={purchase.category?.name ?? '분류 없음'} />
         <Value label={performerPersonLabel('EXPENSE')} value={purchase.performedBy ? <span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={purchase.performedBy.displayName} memberId={purchase.performedBy.memberId} size="xs" /><span>{purchase.performedBy.displayName}</span></span> : '구성원 없음'} />
@@ -548,7 +584,7 @@ function BillingDetails({ management }: { management: CardPurchaseManagementView
       {management.refunds.length ? (
         <section className="mt-6" aria-labelledby="refund-history-title">
           <h3 id="refund-history-title" className="font-semibold">환불 처리 내역</h3>
-          <ul className="mt-2 divide-y divide-[var(--line)] border-y border-[var(--line)]">{management.refunds.map((refund) => <li className="py-3 text-sm" key={refund.refundId}><div className="flex flex-wrap justify-between gap-2"><span>{refund.refundedOn}{refund.excludedFromStatistics ? ' · 집계 제외' : ''}</span><strong>+{formatWon(refund.amountWon)}</strong></div><AccountReturns returns={refund.accountReturns} unpaidCardReductionWon={refund.unpaidCardReductionWon} /></li>)}</ul>
+          <ul className="mt-2 divide-y divide-[var(--line)] border-y border-[var(--line)]">{management.refunds.map((refund) => <li className="py-3 text-sm" key={refund.refundId}><div className="flex flex-wrap justify-between gap-2"><span>{refund.refundedOn}{refund.excludedFromStatistics ? ' · 집계 제외' : refund.statisticsAmountWon !== refund.amountWon ? ` · 지출 ${formatWon(refund.statisticsAmountWon)} 차감` : ''}</span><strong>+{formatWon(refund.amountWon)}</strong></div><AccountReturns returns={refund.accountReturns} unpaidCardReductionWon={refund.unpaidCardReductionWon} /></li>)}</ul>
         </section>
       ) : null}
     </section>
@@ -600,6 +636,7 @@ function CorrectionChanges({ purchase, draft, assets, categories, ledger }: { pu
   const changes = [
     ['구매 날짜', purchase.occurredOn, draft.occurredOn],
     ['금액', formatWon(purchase.amountWon), formatWon(parseWon(draft.amountWon) ?? 0)],
+    ['지출 반영 금액', formatWon(purchase.statisticsAmountWon), formatWon(draft.representativePayment ? parseNonNegativeWon(draft.statisticsAmountWon) ?? 0 : parseWon(draft.amountWon) ?? 0)],
     ['분류', purchase.category?.name ?? '분류 없음', categoryName],
     ['결제 카드', purchase.asset?.name ?? '카드', cardName],
     [performerPersonLabel('EXPENSE'), purchase.performedBy?.displayName ?? '구성원 없음', performerName],
@@ -670,6 +707,8 @@ function correctionDraft(management: CardPurchaseManagementView): CorrectionDraf
     description: purchase.description ?? '',
     installmentCount: String(purchase.installmentCount ?? management.billingSnapshot.installmentCount),
     excludedFromStatistics: purchase.excludedFromStatistics,
+    representativePayment: purchase.statisticsAmountWon !== purchase.amountWon,
+    statisticsAmountWon: String(purchase.statisticsAmountWon),
   }
 }
 
@@ -683,18 +722,25 @@ function parseCorrection(draft: CorrectionDraft, expectedVersion: number): { inp
   if (!draft.cardAssetId) errors.cardAssetId = '결제 카드를 선택해 주세요.'
   if (!draft.performedByMemberId) errors.performedByMemberId = performerSelectionError('EXPENSE')
   if (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 60) errors.installmentCount = '1개월부터 60개월 사이로 입력해 주세요.'
-  if (Object.values(errors).some(Boolean) || !amountWon) return { errors }
-  return { errors, input: { occurredOn: draft.occurredOn, amountWon, categoryId: draft.categoryId, cardAssetId: draft.cardAssetId, performedByMemberId: draft.performedByMemberId, installmentCount, expectedVersion, excludedFromStatistics: draft.excludedFromStatistics, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
+  const statisticsAmountWon = draft.representativePayment
+    ? parseNonNegativeWon(draft.statisticsAmountWon)
+    : amountWon
+  if (statisticsAmountWon === undefined || (amountWon !== undefined && statisticsAmountWon > amountWon)) errors.statisticsAmountWon = '0원 이상 실제 결제 금액 이하로 입력해 주세요.'
+  if (Object.values(errors).some(Boolean) || !amountWon || statisticsAmountWon === undefined) return { errors }
+  return { errors, input: { occurredOn: draft.occurredOn, amountWon, statisticsAmountWon, categoryId: draft.categoryId, cardAssetId: draft.cardAssetId, performedByMemberId: draft.performedByMemberId, installmentCount, expectedVersion, excludedFromStatistics: draft.excludedFromStatistics, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
 }
 
-function parseRefund(draft: RefundDraft, expectedVersion: number, refundableAmountWon: number): { input?: CardPurchaseRefundInput; errors: FieldErrors<RefundDraft> } {
+function parseRefund(draft: RefundDraft, expectedVersion: number, refundableAmountWon: number, remainingStatisticsAmountWon: number): { input?: CardPurchaseRefundInput; errors: FieldErrors<RefundDraft> } {
   const errors: FieldErrors<RefundDraft> = {}
   const amountWon = parseWon(draft.amountWon)
+  const statisticsAmountWon = parseNonNegativeWon(draft.statisticsAmountWon)
   if (!amountWon) errors.amountWon = '0원보다 큰 원 단위 정수를 입력해 주세요.'
   else if (amountWon > refundableAmountWon) errors.amountWon = `현재 환불 가능 금액 ${formatWon(refundableAmountWon)} 이하로 입력해 주세요.`
+  if (statisticsAmountWon === undefined || (amountWon !== undefined && statisticsAmountWon > amountWon)) errors.statisticsAmountWon = '0원 이상 환불 금액 이하로 입력해 주세요.'
+  else if (statisticsAmountWon > remainingStatisticsAmountWon) errors.statisticsAmountWon = `남은 지출 반영액 ${formatWon(remainingStatisticsAmountWon)} 이하로 입력해 주세요.`
   if (!draft.refundedOn) errors.refundedOn = '환불일을 선택해 주세요.'
-  if (Object.values(errors).some(Boolean) || !amountWon) return { errors }
-  return { errors, input: { refundedOn: draft.refundedOn, amountWon, expectedVersion, excludedFromStatistics: draft.excludedFromStatistics, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
+  if (Object.values(errors).some(Boolean) || !amountWon || statisticsAmountWon === undefined) return { errors }
+  return { errors, input: { refundedOn: draft.refundedOn, amountWon, statisticsAmountWon, expectedVersion, excludedFromStatistics: draft.excludedFromStatistics, ...(draft.description.trim() ? { description: draft.description.trim() } : {}) } }
 }
 
 function writeAuthoritativeCardPurchase(queryClient: ReturnType<typeof useQueryClient>, management: CardPurchaseManagementView) {
@@ -711,6 +757,16 @@ function invalidateCardPurchaseQueries(queryClient: ReturnType<typeof useQueryCl
 function parseWon(value: string) {
   const amount = Number(value.replaceAll(',', '').trim())
   return Number.isSafeInteger(amount) && amount > 0 ? amount : undefined
+}
+
+function parseNonNegativeWon(value: string) {
+  const amount = Number(value.replaceAll(',', '').trim())
+  return Number.isSafeInteger(amount) && amount >= 0 ? amount : undefined
+}
+
+function remainingRefundStatisticsAmount(management: CardPurchaseManagementView) {
+  return Math.max(0, management.purchase.statisticsAmountWon
+    - management.refunds.reduce((sum, refund) => sum + refund.statisticsAmountWon, 0))
 }
 
 function safeReturnTo(state: unknown, occurredOn: string) {
