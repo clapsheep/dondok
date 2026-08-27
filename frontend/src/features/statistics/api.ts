@@ -42,6 +42,27 @@ export type StatisticsMonthAmount = {
   netWon: number
 }
 
+export type StatisticsCategoryTransaction = {
+  transactionId: string
+  occurredOn: string
+  kind: CategoryKind
+  statisticsContributionWon: number
+  description: string | null
+  categoryName: string
+  assetId: string
+  assetName: string
+  performedByMemberId: string | null
+  performedByName: string | null
+}
+
+export type StatisticsCategoryTransactionPage = {
+  month: string
+  categoryId: string
+  categoryName: string
+  items: StatisticsCategoryTransaction[]
+  nextCursor: string | null
+}
+
 export const statisticsKeys = {
   all: [...transactionKeys.all, 'statistics'] as const,
   monthly: (filters: StatisticsFilters) => [
@@ -54,6 +75,17 @@ export const statisticsKeys = {
     filters.assetOwnerMemberId,
     filters.categoryId,
   ] as const,
+  categoryTransactions: (filters: StatisticsFilters, categoryId: string) => [
+    ...transactionKeys.all,
+    'statistics',
+    'monthly',
+    'category-transactions',
+    filters.month,
+    filters.performedByMemberId,
+    filters.assetOwnerType,
+    filters.assetOwnerMemberId,
+    categoryId,
+  ] as const,
 }
 
 export const statisticsApi = {
@@ -64,5 +96,18 @@ export const statisticsApi = {
     if (filters.assetOwnerMemberId) params.set('assetOwnerMemberId', filters.assetOwnerMemberId)
     if (filters.categoryId) params.set('categoryId', filters.categoryId)
     return api<MonthlyStatistics>(`/api/statistics/monthly?${params}`)
+  },
+  categoryTransactions: ({ filters, categoryId, cursor, limit = 30 }: {
+    filters: StatisticsFilters
+    categoryId: string
+    cursor?: string | null
+    limit?: number
+  }) => {
+    const params = new URLSearchParams({ month: filters.month, limit: String(limit) })
+    if (filters.performedByMemberId) params.set('performedByMemberId', filters.performedByMemberId)
+    if (filters.assetOwnerType !== 'ALL') params.set('assetOwnerType', filters.assetOwnerType)
+    if (filters.assetOwnerMemberId) params.set('assetOwnerMemberId', filters.assetOwnerMemberId)
+    if (cursor) params.set('cursor', cursor)
+    return api<StatisticsCategoryTransactionPage>(`/api/statistics/monthly/categories/${categoryId}/transactions?${params}`)
   },
 }
