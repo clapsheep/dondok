@@ -13,6 +13,48 @@ type SeedResult = {
 
 test.use({ serviceWorkers: 'block' })
 
+test('모든 원화 입력은 화면 크기에 맞는 계산기로 금액을 입력한다', async ({ page, request }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'vibrate', {
+      configurable: true,
+      value: (pattern: number | number[]) => {
+        document.documentElement.dataset.lastMoneyKeypadHaptic = JSON.stringify(pattern)
+        return true
+      },
+    })
+  })
+  await registerAndLogin(page, request, `금액 계산기 ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
+
+  await page.goto('/transactions/new')
+  const amount = page.getByLabel('금액', { exact: true })
+  await expect(amount).toHaveAttribute('inputmode', 'none')
+  const calculator = page.getByRole('dialog', { name: '금액 계산기' })
+  if (!await calculator.isVisible()) await amount.click()
+  await expect(calculator).toBeVisible()
+  await expectResponsiveMoneyCalculator(page, amount, calculator)
+  await calculator.getByRole('button', { name: '전체 지우기' }).click()
+  await calculator.getByRole('button', { name: '1 입력', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-last-money-keypad-haptic', '10')
+  await calculator.getByRole('button', { name: '2 입력', exact: true }).click()
+  await calculator.getByRole('button', { name: '0 입력', exact: true }).click()
+  await calculator.getByRole('button', { name: '세 자리 0 입력' }).click()
+  await expect(amount).toHaveValue('120,000')
+
+  await calculator.getByRole('button', { name: '나누기' }).click()
+  await calculator.getByRole('button', { name: '3 입력', exact: true }).click()
+  await expect(amount, '계산이 끝나기 전에는 실제 금액을 피연산자로 덮지 않아야 합니다').toHaveValue('120,000')
+  await calculator.getByRole('button', { name: '계산 결과 적용' }).click()
+  await expect(amount).toHaveValue('40,000')
+  await calculator.getByRole('button', { name: '완료' }).click()
+  await expect(calculator).toHaveCount(0)
+  await expect(amount).toBeFocused()
+
+  await amount.fill('12500')
+  await expect(amount, '하드웨어 키보드와 붙여넣기 입력도 계속 지원해야 합니다').toHaveValue('12,500')
+})
+
 test('대표 결제는 실제 자산 금액과 월 지출 반영액을 분리한다', async ({ page, request }) => {
   await registerAndLogin(page, request, `대표 결제 ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
@@ -550,6 +592,28 @@ async function expectBankingMoneyPresentation(amount: Locator) {
   expect(presentation.height, '금액 입력이 날짜보다 과도하게 높아지면 안 됩니다').toBeLessThanOrEqual(50)
   expect(presentation.textAlign).toBe('right')
   expect(presentation.suffix).toBe('원')
+}
+
+async function expectResponsiveMoneyCalculator(page: Page, amount: Locator, calculator: Locator) {
+  await expect.poll(() => calculator.evaluate((element) => getComputedStyle(element).opacity)).toBe('1')
+  const viewport = page.viewportSize()
+  const amountBox = await amount.boundingBox()
+  const calculatorBox = await calculator.boundingBox()
+  expect(viewport).not.toBeNull()
+  expect(amountBox).not.toBeNull()
+  expect(calculatorBox).not.toBeNull()
+  if (!viewport || !amountBox || !calculatorBox) return
+
+  if (viewport.width < 768) {
+    expect(Math.abs(calculatorBox.x), '모바일 계산기는 화면 왼쪽에 맞닿아야 합니다').toBeLessThanOrEqual(1)
+    expect(Math.abs(calculatorBox.width - viewport.width), '모바일 계산기는 화면 폭을 채워야 합니다').toBeLessThanOrEqual(1)
+    expect(Math.abs(calculatorBox.y + calculatorBox.height - viewport.height), '모바일 계산기는 키보드처럼 화면 아래에 붙어야 합니다').toBeLessThanOrEqual(16)
+    return
+  }
+
+  expect(calculatorBox.width, '태블릿·데스크톱 계산기는 입력 근처의 도구창 폭이어야 합니다').toBeLessThanOrEqual(340)
+  expect(Math.abs(calculatorBox.x - amountBox.x), '태블릿·데스크톱 계산기는 금액 입력 왼쪽에 정렬되어야 합니다').toBeLessThanOrEqual(8)
+  expect(Math.abs(calculatorBox.y - (amountBox.y + amountBox.height)), '태블릿·데스크톱 계산기는 금액 입력 바로 아래에 있어야 합니다').toBeLessThanOrEqual(16)
 }
 
 async function seedCursorTransfers(page: Page, occurredOn: string, count: number): Promise<SeedResult> {
