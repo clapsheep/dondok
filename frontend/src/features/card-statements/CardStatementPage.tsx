@@ -32,7 +32,7 @@ import {
   validateStatementPrepaymentDraft,
   type StatementSnapshot,
 } from './prepaymentState'
-import { cardPaymentScheduleStatusLabel, cardStatementPaymentTypeLabel, cardStatementStatusLabel } from './presentation'
+import {  cardStatementPaymentTypeLabel, cardStatementStatusLabel } from './presentation'
 
 export function CardStatementPage({ ledger }: { ledger: LedgerBook }) {
   const { statementId = '' } = useParams()
@@ -343,10 +343,7 @@ function StatementSummary({ statement }: { statement: CardStatementDetail }) {
         <SummaryValue label="결제 계좌" value={statement.settlementAsset?.name ?? '설정되지 않음'} />
       </dl>
       {statement.additionalUsageAfterPayment && statement.remainingAmountWon > 0 ? <p className="mt-4 text-sm leading-6 text-[var(--muted)]">결제 후 사용 내역이 추가됐어요. 기존 결제는 유지되며 추가분은 자동 정산하지 않아요. 남은 금액을 직접 결제 기록해 주세요.</p> : null}
-      <dl className="mt-4 grid gap-x-6 gap-y-2 border-y border-[var(--line)] py-3 text-sm @min-[32rem]:grid-cols-2">
-        <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">자동 정산</dt><dd className="font-semibold">{statement.autoSettlementEnabled ? '사용' : '사용 안 함'}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">정산 상태</dt><dd className="font-semibold">{statement.automaticSettlement ? `${cardPaymentScheduleStatusLabel(statement.automaticSettlement.status)} · ${formatDate(statement.automaticSettlement.scheduledOn)}` : '일정 없음'}</dd></div>
-      </dl>
+
     </section>
   )
 }

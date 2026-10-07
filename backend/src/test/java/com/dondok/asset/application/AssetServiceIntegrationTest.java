@@ -445,9 +445,7 @@ class AssetServiceIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select principal_amount_won from card_charge where card_asset_id = ? and charge_origin = 'OPENING_BALANCE'",
                 Long.class, card.assetId())).isEqualTo(180_000L);
-        assertThat(jdbcTemplate.queryForObject(
-                "select settlement_asset_id from card_payment_schedule where book_id = ?",
-                UUID.class, ledger.bookId())).isEqualTo(bank.assetId());
+        assertThat(count("select count(*) from card_payment_schedule where book_id = ?", ledger.bookId())).isZero();
 
         AssetService.AssetView updated = assetService.update(
                 ledger.userId(), card.assetId(), new AssetService.UpdateAssetCommand(

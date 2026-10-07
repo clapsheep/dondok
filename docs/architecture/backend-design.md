@@ -327,8 +327,17 @@ public record MoneyWon(long value) {
 
 ### 사용자 수동 카드 정산
 
-`CardStatementService.payManually`는 `POST /api/card-statements/{statementId}/payments`의 단일 명령이다. 상세 조회로 확인한 expectedVersion·expectedAmountWon·settlementAssetId가 현재 값과 같을 때 활성 카드·결제 계좌를 검증하고 남은 전액을 서울 실행일에 MANUAL 결제로 기록한다. 가계부 경계, 명세 행 잠금, idempotency를 재사용한다. 자동 worker도 명세→schedule 순으로 잠가 수동 정산·선결제와 교착하지 않게 한다. 동일 요청 replay는 기존 결제만 반환하며 금액·명의자·작성자·posting을 다시 만들지 않는다.
+`CardStatementService.payManually`는 `POST /api/card-statements/{statementId}/payments`의 단일 명령이다. 상세 조회로 확인한 expectedVersion·expectedAmountWon·settlementAssetId가 현재 값과 같을 때 활성 카드·결제 계좌를 검증하고 남은 전액을 요청의 paidOn에 MANUAL 결제로 기록한다. paidOn은 결제와 연결 이체의 occurredOn에 함께 사용하고 작성 시각은 요청 시각을 유지한다. 날짜가 없는 이전 클라이언트만 서울 실행일을 사용하며 기존 요청 hash 형식도 보존한다. 명시한 날짜는 idempotency hash에 포함해 같은 키로 날짜를 바꾸면 409로 거부한다. 가계부 경계, 명세 행 잠금, idempotency를 재사용한다. 자동 worker도 명세→schedule 순으로 잠가 수동 정산·선결제와 교착하지 않게 한다. 동일 요청 replay는 기존 결제만 반환하며 금액·명의자·작성자·posting을 다시 만들지 않는다.
 
 ### 결제 완료 뒤 추가 사용
 
 신규 구매는 명세 행을 잠근 뒤 청구 합계와 남은 금액을 재계산한다. 구매 정정도 같은 기준으로 PAID→OPEN/FINALIZED를 판단하며 결제일 당일 이후 다시 열면 `additional_usage_after_payment`를 영속화한다. 이후 구매 추가·카드 설정 변경에서 해당 명세의 자동 예약을 만들지 않는다. worker는 과거 REGULAR 존재 자체를 완료 근거로 쓰지 않고, 잔액 0원만 완료 처리한다. 추가 사용 표시 또는 과거 정규 결제가 있는데 잔액이 남으면 FINALIZED로 유지하고 예약을 취소한다. 기존 결제는 변경하지 않고 차액은 MANUAL 결제로 기록한다.
+
+
+## 이체 목적과 자산 형성 통계 (D-068)
+
+일반 이체의 transferPurpose는 생성 시 생략하면 GENERAL, 수정 시 생략하면 기존값을 보존한다. non-transfer 입력은 거부한다. 같은 거래의 version·idempotency 계약과 posting 트랜잭션을 공유한다. 월간 통계와 yearlyTrend 각 월에 assetFormation(적금·투자별 납입/회수)을 추가하며 기존 totals의 소비 의미는 유지한다. 연간 목적별 집계를 같은 repeatable-read snapshot에서 읽고 선택 월 값을 재사용한다. 소유자 필터는 납입 도착/인출 출발 자산에 적용하며 categoryId 지정 시 목적 집계는 0이다.
+
+## D-069 카드 상세 결제 계약
+
+GET `/api/assets/{cardAssetId}/card-payment-items`는 최대 50개 cursor 항목, 최근 정산일, 전체/기본 선택 합계와 snapshotToken을 반환한다. POST `/api/assets/{cardAssetId}/card-payments`는 SELECTED(기본 CLOSED/ALL/NONE와 추가/제외 ID) 또는 AMOUNT, 실제 계좌·날짜, snapshotToken과 Idempotency-Key를 받는다. 동일 가계부 변경과 경합하지 않도록 ledger exclusive lock을 잡고 snapshot을 검증한 뒤 명세별 payment·이체·배분을 한 트랜잭션으로 생성한다. stale은 412 CARD_PAYMENT_SELECTION_STALE, 초과/빈 선택은 409 CARD_PAYMENT_AMOUNT_INVALID로 전체 거부한다. 동일 key retry는 최초 결과만 반환하고 취소된 결제의 retry는 409다. 사용자 결제만 생성하며 자동 worker는 실행하지 않는다.

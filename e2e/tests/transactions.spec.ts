@@ -91,7 +91,7 @@ test('대표 결제는 실제 자산 금액과 월 지출 반영액을 분리한
   await expect(page.getByText('-120,000원', { exact: true })).toBeVisible()
   await expect(page.getByText('지출에는 40,000원 반영', { exact: true })).toBeVisible()
 
-  await page.goto(`/statistics?month=${todayInSeoul().slice(0, 7)}`)
+  await page.goto(`/statistics?view=consumption&month=${todayInSeoul().slice(0, 7)}`)
   const monthlySummary = page.getByLabel('월간 수입 지출 순액 요약')
   await expect(monthlySummary.getByText('지출', { exact: true }).locator('..').getByText('-40,000원', { exact: true })).toBeVisible()
 })
@@ -153,7 +153,7 @@ test('마지막으로 지출한 자산을 다음 지출의 기본값으로 기�
   await expect(page.getByRole('button', { name: '결제 자산', exact: true })).toContainText('계좌')
 })
 
-test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목록을 같은 의미로 확인한다', async ({ page, request }, testInfo) => {
+test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목록을 같은 의미로 확인한다', { tag: '@pr' }, async ({ page, request }, testInfo) => {
   const displayName = `거래 사용자 ${test.info().workerIndex}`
   const account = await registerAndLogin(page, request, displayName)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()

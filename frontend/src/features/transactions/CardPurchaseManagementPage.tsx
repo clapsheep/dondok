@@ -322,7 +322,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
         <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) closeConfirmation() }}>
           {preview ? (
             <DialogContent
-              className="left-1/2 top-auto bottom-[max(.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-[calc(100vw-2rem)] -translate-x-1/2 translate-y-0 md:top-1/2 md:bottom-auto md:w-[min(38rem,calc(100vw-3rem))] md:-translate-y-1/2"
+              className="left-1/2 top-auto bottom-[max(.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-[calc(100vw-2rem)] -translate-x-1/2 translate-y-0 md:top-1/2 md:bottom-auto md:w-[min(38rem,calc(100vw-3rem))] md:-translate-y-1/2 p-0 sm:p-0"
               aria-labelledby="correction-confirmation-title"
               aria-describedby="correction-confirmation-description"
               initialFocus={confirmationHeading}

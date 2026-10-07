@@ -104,7 +104,7 @@ export function CategoryPicker({ kind, categories, value, missingName, onChange,
 
       <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) setOpen(true); else requestClose() }}>
         <DialogContent
-          className="left-0 top-auto bottom-0 max-h-[calc(100dvh-.5rem)] w-full translate-x-0 translate-y-0 rounded-t-lg rounded-b-none md:left-1/2 md:top-1/2 md:bottom-auto md:w-[min(34rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg"
+          className="left-0 top-auto bottom-0 max-h-[calc(100dvh-.5rem)] w-full translate-x-0 translate-y-0 rounded-t-lg rounded-b-none md:left-1/2 md:top-1/2 md:bottom-auto md:w-[min(34rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg p-0 sm:p-0"
           aria-labelledby="transaction-category-dialog-title"
           finalFocus={trigger}
         >

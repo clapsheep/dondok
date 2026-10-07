@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { registerAndLogin } from './support/auth'
 
-test('자산 API는 공동 소유와 명의자 누락을 거부하고 기존 자산을 보존한다', async ({ page, request }, testInfo) => {
+test('자산 API는 공동 소유와 명의자 누락을 거부하고 기존 자산을 보존한다', { tag: '@pr' }, async ({ page, request }, testInfo) => {
   await registerAndLogin(page, request, `명의자 검증 ${testInfo.workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()

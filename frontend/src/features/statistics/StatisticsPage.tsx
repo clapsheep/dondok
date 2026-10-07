@@ -1,3 +1,4 @@
+import { UsageStatistics } from './UsageStatistics'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, UsersRound } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -124,6 +125,8 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
         ) : (
           <StatisticsContent
             statistics={statistics.data}
+            view={urlState.view}
+            onViewChange={(view) => replaceState({ ...urlState, view })}
             direction={urlState.direction}
             onDirectionChange={changeDirection}
             backgroundError={statistics.isError}
@@ -212,8 +215,10 @@ function StatisticsMemberOption({ value, selected, label, accessibleLabel, avata
   )
 }
 
-function StatisticsContent({ statistics, direction, onDirectionChange, backgroundError, onRetry, filtered, onClearFilters, onSelectCategory }: {
+function StatisticsContent({ statistics, view, onViewChange, direction, onDirectionChange, backgroundError, onRetry, filtered, onClearFilters, onSelectCategory }: {
   statistics: MonthlyStatistics
+  view?: 'consumption' | 'formation'
+  onViewChange: (view: 'consumption' | 'formation' | undefined) => void
   direction: StatisticsDirection
   onDirectionChange: (direction: StatisticsDirection) => void
   backgroundError: boolean
@@ -229,6 +234,12 @@ function StatisticsContent({ statistics, direction, onDirectionChange, backgroun
   return (
     <>
       {backgroundError ? <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-amber-500 px-4 py-2 text-sm" role="status"><span>최신 통계를 확인하지 못했어요. 지금 보이는 결과는 유지했어요.</span><Button type="button" variant="ghost" onClick={onRetry}>다시 확인</Button></div> : null}
+      <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="통계 보기">
+        <DirectionButton active={!view} onClick={() => onViewChange(undefined)}>전체 사용</DirectionButton>
+        <DirectionButton active={view === 'consumption'} onClick={() => onViewChange('consumption')}>소비</DirectionButton>
+        <DirectionButton active={view === 'formation'} onClick={() => onViewChange('formation')}>적금·투자</DirectionButton>
+      </div>
+      {view !== 'consumption' ? <UsageStatistics statistics={statistics} formationOnly={view === 'formation'} onSelectCategory={onSelectCategory} /> : <>
       <StatisticsSummary statistics={statistics} />
       {noActivity ? (
         <div className="mt-7 border-y border-[var(--line)] py-8 text-center" role="status">
@@ -242,6 +253,7 @@ function StatisticsContent({ statistics, direction, onDirectionChange, backgroun
         <CategoryBreakdown statistics={statistics} direction={direction} shares={shares} onDirectionChange={onDirectionChange} onSelectCategory={onSelectCategory} />
         <YearlyTrend statistics={statistics} />
       </div>
+      </>}
     </>
   )
 }

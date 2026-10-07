@@ -4,6 +4,7 @@ import com.dondok.asset.domain.CardBillingCyclePolicy;
 import com.dondok.asset.infrastructure.persistence.CardSettingEntity;
 import com.dondok.common.id.UuidV7;
 import com.dondok.transaction.domain.TransactionType;
+import com.dondok.transaction.domain.TransferPurpose;
 import com.dondok.transaction.domain.TransferSubtype;
 import java.sql.Date;
 import java.sql.ResultSet;
@@ -36,15 +37,16 @@ public class TransactionJdbcRepository {
                     category_id, performed_by_member_id, primary_asset_id, description, source_type,
                     excluded_from_statistics, statistics_amount_won,
                     created_by_member_id, updated_by_member_id,
-                    created_at, updated_at, version
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', ?, ?, ?, ?, ?, ?, 0)
+                    created_at, updated_at, version, transfer_purpose
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', ?, ?, ?, ?, ?, ?, 0, ?)
                 """, write.transactionId(), write.bookId(), write.type().name(),
                 write.transferSubtype() == null ? null : write.transferSubtype().name(),
                 Date.valueOf(write.occurredOn()), write.amountWon(), write.categoryId(),
                 write.performedByMemberId(), write.primaryAssetId(), write.description(),
                 write.excludedFromStatistics(), write.statisticsAmountWon(),
                 write.createdByMemberId(), write.createdByMemberId(),
-                Timestamp.from(write.now()), Timestamp.from(write.now()));
+                Timestamp.from(write.now()), Timestamp.from(write.now()),
+                write.transferPurpose() == null ? null : write.transferPurpose().name());
         short line = 1;
         for (PostingWrite posting : write.postings()) {
             jdbcTemplate.update("""
@@ -100,26 +102,6 @@ public class TransactionJdbcRepository {
                     installment.number(), installments.size(), installment.amountWon(),
                     Date.valueOf(dueOn), absorbedByBalanceAnchor, Timestamp.from(now));
             recalculateStatement(statementId, now);
-            if (!absorbedByBalanceAnchor
-                    && setting.isAutoSettlementEnabled() && setting.getSettlementAssetId() != null
-                    && Boolean.FALSE.equals(jdbcTemplate.queryForObject(
-                            "select additional_usage_after_payment from card_statement where id = ?",
-                            Boolean.class, statementId))) {
-                jdbcTemplate.update("""
-                        insert into card_payment_schedule (
-                            id, book_id, statement_id, settlement_asset_id, scheduled_on,
-                            status, attempt_count, created_at, updated_at, version
-                        ) values (?, ?, ?, ?, ?, 'SCHEDULED', 0, ?, ?, 0)
-                        on conflict (statement_id) do update
-                           set settlement_asset_id = excluded.settlement_asset_id,
-                               scheduled_on = excluded.scheduled_on,
-                               status = 'SCHEDULED', attempt_count = 0,
-                               last_error = null, next_retry_at = null,
-                               updated_at = excluded.updated_at,
-                               version = card_payment_schedule.version + 1
-                        """, UuidV7.next(), bookId, statementId, setting.getSettlementAssetId(),
-                        Date.valueOf(dueOn), Timestamp.from(now), Timestamp.from(now));
-            }
         }
     }
 
@@ -237,7 +219,7 @@ public class TransactionJdbcRepository {
         String sql = "with selected as (\n" + selection + """
                 )
                 select transaction.id transaction_id, transaction.transaction_type,
-                       transaction.transfer_subtype, transaction.occurred_on, transaction.amount_won,
+                       transaction.transfer_subtype, transaction.transfer_purpose, transaction.occurred_on, transaction.amount_won,
                        coalesce(transaction.statistics_amount_won, transaction.amount_won) statistics_amount_won,
                        transaction.source_type, transaction.excluded_from_statistics,
                        transaction.description, transaction.version, transaction.created_at,
@@ -290,7 +272,7 @@ public class TransactionJdbcRepository {
     public TransactionRows find(UUID bookId, UUID transactionId) {
         List<ReadRow> rows = jdbcTemplate.query("""
                 select transaction.id transaction_id, transaction.transaction_type,
-                       transaction.transfer_subtype, transaction.occurred_on, transaction.amount_won,
+                       transaction.transfer_subtype, transaction.transfer_purpose, transaction.occurred_on, transaction.amount_won,
                        coalesce(transaction.statistics_amount_won, transaction.amount_won) statistics_amount_won,
                        transaction.source_type, transaction.excluded_from_statistics,
                        transaction.description, transaction.version, transaction.created_at,
@@ -389,11 +371,13 @@ public class TransactionJdbcRepository {
                    set occurred_on = ?, amount_won = ?, category_id = ?,
                        performed_by_member_id = ?, primary_asset_id = ?, description = ?,
                        excluded_from_statistics = ?, statistics_amount_won = ?,
+                       transfer_purpose = coalesce(?, transfer_purpose),
                        updated_by_member_id = ?, updated_at = ?, version = version + 1
                  where book_id = ? and id = ? and deleted_at is null and version = ?
                 """, Date.valueOf(write.occurredOn()), write.amountWon(), write.categoryId(),
                 write.performedByMemberId(), write.primaryAssetId(), write.description(),
                 write.excludedFromStatistics(), write.statisticsAmountWon(),
+                write.transferPurpose() == null ? null : write.transferPurpose().name(),
                 write.updatedByMemberId(), Timestamp.from(write.now()), write.bookId(),
                 write.transactionId(), write.expectedVersion());
         if (updated != 1) {
@@ -456,7 +440,9 @@ public class TransactionJdbcRepository {
                 rs.getObject("primary_asset_id", UUID.class), rs.getString("primary_asset_name"),
                 rs.getShort("line_no"), rs.getObject("asset_id", UUID.class),
                 rs.getString("asset_name"), rs.getLong("delta_won"),
-                rs.getObject("installment_count", Integer.class));
+                rs.getObject("installment_count", Integer.class),
+                rs.getString("transfer_purpose") == null ? null
+                        : TransferPurpose.valueOf(rs.getString("transfer_purpose")));
     }
 
     private void recalculateStatement(UUID statementId, Instant now) {
@@ -490,7 +476,7 @@ public class TransactionJdbcRepository {
                                    UUID categoryId, UUID performedByMemberId, UUID primaryAssetId, String description,
                                    boolean excludedFromStatistics,
                                    Long statisticsAmountWon,
-                                   UUID createdByMemberId, Instant now, List<PostingWrite> postings) {
+                                   UUID createdByMemberId, Instant now, List<PostingWrite> postings, TransferPurpose transferPurpose) {
     }
     public record TransactionUpdateWrite(
             UUID transactionId,
@@ -506,7 +492,8 @@ public class TransactionJdbcRepository {
             UUID updatedByMemberId,
             long expectedVersion,
             Instant now,
-            List<PostingWrite> postings
+            List<PostingWrite> postings,
+            TransferPurpose transferPurpose
     ) {
     }
     public record InstallmentWrite(int number, long amountWon, CardBillingCyclePolicy.Cycle cycle) {
@@ -524,7 +511,7 @@ public class TransactionJdbcRepository {
                           UUID performerId, String performerName, UUID creatorId, String creatorName,
                           UUID primaryAssetId, String primaryAssetName,
                           short lineNo, UUID assetId, String assetName, long deltaWon,
-                          Integer installmentCount) {
+                          Integer installmentCount, TransferPurpose transferPurpose) {
     }
     public record TransactionRows(ReadRow transaction, List<PostingRow> postings) {
     }

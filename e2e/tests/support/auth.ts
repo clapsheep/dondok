@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
 type MessageSummary = { ID: string; Subject: string; To: Array<{ Address: string }> }
 type MessageList = { messages: MessageSummary[] }
@@ -6,22 +7,24 @@ type Message = { Text: string; HTML: string }
 
 export async function mailToken(request: APIRequestContext, email: string, subject: string, path: string) {
   const mailpit = process.env.MAILPIT_URL ?? 'http://127.0.0.1:8025'
+  const query = `${mailpit}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`
+  let messageId: string | undefined
   await expect.poll(async () => {
-    const response = await request.get(`${mailpit}/api/v1/messages`)
+    const response = await request.get(query)
+    expect(response.ok()).toBe(true)
     const body = await response.json() as MessageList
-    return body.messages.some((message) => message.Subject.includes(subject) && message.To.some((to) => to.Address === email))
-  }, { timeout: 15_000 }).toBe(true)
+    messageId = body.messages.find((message) => message.Subject.includes(subject) && message.To.some((to) => to.Address === email))?.ID
+    return messageId
+  }, { timeout: 15_000 }).toBeTruthy()
 
-  const list = await (await request.get(`${mailpit}/api/v1/messages`)).json() as MessageList
-  const summary = list.messages.find((message) => message.Subject.includes(subject) && message.To.some((to) => to.Address === email))!
-  const message = await (await request.get(`${mailpit}/api/v1/message/${summary.ID}`)).json() as Message
+  const message = await (await request.get(`${mailpit}/api/v1/message/${messageId}`)).json() as Message
   const match = `${message.Text}\n${message.HTML}`.match(new RegExp(`${path}\\?token=([^\\s<]+)`))
   if (!match) throw new Error(`${path} link was not found in Mailpit message`)
   return decodeURIComponent(match[1])
 }
 
 export async function registerAndLogin(page: Page, request: APIRequestContext, displayName: string) {
-  const suffix = `${Date.now()}${test.info().workerIndex}${Math.floor(Math.random() * 10_000)}`
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 23)
   const loginId = `dondok_${suffix}`.slice(0, 30)
   const email = `${loginId}@example.test`
   const password = 'Dondok-pass-2026!'

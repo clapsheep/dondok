@@ -89,7 +89,7 @@ export type CardPaymentCancellationResult = {
   cancelledTransactionId: string
 }
 
-export type ManualCardPaymentInput = { expectedVersion: number; expectedAmountWon: number; settlementAssetId: string }
+export type ManualCardPaymentInput = { expectedVersion: number; expectedAmountWon: number; settlementAssetId: string; paidOn: string }
 
 export type CorrectCardStatementPaymentAccountInput = {
   settlementAssetId: string
@@ -133,4 +133,30 @@ export const cardStatementApi = {
     const params = new URLSearchParams({ expectedVersion: String(expectedVersion) })
     return api<CardPaymentCancellationResult>(`/api/card-statements/${statementId}/payments/${paymentId}?${params}`, { method: 'DELETE' })
   },
+}
+
+export type CardPaymentItem = {
+  chargeId: string; statementId: string; sourceTransactionId: string
+  installmentNo: number; installmentCount: number; occurredOn: string; description: string
+  cycleEnd: string; dueOn: string; remainingAmountWon: number; origin: 'PURCHASE' | 'OPENING_BALANCE'
+}
+export type CardPaymentItemPage = {
+  items: CardPaymentItem[]; nextCursor: string | null; recentClosingOn: string; snapshotToken: string
+  totals: { amountWon: number; count: number; closedAmountWon: number; closedCount: number }
+}
+export type CardItemPaymentInput = {
+  snapshotToken: string; mode: 'SELECTED' | 'AMOUNT'; baseSelection: 'CLOSED' | 'ALL' | 'NONE'
+  includedChargeIds: string[]; excludedChargeIds: string[]; amountWon: number | null
+  settlementAssetId: string; paidOn: string
+}
+export const cardPaymentItemsKey = (assetId: string) => [...cardStatementKeys.all, 'items', assetId] as const
+export const cardItemPaymentApi = {
+  list: (assetId: string, cursor: string | null = null) => {
+    const query = new URLSearchParams({ limit: '30' })
+    if (cursor) query.set('cursor', cursor)
+    return api<CardPaymentItemPage>(`/api/assets/${assetId}/card-payment-items?${query}`)
+  },
+  pay: (assetId: string, input: CardItemPaymentInput, key: string) => api<{ batchId: string; amountWon: number }>(`/api/assets/${assetId}/card-payments`, {
+    method: 'POST', headers: { 'Idempotency-Key': key }, body: jsonBody(input),
+  }),
 }

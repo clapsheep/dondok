@@ -20,6 +20,7 @@ import com.dondok.membership.application.LedgerMutationGuard;
 import com.dondok.membership.infrastructure.persistence.LedgerMemberEntity;
 import com.dondok.membership.infrastructure.persistence.LedgerMemberRepository;
 import com.dondok.transaction.domain.TransactionType;
+import com.dondok.transaction.domain.TransferPurpose;
 import com.dondok.transaction.domain.TransferSubtype;
 import com.dondok.transaction.infrastructure.persistence.TransactionIdempotencyRepository;
 import com.dondok.transaction.infrastructure.persistence.TransactionJdbcRepository;
@@ -295,7 +296,7 @@ public class TransactionService {
                 stripToNull(command.description()), command.excludedFromStatistics(),
                 command.type() == TransactionType.EXPENSE ? command.statisticsAmountWon() : null,
                 editor.getId(), command.expectedVersion(), now,
-                mutation.postings()));
+                mutation.postings(), command.transferPurpose()));
         if (mutation.cardPurchase() != null) {
             CardPurchase cardPurchase = mutation.cardPurchase();
             transactions.insertCardInstallments(editor.getBookId(), transactionId,
@@ -428,7 +429,8 @@ public class TransactionService {
                 command.occurredOn(), command.amountWon(), categoryId, performerId,
                 primaryAssetId, stripToNull(command.description()), command.excludedFromStatistics(),
                 type == TransactionType.EXPENSE ? command.statisticsAmountWon() : null,
-                author.getId(), now, postings);
+                author.getId(), now, postings,
+                command instanceof CreateTransfer transfer ? transfer.transferPurpose() : null);
     }
 
     private void requireStatisticsAmount(long amountWon, long statisticsAmountWon) {
@@ -494,7 +496,7 @@ public class TransactionService {
                 cardPayment == null ? null : new CardPaymentReferenceView(
                         cardPayment.statementId(), cardPayment.paymentId(), cardPayment.paymentType(),
                         cardPayment.statementVersion(), cardPayment.returnedAmountWon()),
-                row.version(), row.createdAt(), row.updatedAt());
+                row.version(), row.createdAt(), row.updatedAt(), row.transferPurpose());
     }
 
     private TransactionManagementType managementType(TransactionJdbcRepository.ReadRow row) {
@@ -643,7 +645,15 @@ public class TransactionService {
     }
     public record CreateTransfer(LocalDate occurredOn, long amountWon, UUID sourceAssetId,
                                  UUID destinationAssetId, UUID performedByMemberId,
-                                 String description) implements CreateCommand {
+                                 String description, TransferPurpose transferPurpose) implements CreateCommand {
+        public CreateTransfer {
+            transferPurpose = transferPurpose == null ? TransferPurpose.GENERAL : transferPurpose;
+        }
+        public CreateTransfer(LocalDate occurredOn, long amountWon, UUID sourceAssetId,
+                              UUID destinationAssetId, UUID performedByMemberId, String description) {
+            this(occurredOn, amountWon, sourceAssetId, destinationAssetId, performedByMemberId,
+                    description, TransferPurpose.GENERAL);
+        }
     }
     private record CardPurchase(AssetEntity asset, CardSettingEntity setting,
                                 List<TransactionJdbcRepository.InstallmentWrite> installments) {
@@ -668,8 +678,25 @@ public class TransactionService {
             long expectedVersion,
             boolean excludedFromStatistics,
             int installmentCount,
-            long statisticsAmountWon
+            long statisticsAmountWon,
+            TransferPurpose transferPurpose
     ) {
+        public UpdateCommand {
+            if (type != TransactionType.TRANSFER && transferPurpose != null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
+                        "이체 목적은 이체에만 지정할 수 있어요.");
+            }
+        }
+        public UpdateCommand(
+                TransactionType type, LocalDate occurredOn, long amountWon, UUID categoryId,
+                UUID assetId, UUID sourceAssetId, UUID destinationAssetId,
+                UUID performedByMemberId, String description, long expectedVersion,
+                boolean excludedFromStatistics, int installmentCount, long statisticsAmountWon
+        ) {
+            this(type, occurredOn, amountWon, categoryId, assetId, sourceAssetId,
+                    destinationAssetId, performedByMemberId, description, expectedVersion,
+                    excludedFromStatistics, installmentCount, statisticsAmountWon, null);
+        }
         public UpdateCommand(
                 TransactionType type, LocalDate occurredOn, long amountWon, UUID categoryId,
                 UUID assetId, UUID sourceAssetId, UUID destinationAssetId,
@@ -741,7 +768,7 @@ public class TransactionService {
                                   UUID relatedPurchaseTransactionId,
                                   CardPaymentReferenceView cardPayment,
                                   long version,
-                                  Instant createdAt, Instant updatedAt) {
+                                  Instant createdAt, Instant updatedAt, TransferPurpose transferPurpose) {
     }
     public record TransactionPage(List<TransactionView> items, String nextCursor) {
     }

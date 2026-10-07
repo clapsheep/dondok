@@ -206,6 +206,9 @@ class MembershipServiceIntegrationTest {
                 """, created.ledgerId(), creatorMemberId, created.ledgerId());
         createCredentialAndSession(creator);
 
+        // Historical schedules still cascade even though new cards never schedule payments.
+        jdbcTemplate.update("insert into card_payment_schedule(id, book_id, statement_id, settlement_asset_id, scheduled_on, status) values (?, ?, ?, ?, ?, 'CANCELLED')",
+                UUID.randomUUID(), created.ledgerId(), statementId, accountId, java.sql.Date.valueOf(today));
         Set<String> actualCascadeTables = Set.copyOf(jdbcTemplate.queryForList("""
                 select child.relname
                   from pg_constraint constraint_row

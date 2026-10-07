@@ -2,6 +2,7 @@ package com.dondok.statistics.infrastructure.persistence;
 
 import com.dondok.category.domain.CategoryKind;
 import com.dondok.statistics.domain.AssetOwnerFilter;
+import com.dondok.statistics.domain.AssetFormation;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.nio.charset.StandardCharsets;
@@ -125,6 +126,50 @@ public class StatisticsJdbcRepository {
                 resultSet.getLong("income_won"),
                 resultSet.getLong("expense_won")), query.arguments().toArray());
     }
+
+    public List<FormationMonth> formationYearly(
+            UUID bookId, LocalDate from, LocalDate toExclusive, UUID performerId,
+            AssetOwnerFilter owner, UUID categoryId
+    ) {
+        if (categoryId != null) return List.of();
+        List<Object> arguments = new ArrayList<>(List.of(bookId, Date.valueOf(from), Date.valueOf(toExclusive)));
+        String filter = "";
+        if (performerId != null) {
+            filter += " and activity.performed_by_member_id = ?";
+            arguments.add(performerId);
+        }
+        if (owner.type() == AssetOwnerFilter.Type.MEMBER) {
+            filter += """
+                 and exists (
+                     select 1 from transaction_posting posting
+                     join asset on asset.id = posting.asset_id and asset.book_id = posting.book_id
+                     where posting.transaction_id = activity.id and posting.book_id = activity.book_id
+                       and asset.owner_member_id = ?
+                       and case when activity.transfer_purpose in ('SAVINGS_DEPOSIT', 'INVESTMENT_DEPOSIT')
+                           then posting.delta_won > 0 else posting.delta_won < 0 end
+                 )
+                """;
+            arguments.add(owner.memberId());
+        }
+        return jdbcTemplate.query("""
+                select date_trunc('month', occurred_on)::date month_start,
+                       coalesce(sum(amount_won) filter (where transfer_purpose = 'SAVINGS_DEPOSIT'), 0) savings_deposit,
+                       coalesce(sum(amount_won) filter (where transfer_purpose = 'SAVINGS_WITHDRAWAL'), 0) savings_withdrawal,
+                       coalesce(sum(amount_won) filter (where transfer_purpose = 'INVESTMENT_DEPOSIT'), 0) investment_deposit,
+                       coalesce(sum(amount_won) filter (where transfer_purpose = 'INVESTMENT_WITHDRAWAL'), 0) investment_withdrawal
+                  from ledger_transaction activity
+                 where book_id = ? and occurred_on >= ? and occurred_on < ?
+                   and deleted_at is null and transaction_type = 'TRANSFER'
+                   and transfer_subtype = 'NORMAL' and source_type = 'MANUAL'
+                   and transfer_purpose <> 'GENERAL'
+                """ + filter + " group by date_trunc('month', occurred_on) order by month_start",
+                (rs, row) -> new FormationMonth(YearMonth.from(rs.getObject("month_start", LocalDate.class)),
+                        new AssetFormation(rs.getLong("savings_deposit"), rs.getLong("savings_withdrawal"),
+                                rs.getLong("investment_deposit"), rs.getLong("investment_withdrawal"))),
+                arguments.toArray());
+    }
+
+    public record FormationMonth(YearMonth month, AssetFormation assetFormation) { }
 
     public CategoryTransactionRows categoryTransactions(
             UUID bookId,

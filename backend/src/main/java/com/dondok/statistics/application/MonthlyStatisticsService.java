@@ -5,6 +5,7 @@ import com.dondok.common.error.ApiException;
 import com.dondok.membership.infrastructure.persistence.LedgerMemberEntity;
 import com.dondok.membership.infrastructure.persistence.LedgerMemberRepository;
 import com.dondok.statistics.domain.AssetOwnerFilter;
+import com.dondok.statistics.domain.AssetFormation;
 import com.dondok.statistics.infrastructure.persistence.StatisticsJdbcRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -73,13 +74,18 @@ public class MonthlyStatisticsService {
                         .stream()
                         .collect(Collectors.toMap(
                                 StatisticsJdbcRepository.MonthAmount::month, Function.identity()));
+        Map<YearMonth, AssetFormation> formationByMonth = statistics.formationYearly(
+                currentMember.getBookId(), yearStart, nextYearStart, performedByMemberId, assetOwner, categoryId)
+                .stream().collect(Collectors.toMap(StatisticsJdbcRepository.FormationMonth::month,
+                        StatisticsJdbcRepository.FormationMonth::assetFormation));
         List<MonthSummary> yearlyTrend = IntStream.rangeClosed(1, 12)
                 .mapToObj(monthNumber -> {
                     YearMonth trendMonth = month.withMonth(monthNumber);
                     StatisticsJdbcRepository.MonthAmount amount = amountsByMonth.get(trendMonth);
                     long income = amount == null ? 0 : amount.incomeWon();
                     long expense = amount == null ? 0 : amount.expenseWon();
-                    return new MonthSummary(trendMonth, income, expense, income - expense);
+                    return new MonthSummary(trendMonth, income, expense, income - expense,
+                            formationByMonth.getOrDefault(trendMonth, AssetFormation.ZERO));
                 })
                 .toList();
         List<CategoryAmount> categoryBreakdown = aggregation.categoryAmounts().stream()
@@ -98,7 +104,7 @@ public class MonthlyStatisticsService {
                 new AppliedFilters(performedByMemberId, assetOwner.type(), assetOwner.memberId(), categoryId),
                 new Totals(totals.incomeWon(), totals.expenseWon(),
                         totals.incomeWon() - totals.expenseWon()),
-                categoryBreakdown, yearlyTrend, List.of());
+                categoryBreakdown, yearlyTrend, List.of(), formationByMonth.getOrDefault(month, AssetFormation.ZERO));
     }
 
     @Transactional(readOnly = true)
@@ -191,7 +197,8 @@ public class MonthlyStatisticsService {
             Totals totals,
             List<CategoryAmount> categoryBreakdown,
             List<MonthSummary> yearlyTrend,
-            List<DaySummary> dailyTrend
+            List<DaySummary> dailyTrend,
+            AssetFormation assetFormation
     ) {
     }
 
@@ -209,7 +216,7 @@ public class MonthlyStatisticsService {
     public record CategoryAmount(UUID categoryId, String categoryName, String kind, long amountWon) {
     }
 
-    public record MonthSummary(YearMonth month, long incomeWon, long expenseWon, long netWon) {
+    public record MonthSummary(YearMonth month, long incomeWon, long expenseWon, long netWon, AssetFormation assetFormation) {
     }
 
     public record DaySummary(LocalDate date, long incomeWon, long expenseWon, long netWon) {

@@ -129,6 +129,45 @@ class CardPaymentOwnerMigrationIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"SCHEDULED", "PROCESSING", "FAILED", "COMPLETED", "CANCELLED"})
+    void manualPaymentMigrationRetiresPendingSchedulesAndPreservesMoney(String status) throws Exception {
+        String schema = "manual_payment_" + UUID.randomUUID().toString().replace("-", "");
+        try (Connection connection = dataSource.getConnection(); Statement sql = connection.createStatement()) {
+            String original = connection.getSchema();
+            try {
+                Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).target("29").load().migrate();
+                connection.setSchema(schema);
+                seed(sql);
+                Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).target("33").load().migrate();
+                sql.execute("insert into card_setting(card_asset_id, book_id, statement_closing_day, payment_day, settlement_asset_id, auto_settlement_enabled) values ("
+                        + id(7) + ", " + id(2) + ", 30, 15, " + id(6) + ", true)");
+                sql.execute("insert into card_payment_schedule(id, book_id, statement_id, settlement_asset_id, scheduled_on, status) values ("
+                        + id(17) + ", " + id(2) + ", " + id(8) + ", " + id(6) + ", '2026-07-15', '" + status + "')");
+                Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load().migrate();
+                try (var rows = sql.executeQuery("select auto_settlement_enabled from card_setting")) {
+                    assertThat(rows.next()).isTrue(); assertThat(rows.getBoolean(1)).isFalse();
+                }
+                try (var rows = sql.executeQuery("select status from card_payment_schedule")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getString(1)).isEqualTo(status.equals("COMPLETED") ? "COMPLETED" : "CANCELLED");
+                }
+                try (var rows = sql.executeQuery("select count(*), sum(amount_won) from card_statement_payment")) {
+                    rows.next(); assertThat(rows.getInt(1)).isEqualTo(2); assertThat(rows.getLong(2)).isEqualTo(60_000);
+                }
+                try (var rows = sql.executeQuery("select sum(delta_won) from transaction_posting where asset_id = " + id(6))) {
+                    rows.next(); assertThat(rows.getLong(1)).isEqualTo(-60_000);
+                }
+                assertThatThrownBy(() -> sql.execute("update card_setting set auto_settlement_enabled = true"))
+                        .isInstanceOf(SQLException.class).hasMessageContaining("ck_card_no_automatic_settlement");
+            } finally { connection.setSchema(original); }
+        } finally {
+            try (Connection connection = dataSource.getConnection(); Statement sql = connection.createStatement()) {
+                sql.execute("drop schema if exists " + schema + " cascade");
+            }
+        }
+    }
+
     private void seed(Statement sql) throws SQLException {
         sql.execute("insert into app_user (id, display_name, email) values (" + id(1)
                 + ", 'Payer', 'payer@example.test'), (" + id(13) + ", 'Card owner', 'card@example.test')");

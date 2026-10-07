@@ -430,7 +430,7 @@ function DayDetailDialog({ open, date, summary, items, isSummaryPending, isPendi
 }) {
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(46rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(42rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg">
+      <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(46rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(42rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg sm:p-0">
         <header className="grid shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-[var(--line)] px-2 pb-2 pt-[max(.5rem,env(safe-area-inset-top))] md:px-4 md:py-3">
           <Button type="button" variant="ghost" size="icon" aria-label="달력으로 돌아가기" onClick={onClose}><ArrowLeft size={20} /></Button>
           <div className="flex min-w-0 items-center justify-center gap-1">

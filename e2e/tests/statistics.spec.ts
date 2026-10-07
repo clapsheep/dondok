@@ -103,6 +103,7 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
     incomeWon: 600_000,
     expenseWon: -180_000,
     netWon: 780_000,
+    assetFormation: { savingsDepositWon: 0, savingsWithdrawalWon: 0, investmentDepositWon: 0, investmentWithdrawalWon: 0 },
   })
   expect(seed.initialStatistics.categoryBreakdown).toEqual(expect.arrayContaining([
     expect.objectContaining({ categoryName: '기타 수입', kind: 'INCOME', amountWon: 600_000 }),
@@ -117,7 +118,7 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
     if (request.method() === 'GET' && url.pathname === '/api/statistics/monthly') statisticsRequests.push(url.toString())
     if (request.method() === 'GET' && url.pathname === '/api/transactions') transactionListRequests.push(url.toString())
   })
-  await page.goto('/statistics')
+  await page.goto('/statistics?view=consumption')
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(seed.currentMonth)
   await expectCoreNavigation(page)
@@ -359,7 +360,7 @@ test('분류 원형 차트는 수입·지출 의미색과 분리된 여섯 색�
     body: JSON.stringify(monthlyStatistics),
   }))
   await page.evaluate(() => localStorage.setItem('dondok-theme', 'light'))
-  await page.goto(`/statistics?month=${month}&direction=income`)
+  await page.goto(`/statistics?view=consumption&month=${month}&direction=income`)
 
   const chart = page.getByRole('img', { name: '수입 분류 비중 원형 차트' })
   const slices = chart.locator('[data-category-donut-slice]')
@@ -393,7 +394,7 @@ test('분류 원형 차트는 수입·지출 의미색과 분리된 여섯 색�
 
   await page.getByRole('link', { name: '설정', exact: true }).click()
   await page.getByRole('radiogroup', { name: '화면 모드' }).locator('label').filter({ hasText: '다크' }).click()
-  await page.goto(`/statistics?month=${month}&direction=income`)
+  await page.goto(`/statistics?view=consumption&month=${month}&direction=income`)
   await expect(page.locator('html')).toHaveClass(/dark/)
   await expect(slices).toHaveCount(6)
   const darkColors = await resolvedCategoryColors(slices)

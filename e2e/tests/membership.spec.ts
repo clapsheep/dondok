@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { logoutFromLedger, registerAndLogin } from './support/auth'
 import { openAssetPicker, selectAsset } from './support/asset-picker'
 
-test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 관리하고 이체한다', async ({ page, request }) => {
+test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 관리하고 이체한다', { tag: '@pr' }, async ({ page, request }) => {
   const ownerName = `초대한 사람 ${test.info().workerIndex}`
   const memberName = `참여한 사람 ${test.info().workerIndex}`
   const owner = await registerAndLogin(page, request, ownerName)

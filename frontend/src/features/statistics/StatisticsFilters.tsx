@@ -93,7 +93,7 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
       <Dialog open={dialogOpen} onOpenChange={(nextOpen) => { if (!nextOpen) close() }}>
         <DialogContent
           id="statistics-filter-dialog"
-          className="left-0 top-auto bottom-0 max-h-[calc(100dvh-1rem)] w-full translate-x-0 translate-y-0 rounded-t-lg rounded-b-none md:left-1/2 md:top-1/2 md:bottom-auto md:w-[min(56rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg"
+          className="left-0 top-auto bottom-0 max-h-[calc(100dvh-1rem)] w-full translate-x-0 translate-y-0 rounded-t-lg rounded-b-none md:left-1/2 md:top-1/2 md:bottom-auto md:w-[min(56rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg p-0 sm:p-0"
           aria-labelledby="statistics-filter-title"
           finalFocus={trigger}
         >
@@ -104,7 +104,7 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
           </header>
 
           <div className="grid gap-6 py-5 md:grid-cols-2">
-            <FilterRadioGroup legend="자산 소유자" description="거래의 주 자산에 현재 표시된 소유 marker를 기준으로 해요." value={draft.owner} onValueChange={(owner) => setDraft((current) => ({ ...current, owner: owner as StatisticsUrlState['owner'] }))}>
+            <FilterRadioGroup legend="자산 소유자" description="수입·소비는 선택 자산, 납입은 받는 자산, 인출은 보내는 자산의 현재 소유자를 기준으로 해요." value={draft.owner} onValueChange={(owner) => setDraft((current) => ({ ...current, owner: owner as StatisticsUrlState['owner'] }))}>
               <FilterRadioOption name="statistics-owner" value="all">전체</FilterRadioOption>
               {members.map((member) => <FilterRadioOption key={member.memberId} name="statistics-owner" value={`member:${member.memberId}`}><MemberAvatar displayName={member.displayName} memberId={member.memberId} /><span>{member.displayName}{member.currentUser ? ' (나)' : ''}</span></FilterRadioOption>)}
             </FilterRadioGroup>

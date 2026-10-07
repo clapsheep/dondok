@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { openQuickAssetDetail } from './support/assets'
 import { registerAndLogin } from './support/auth'
 
-test('두 화면이 같은 자산을 수정하면 오래된 저장을 막고 입력을 최신 버전에 다시 적용한다', async ({ page, request }) => {
+test('두 화면이 같은 자산을 수정하면 오래된 저장을 막고 입력을 최신 버전에 다시 적용한다', { tag: '@pr' }, async ({ page, request }) => {
   await registerAndLogin(page, request, `동시 수정 사용자 ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await page.getByRole('link', { name: '자산', exact: true }).click()

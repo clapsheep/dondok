@@ -80,7 +80,7 @@
 
 각 `.dockerignore`에는 최소한 `.git`, `.env*`, `secrets`, build output, IDE 파일을 포함한다. 단, build에 안전한 예시가 필요할 때만 `.env.example`을 명시적으로 허용한다.
 
-base image는 프로젝트 생성 시 공식 지원 버전과 보안 패치를 확인해 고정한다. 운영 image에 `latest` 태그만 사용하지 않고 앱 버전과 Git SHA를 기록한다. Mac mini의 CPU가 Apple Silicon이면 `linux/arm64`를 기본으로 빌드하되 Dockerfile에 특정 architecture를 하드코딩하지 않는다.
+base image는 프로젝트 생성 시 공식 지원 버전과 보안 패치를 확인해 고정한다. 운영 image에 `latest` 태그만 사용하지 않고 앱 버전과 Git SHA를 기록한다. 운영은 M4 Mac mini이며 릴리스 CI와 이미지 플랫폼을 `linux/arm64`로 맞춘다. 개발용 multi-stage Dockerfile은 유지하고 릴리스는 `infra/images/`의 runtime Dockerfile로 이미 검증한 JAR·dist를 포장한다. [CI·이미지 재사용 계약](ci-release-pipeline.md)을 따른다.
 
 ## Compose 운영 경계
 
@@ -191,18 +191,20 @@ DONDOK_SMTP_STARTTLS=true
 [GitHub의 self-hosted runner 보안 지침](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners)에 따라 public 애플리케이션 저장소에는 Mac mini self-hosted runner를 등록하지 않는다. public fork와 PR이 수정한 workflow가 운영 호스트에서 실행될 수 있기 때문이다. 배포 전용 private 저장소에만 전용 runner를 등록하고 다음 순서를 실행한다.
 
 1. GitHub-hosted runner가 public `dondok` 저장소의 현재 `main` SHA를 읽는다.
-2. 같은 SHA의 `CI` push run이 성공했는지 확인하고, 다르면 배포하지 않는다.
+2. 같은 SHA의 최신 `CI` push run이 성공했는지 확인하고 해당 attempt의 release manifest를 검증한다. PR·수동 benchmark·실패·미완료 run은 배포할 수 없다.
 3. private 저장소에만 연결된 Mac mini runner가 검증된 SHA와 `$DONDOK_STATE_DIR/current-revision`을 비교한다. 같으면 checkout·백업·빌드·Compose·외부 smoke를 모두 건너뛴다.
 4. 변경된 SHA일 때만 검증된 revision을 checkout한다.
-5. [`infra/deploy-production.sh`](../../infra/deploy-production.sh)가 SHA tag로 backend·frontend image를 build한다.
+5. [`infra/deploy-production.sh`](../../infra/deploy-production.sh)가 `infra/release_manifest.py`로 동일한 성공 run의 manifest를 확인하고 backend·frontend image를 digest로 pull한다. ARM64와 revision label이 일치해야 하며 서버에서 build하지 않는다.
 6. 기존 DB가 실행 중이면 새 배포 전에 daily bundle과 격리 복원 drill을 성공시킨다.
 7. 운영 전용 checkout을 해당 SHA로 전환하고 `docker compose up --no-build --wait`로 교체한다.
-8. 실패하면 migration 이전 backup을 남긴 채 직전 SHA image와 checkout으로 애플리케이션 rollback을 시도한다.
+8. 실패하면 migration 이전 backup을 남긴 채 교체 직전 컨테이너에서 확보한 image ID와 checkout으로 애플리케이션 rollback을 시도한다. 기존 SHA tag 방식에서 전환하는 첫 배포도 지원한다.
 9. GitHub-hosted runner가 공개 URL의 HTTPS, HSTS, HTTP redirect, `/healthz`, CSRF endpoint를 외부에서 확인한다.
 
 예약 확인은 GitHub Actions의 IANA timezone schedule로 매일 `03:00 Asia/Seoul`에 한 번 실행한다. GitHub의 예약 실행은 부하에 따라 몇 분 늦게 시작할 수 있지만 같은 날 중복 배포하지 않는다. 사용자가 긴급 배포를 명시적으로 요청했을 때만 private workflow의 `workflow_dispatch`를 실행해 다음 새벽 3시를 기다리지 않는다. 수동 실행도 임의 branch나 SHA를 받지 않고 CI가 성공한 최신 public `main`만 대상으로 하며, 이미 같은 revision이면 배포하지 않는다.
 
 private 저장소의 repository variable `DEPLOYMENT_ENABLED`는 정상 운영 중 `true`로 유지하고, 예약·수동 배포를 모두 멈춰야 할 때만 emergency kill switch로 `false`를 사용한다. `concurrency: dondok-production`은 예약과 긴급 실행이 겹쳐도 한 번에 하나만 진행하게 한다.
+
+private 배포 workflow는 `GH_TOKEN`으로 성공한 public CI artifact를 읽을 수 있어야 한다. GHCR가 private이면 호스트 credential store에 package read 권한의 로그인을 먼저 준비한다. GitHub token과 registry credential은 이미지나 `.env.example`에 실제 값으로 넣지 않는다. 성공한 배포의 digest와 CI 식별자는 제한된 상태 디렉터리의 `current-release.json`에 보존한다. 전환과 벤치마크 절차는 [CI 운영 계약](ci-release-pipeline.md)을 따른다.
 
 private 배포 저장소 workflow만 GitHub environment의 다음 설정 변수를 사용한다. 이 값도 비공개 운영 정보이며 공개 문서에는 용도만 적는다. 실제 비밀번호나 SMTP credential은 GitHub에 복제하지 않는다.
 
@@ -312,7 +314,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 ## 프로젝트 생성 완료 조건
 
 - `backend/`, `frontend/`, `e2e/`가 독립 명령으로 build/test 가능
-- 각 Dockerfile의 multi-stage, non-root, healthcheck 검증
+- 개발용 Dockerfile의 multi-stage와 모든 runtime image의 non-root·healthcheck 검증; 릴리스 Dockerfile은 검증된 artifact만 포장
 - `.dockerignore`에서 모든 환경파일과 secret 제외
 - `.env.example`과 실제 설정 변수 목록 일치
 - `docker compose -f compose.yaml -f compose.dev.yaml config` 성공

@@ -451,7 +451,7 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
-    void cardInstallmentsSplitRemainderAndCreateStatementsAndSchedulesAtomically() {
+    void cardInstallmentsSplitRemainderAndCreateStatementsWithoutSchedules() {
         Fixture fixture = fixture();
         AssetService.AssetView bank = createStandardAsset(
                 fixture, "BANK", "결제 계좌", 0, "card-bank");
@@ -487,7 +487,7 @@ class TransactionServiceIntegrationTest {
                  where schedule.statement_id in (
                     select charge.statement_id from card_charge charge where charge.source_transaction_id = ?
                  )
-                """, created.transactionId())).isEqualTo(3);
+                """, created.transactionId())).isZero();
     }
 
     @Test

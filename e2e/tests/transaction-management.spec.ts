@@ -80,7 +80,7 @@ test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보�
   await expect(page.getByRole('heading', { name: mobile ? '자산 편집' : '자산 정보 수정', exact: true })).toBeVisible()
 })
 
-test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계에서 삭제할 수 있다', async ({ page, request }) => {
+test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계에서 삭제할 수 있다', { tag: '@pr' }, async ({ page, request }) => {
   const suffix = `${test.info().workerIndex}-${Date.now().toString().slice(-6)}`
   const before = `QC 수정 전 ${suffix}`
   const after = `QC 수정 후 ${suffix}`

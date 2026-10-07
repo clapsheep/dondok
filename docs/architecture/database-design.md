@@ -151,7 +151,7 @@ V29는 활성·보관 여부와 관계없이 기존 공동 소유 또는 소유�
 
 사용자가 직접 만드는 `TRANSFER/NORMAL`의 두 posting 자산은 모두 활성 `asset_type.system_code`가 `BANK`, `SAVINGS`, `INVESTMENT` 중 하나여야 한다. 두 자산의 `owner_member_id`와 `ownership_scope`는 서로 같을 필요가 없고 소유 marker에 따른 FK 외 권한 제약을 추가하지 않는다. 이 유형 일관성은 여러 테이블을 조회해야 하므로 단순 DB `CHECK`로 중복하지 않고 transaction application service가 같은 가계부·활성 상태와 함께 검증한다. 카드 정산·선결제처럼 별도 subtype과 전용 command를 쓰는 시스템 이체는 각 정책이 허용 자산을 검증한다.
 
-자산 소유자를 다른 구성원으로 변경할 때 사용자가 동의하면 해당 자산의 삭제되지 않은 수입·지출 거래 `performed_by_member_id`를 새 소유자로 한 트랜잭션에서 bulk update한다. 이체·카드 정산은 통계 대상이 아니므로 자동 변경하지 않는다.
+자산 소유자를 다른 구성원으로 변경할 때 사용자가 동의하면 해당 자산의 삭제되지 않은 수입·지출 거래 `performed_by_member_id`를 새 소유자로 한 트랜잭션에서 bulk update한다. 이체·카드 정산은 소유자와 독립적으로 주체를 보존하므로 자동 변경하지 않는다(D-068 포함).
 
 거래별 posting 개수와 부호는 `TransactionPostingPolicy`가 생성하고 application service가 검증한다. PostgreSQL에는 PK/FK/unique/0이 아닌 금액만 강제한다. 하나의 Spring 애플리케이션만 DB를 쓰는 초기 구조에서 모든 거래마다 deferred trigger로 다시 계산하는 것은 과한 검증으로 판단했다.
 
@@ -329,10 +329,19 @@ G1 데이터·핵심 계약은 답변을 완료했다. 이후 기능 구현에 �
 
 ### 수동 전액 결제 (V31)
 
-`card_statement_payment.payment_type=MANUAL`은 실행자가 남은 전액을 직접 결제 기록한 경우다. 작성자를 필수로 두며 날짜는 실행일이고 `TRANSFER/CARD_SETTLEMENT`, `source_type=SYSTEM`으로 기존 posting·환불 반환·명의자 조회를 재사용한다. 선결제의 날짜 제한과 자동 정산의 원 예정일·정규 결제 unique 정책은 그대로 둔다. 명세 행 잠금 아래 남은 금액·version·결제 계좌를 함께 비교하고 불일치는 412로 거부한다. 전액 결제는 명세를 PAID로, 유효 schedule을 COMPLETED로 만든다. 수동 결제 취소는 명세를 다시 열고 존재하는 schedule을 CANCELLED로 둬 즉시 재정산하지 않는다.
+`card_statement_payment.payment_type=MANUAL`은 실행자가 남은 전액을 직접 결제 기록한 경우다. 작성자를 필수로 두며 날짜는 입력받은 실제 결제일(`paid_on`)이고 `TRANSFER/CARD_SETTLEMENT`, `source_type=SYSTEM`으로 기존 posting·환불 반환·명의자 조회를 재사용한다. 선결제의 날짜 제한과 자동 정산의 원 예정일·정규 결제 unique 정책은 그대로 둔다. 명세 행 잠금 아래 남은 금액·version·결제 계좌를 함께 비교하고 불일치는 412로 거부한다. 전액 결제는 명세를 PAID로, 유효 schedule을 COMPLETED로 만든다. 수동 결제 취소는 명세를 다시 열고 존재하는 schedule을 CANCELLED로 둬 즉시 재정산하지 않는다.
 
 ### 결제 이후 추가 사용 (V32)
 
 `card_statement.additional_usage_after_payment`는 결제일 당일 이후 PAID 명세의 청구 증가로 남은 금액이 생긴 이력을 보존한다. 신규 구매와 구매 정정은 명세 잠금 안에서 청구를 재계산하고 잔액이 양수일 때만 다시 연다. true이면 구매·설정 변경의 예약 생성 대상에서 제외하며 worker도 추가 정산을 거부한다. 이미 잘못 PAID 처리됐으나 잔액이 남은 명세는 V32에서 다시 노출하며 기존 결제·posting은 변경하지 않는다. 배포 후 되돌릴 때는 데이터를 삭제하거나 과거 migration을 수정하지 않고 전진 수정한다. 표시값은 API `additionalUsageAfterPayment`로 공유하고, 기존 거래 성공의 명세·자산 캐시 무효화와 다른 세션 진입/focus 재조회를 유지한다.
 
 V30의 과거 거래 이관은 명세 결제 연결을 우선한다. 기존 구매 정정은 0원이 된 payment 행을 지우고 연결 거래만 soft-delete했으므로, 이런 취소 거래는 posting이 정확히 한 신용카드를 가리킬 때만 해당 명의자로 이관한다. 작성자나 출금 계좌로 추정하지 않고 금액·posting·삭제 상태를 유지한다. 활성 연결 누락과 카드가 없는/복수인 취소 거래는 여전히 제약 검증에서 중단한다.
+
+
+## 이체 목적과 자산 형성 통계 (D-068)
+
+V33은 ledger_transaction.transfer_purpose를 추가하고 기존 NORMAL 이체만 GENERAL로 이관한다. 목적은 일반 이체에서만 필수이며 다른 거래는 null이다. 납입·회수는 삭제되지 않은 MANUAL/NORMAL 거래를 경제활동일로 bounded 집계한다. posting은 변경하지 않는다. 장애 복구는 컬럼과 저장된 목적을 보존하는 정방향 수정으로 수행한다. V33 이전 백엔드는 새 목적 제약을 충족하지 못하므로 그대로 되돌리지 않고 호환 패치를 배포한다.
+
+## D-069 수동 카드 결제 전환
+
+V34는 자동 정산 설정을 false로 고정하고 미처리 예약을 취소한다. 과거 schedule/REGULAR 이력은 보존한다. `card_payment_item_allocation`은 payment와 원 구매/할부 회차별 배분을 저장한다. `card_payable_items(book, card)`는 해당 카드의 유효 charge에서 환불·기준일 흡수·실제 결제액을 반영한다. 선택 배분을 우선 적용하고 기존 미배분 결제액은 같은 명세의 오래된 항목부터 배분한다. 기록 정정으로 charge ID가 재생성돼도 원 구매/회차와 명세가 같으면 연결을 유지하고, 이동·감액·환불로 남는 명세 결제액은 기존 명세 우선 환불 계약을 따른다. 기존 잔액과 거래는 이관으로 바꾸지 않는다. 복구는 이전 바이너리로 자동 실행을 재개하지 않고 새 버전에서 전진 수정한다.

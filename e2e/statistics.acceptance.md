@@ -97,3 +97,17 @@ B 소유 자산의 최초 금액 777,777원, 일반 이체 50,000원, 카드 선
 cd /absolute/repository/dondok/e2e
 npx playwright test tests/statistics.spec.ts --project=desktop-chrome --workers=1
 ```
+
+
+## 이체 목적과 자금 배분 (D-068)
+
+- 기본 보기는 전체 사용이며 `view=consumption`은 기존 소비 통계, `view=formation`은 납입·회수·순납입이다. 월·구성원·소유자·분류·보기는 URL로 보존한다.
+- 급여 300만·소비 120만·적금 납입 50만·투자 납입 30만·적금 회수 20만이면 총 사용액 200만, 수입에서 사용하고 남은 금액 100만, 납입 80만·회수 20만·순납입 60만이다.
+- 이체 목적 5개는 원장 거래에 저장한다. 목적 없는 신규 요청은 일반 이체, 목적 없는 수정 요청은 기존 목적 보존이다. 카드 정산에는 목적을 부여하지 않는다.
+- 계좌→적금/투자와 반대 방향은 목적을 제안하고, 적금/투자 사이 재배치는 일반 이체를 제안한다. 직접 선택한 목적은 자산 변경에도 유지한다.
+- 목적만 수정하면 두 자산 잔액은 같고 통계만 변경된다. 삭제는 잔액과 목적 통계를 함께 되돌린다. 회수는 회수일 통계에만 반영하며 과거 납입을 변경하지 않는다.
+- 목적 집계의 소유자 필터는 납입 도착·인출 출발 자산이고 사람 필터는 경제활동 주체다. 수입·지출 분류를 지정하면 분류 없는 이체는 집계하지 않는다.
+- `transfer-purpose.spec.ts`는 실 API와 320px·모바일·iPad 세로/가로·데스크톱 회전, draft·URL 유지, 12개월 목록과 빈 상태를 검증한다. 실패 trace·screenshot·console·network/request ID·seed manifest를 보존한다.
+- V32→V33 migration integration은 삭제된 과거 이체까지 GENERAL로 이관하고 기존 모든 거래 필드·posting·잔액을 보존하며 카드 정산 목적 입력을 거부하는지 검증한다.
+
+2026-10-07 로컬 격리 PostgreSQL 검증: backend 122개, frontend 98개, 통계/이체 목적의 mobile-chrome·ipad-portrait·desktop-chrome 9개와 거래/자산 회귀 desktop-chrome 11개 통과. 빈 상태 추가 후 이체 목적 3개 프로젝트 재검증 통과. 실제 운영 데이터나 배포 환경은 사용하지 않았다.

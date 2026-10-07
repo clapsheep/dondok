@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -65,11 +66,12 @@ public class CardStatementController {
     ) {
         return service.payManually(principal.userId(), statementId, idempotencyKey,
                 new CardStatementService.ManualPaymentCommand(
-                        request.expectedVersion(), request.expectedAmountWon(), request.settlementAssetId()));
+                        request.expectedVersion(), request.expectedAmountWon(), request.settlementAssetId(), request.paidOn()));
     }
 
     public record ManualPaymentRequest(
-            @Min(0) long expectedVersion, @Positive long expectedAmountWon, @NotNull UUID settlementAssetId
+            @Min(0) long expectedVersion, @Positive long expectedAmountWon, @NotNull UUID settlementAssetId,
+            LocalDate paidOn
     ) {}
 
     @PostMapping("/card-statements/{statementId}/prepayments/preview")

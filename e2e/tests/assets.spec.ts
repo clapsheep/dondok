@@ -218,13 +218,12 @@ async function expectCardDetailAcrossBreakpoints(page: Page) {
     await page.setViewportSize({ width, height: width < 768 ? 820 : 900 })
     await expect(name).toHaveValue(longName)
     await expect(name, `${width}px에서 상세 이름 focus를 보존해야 합니다`).toBeFocused()
-    await expect(page.getByRole('switch', { name: /^결제일에 자동 정산/ })).toBeVisible()
+    await expect(page.getByRole('switch', { name: /^결제일에 자동 정산/ })).toHaveCount(0)
     for (const [target, label] of [
       [page.getByLabel('정산일'), '정산일'],
       [page.getByRole('spinbutton', { name: '결제일', exact: true }), '결제일'],
       [page.getByLabel('결제 월'), '결제 월'],
       [page.getByLabel('결제 계좌', { exact: true }), '결제 계좌'],
-      [page.getByRole('switch', { name: /^결제일에 자동 정산/ }), '자동 정산'],
     ] as const) await expectHitTargetAtLeast44(target, `${width}px ${label}`)
     expect(await hasPageOverflow(page), `${width}px 카드 상세 화면에 가로 overflow가 없어야 합니다`).toBe(false)
   }
@@ -567,7 +566,7 @@ test('체크카드는 결제 계좌를 필수로 저장하고 적금 자동이�
   await expect(page.getByRole('spinbutton', { name: '자동이체일', exact: true })).toHaveValue('27')
 })
 
-test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산은 상세에서 설정한다', async ({ page, request }) => {
+test('신용카드 등록과 수정은 정산 정보를 유지하고 자동 정산을 제공하지 않는다', async ({ page, request }) => {
   await registerAndLogin(page, request, `신용카드 사용자 ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await page.getByRole('link', { name: '자산', exact: true }).click()
@@ -618,14 +617,13 @@ test('신용카드 빠른 등록은 필수 정산 정보만 받고 자동 정산
   await expect(page.getByLabel('카드사', { exact: true })).toContainText('신한카드')
   await expect(page.getByLabel('결제 계좌', { exact: true })).toHaveAttribute('data-value', /.+/)
   const autoSettlement = page.getByRole('switch', { name: /^결제일에 자동 정산/ })
-  await expect(autoSettlement).not.toBeChecked()
+  await expect(autoSettlement).toHaveCount(0)
   await expectFlatStructure(page.getByRole('group', { name: '신용카드 설정' }), '상세 신용카드 설정 fieldset')
   await expectCardDetailAcrossBreakpoints(page)
-  await autoSettlement.click()
   await page.getByRole('button', { name: '변경 저장' }).click()
   await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요')
   await page.getByRole('link', { name: '자산 편집' }).click()
-  await expect(autoSettlement).toBeChecked()
+  await expect(autoSettlement).toHaveCount(0)
 })
 
 async function hasPageOverflow(page: Page) {

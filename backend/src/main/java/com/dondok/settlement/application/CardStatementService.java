@@ -196,7 +196,13 @@ public class CardStatementService {
         LedgerMemberEntity member = mutationGuard.lockCurrentMember(userId);
         Instant now = clock.instant();
         String scope = "POST:/api/card-statements/payments";
-        String requestHash = hash(statementId + "|" + command);
+        // Keep requests from older clients replayable across this additive API change.
+        String requestValue = command.paidOn() == null
+                ? "ManualPaymentCommand[expectedVersion=" + command.expectedVersion()
+                    + ", expectedAmountWon=" + command.expectedAmountWon()
+                    + ", settlementAssetId=" + command.settlementAssetId() + "]"
+                : command.toString();
+        String requestHash = hash(statementId + "|" + requestValue);
         SettlementIdempotencyRepository.Claim claim = idempotency.claim(
                 userId, member.getBookId(), scope, idempotencyKey, requestHash, now);
         if (!claim.fresh()) {
@@ -226,7 +232,7 @@ public class CardStatementService {
         UUID paymentId = UuidV7.next();
         UUID transactionId = UuidV7.next();
         long amount = statement.remainingAmountWon();
-        LocalDate paidOn = today();
+        LocalDate paidOn = command.paidOn() == null ? today() : command.paidOn();
         ManagedTransferPort.ManagedTransfer transfer = managedTransfers.create(new ManagedTransferPort.CreateCommand(
                 transactionId, member.getBookId(), TransferSubtype.CARD_SETTLEMENT, paidOn, amount,
                 "카드 대금 수동 결제", "SYSTEM", paymentId, statement.cardOwnerMemberId(), member.getId(), now,
@@ -539,7 +545,11 @@ public class CardStatementService {
         return new ApiException(status, code, message);
     }
 
-    public record ManualPaymentCommand(long expectedVersion, long expectedAmountWon, UUID settlementAssetId) {}
+    public record ManualPaymentCommand(long expectedVersion, long expectedAmountWon, UUID settlementAssetId, LocalDate paidOn) {
+        public ManualPaymentCommand(long expectedVersion, long expectedAmountWon, UUID settlementAssetId) {
+            this(expectedVersion, expectedAmountWon, settlementAssetId, null);
+        }
+    }
 
     public record PrepaymentCommand(long amountWon, long expectedVersion) {
     }

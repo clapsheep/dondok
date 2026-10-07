@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { mailToken } from './support/auth'
 
-test('회원가입, 이메일 인증, 세션 로그인, 비밀번호 재설정과 새 비밀번호 로그인', async ({ page, request }) => {
+test('회원가입, 이메일 인증, 세션 로그인, 비밀번호 재설정과 새 비밀번호 로그인', { tag: '@pr' }, async ({ page, request }) => {
   const suffix = `${Date.now()}${test.info().workerIndex}`
   const loginId = `dondok_${suffix}`
   const email = `${loginId}@example.test`

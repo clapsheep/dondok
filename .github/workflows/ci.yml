@@ -2,6 +2,12 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: Compare 1/2/3 E2E workers, three fresh runs each (never publishes)
+        type: boolean
+        default: true
   push:
     branches: [main]
 
@@ -9,12 +15,41 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      scope: ${{ steps.plan.outputs.scope }}
+      affected: ${{ steps.plan.outputs.affected }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.18.0"
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BENCHMARK: ${{ inputs.benchmark }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, subprocess
+          benchmark = os.environ['EVENT'] == 'workflow_dispatch' and os.environ['BENCHMARK'] == 'true'
+          scope = 'benchmark' if benchmark else 'pr' if os.environ['EVENT'] == 'pull_request' else 'full'
+          matrix = [dict(shard=1, total=1, workers=w, repeat=r) for w in (1, 2, 3) for r in (1, 2, 3)] if benchmark else [dict(shard=s, total=2, workers=2, repeat=1) for s in (1, 2)]
+          affected = subprocess.check_output(['node', 'e2e/ci/affected-tests.mjs'], text=True).strip() if scope == 'pr' else '.*'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'matrix={json.dumps(dict(include=matrix))}\nscope={scope}\naffected={affected}\n')
+          PYTHON
+
   contract-and-secrets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
         with:
@@ -26,10 +61,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Production deployment contracts
-        run: bash infra/tests/production-compose-contract.sh
+        run: |
+          bash infra/tests/production-compose-contract.sh
+          python3 -m unittest discover -s infra/tests -p 'test_*.py'
+          node --test e2e/ci/*.test.mjs
 
   backend-and-database:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     services:
       postgres:
         image: postgres:18.3-alpine
@@ -98,8 +136,16 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok -f database/tests/V1__schema_smoke.sql
           psql -v ON_ERROR_STOP=1 -h localhost -U dondok -d dondok -f database/tests/V1__ledger_delete_smoke.sql
 
+      - name: Preserve tested backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar-${{ github.run_attempt }}
+          path: backend/build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 3
+
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -120,14 +166,70 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-  auth-e2e:
-    runs-on: ubuntu-latest
+      - name: Preserve tested frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-${{ github.run_attempt }}
+          path: frontend/dist/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 3
+
+  images:
+    needs: [backend-and-database, frontend]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-jar-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runtime/backend
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runtime/frontend/dist
+      - name: Package tested artifacts without recompiling
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          test "$(uname -m)" = aarch64
+          jars=("$RUNNER_TEMP/runtime/backend/"*.jar)
+          test "${#jars[@]}" -eq 1
+          mv "${jars[0]}" "$RUNNER_TEMP/runtime/backend/app.jar"
+          cp frontend/nginx.conf frontend/api-proxy.conf "$RUNNER_TEMP/runtime/frontend/"
+          for service in backend frontend; do
+            docker build --platform linux/arm64 --label "org.opencontainers.image.revision=$REVISION" \
+              --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              -f "infra/images/$service.Dockerfile" -t "dondok-$service:$REVISION" "$RUNNER_TEMP/runtime"
+          done
+          docker save "dondok-backend:$REVISION" "dondok-frontend:$REVISION" | gzip -1 > "$RUNNER_TEMP/images.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arm64-images-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/images.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+  e2e-shards:
+    needs: [plan, images]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       COMPOSE_PROJECT_NAME: dondok-ci
       POSTGRES_PASSWORD: dondok_ci
       BASE_URL: http://127.0.0.1:5173
       MAILPIT_URL: http://127.0.0.1:8025
       CI: "true"
+      E2E_SCOPE: ${{ needs.plan.outputs.scope }}
+      E2E_AFFECTED_PATTERN: ${{ needs.plan.outputs.affected }}
+      E2E_WORKERS: ${{ matrix.workers }}
+      DONDOK_BACKEND_IMAGE: dondok-backend:${{ github.sha }}
+      DONDOK_FRONTEND_IMAGE: dondok-frontend:${{ github.sha }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -135,32 +237,126 @@ jobs:
           node-version: "24.18.0"
           cache: npm
           cache-dependency-path: e2e/package-lock.json
-      - name: Start application stack
-        run: docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm64-images-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/images
+      - name: Start the exact candidate images
+        run: |
+          docker load -i "$RUNNER_TEMP/images/images.tar.gz"
+          docker compose -f compose.yaml -f compose.dev.yaml up -d --no-build --wait
       - name: Production frontend proxy and rate-limit contracts
-        run: bash infra/tests/nginx-production-contract.sh dondok-frontend:local dondok-ci_app
+        run: bash infra/tests/nginx-production-contract.sh "$DONDOK_FRONTEND_IMAGE" dondok-ci_app
       - name: Install E2E dependencies
         working-directory: e2e
         run: npm ci
       - name: Install E2E browsers
         working-directory: e2e
         run: npx playwright install --with-deps chromium webkit
-      - name: Run responsive E2E
+      - name: Run selected E2E and measure resources
         working-directory: e2e
-        run: npx playwright test
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ matrix.total }}
+        run: python3 ci/measure.py npx playwright test --shard="$SHARD/$SHARDS"
       - name: Preserve service logs on failure
         if: failure()
-        run: docker compose -f compose.yaml -f compose.dev.yaml logs --no-color > e2e/test-results/compose.log
+        run: |
+          mkdir -p e2e/test-results
+          docker compose -f compose.yaml -f compose.dev.yaml logs --no-color > e2e/test-results/compose.log
       - name: Upload QC evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: auth-e2e-evidence
+          name: e2e-${{ github.run_attempt }}-${{ matrix.shard }}-w${{ matrix.workers }}-r${{ matrix.repeat }}
           path: |
             e2e/test-results
             e2e/blob-report
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
       - name: Stop application stack
         if: always()
         run: docker compose -f compose.yaml -f compose.dev.yaml down -v
+
+  # Preserve the branch-protection check name; every shard must succeed.
+  auth-e2e:
+    if: always()
+    needs: [plan, images, e2e-shards]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Require all shards
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
+
+  e2e-report:
+    if: always() && needs.plan.result == 'success'
+    needs: [plan, e2e-shards]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.18.0"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-${{ github.run_attempt }}-*
+          path: evidence
+      - name: Merge full or PR reports
+        if: needs.plan.outputs.scope != 'benchmark'
+        run: |
+          cd e2e
+          npm ci
+          mkdir all-blob-reports
+          find ../evidence -path '*/blob-report/*.zip' -exec cp {} all-blob-reports/ \;
+          npx playwright merge-reports --config playwright.config.ts --reporter html ./all-blob-reports
+      - name: Summarize benchmark (retry disabled)
+        if: needs.plan.outputs.scope == 'benchmark'
+        run: python3 e2e/ci/summarize-benchmark.py evidence >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.scope != 'benchmark'
+        with:
+          name: e2e-report-${{ github.run_attempt }}
+          path: e2e/playwright-report
+          retention-days: 14
+          if-no-files-found: error
+
+  publish-release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [contract-and-secrets, backend-and-database, frontend, auth-e2e, e2e-report]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm64-images-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/images
+      - name: Publish the tested images and their immutable references
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+          trap 'docker logout ghcr.io' EXIT
+          docker load -i "$RUNNER_TEMP/images/images.tar.gz"
+          for service in backend frontend; do
+            image="ghcr.io/${REPOSITORY,,}-$service"
+            test "$(docker image inspect "dondok-$service:$REVISION" --format '{{.Architecture}}')" = arm64
+            test "$(docker image inspect "dondok-$service:$REVISION" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$REVISION"
+            docker tag "dondok-$service:$REVISION" "$image:$REVISION"
+            docker push "$image:$REVISION"
+            ref="$(docker image inspect "$image:$REVISION" --format '{{json .RepoDigests}}' | jq -er --arg prefix "$image@" '[.[] | select(startswith($prefix))] | if length == 1 then .[0] else error("ambiguous digest") end')"
+            if [ "$service" = backend ]; then export BACKEND_IMAGE="$ref"; else export FRONTEND_IMAGE="$ref"; fi
+          done
+          python3 infra/release_manifest.py create > "$RUNNER_TEMP/release.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release.json
+          retention-days: 90
+          if-no-files-found: error

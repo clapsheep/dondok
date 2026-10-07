@@ -236,20 +236,6 @@ public class AssetLedgerRepository {
                 absolute(openingBalanceWon), Date.valueOf(expectedOn), Timestamp.from(now));
         recalculateBilledAmount(statementId, now);
 
-        if (setting.isAutoSettlementEnabled() && setting.getSettlementAssetId() != null) {
-            jdbcTemplate.update("""
-                    insert into card_payment_schedule (
-                        id, book_id, statement_id, settlement_asset_id, scheduled_on,
-                        status, attempt_count, created_at, updated_at, version
-                    ) values (?, ?, ?, ?, ?, 'SCHEDULED', 0, ?, ?, 0)
-                    on conflict (statement_id) do update
-                       set settlement_asset_id = excluded.settlement_asset_id,
-                           scheduled_on = excluded.scheduled_on,
-                           updated_at = excluded.updated_at,
-                           version = card_payment_schedule.version + 1
-                    """, UuidV7.next(), bookId, statementId, setting.getSettlementAssetId(),
-                    Date.valueOf(expectedOn), Timestamp.from(now), Timestamp.from(now));
-        }
     }
 
     public boolean isPublicHoliday(LocalDate date) {
@@ -265,55 +251,7 @@ public class AssetLedgerRepository {
             CardSettingEntity setting,
             Instant now
     ) {
-        if (setting == null || !setting.isAutoSettlementEnabled()
-                || setting.getSettlementAssetId() == null) {
-            jdbcTemplate.update("""
-                    update card_payment_schedule schedule
-                       set status = 'CANCELLED', last_error = null, next_retry_at = null,
-                           updated_at = ?, version = schedule.version + 1
-                      from card_statement statement
-                     where schedule.book_id = ?
-                       and schedule.statement_id = statement.id
-                       and statement.card_asset_id = ?
-                       and schedule.status in ('SCHEDULED', 'PROCESSING', 'FAILED')
-                    """, Timestamp.from(now), bookId, cardAssetId);
-            return;
-        }
-
-        List<ScheduleTarget> targets = jdbcTemplate.query("""
-                select statement.id, statement.due_on
-                  from card_statement statement
-                  join card_statement_forecast forecast on forecast.statement_id = statement.id
-                 where statement.book_id = ? and statement.card_asset_id = ?
-                   and statement.status in ('OPEN', 'FINALIZED')
-                   and not statement.additional_usage_after_payment
-                   and forecast.payment_amount_won > 0
-                   and not exists (
-                       select 1 from card_statement_payment payment
-                        where payment.statement_id = statement.id
-                          and payment.payment_type = 'REGULAR'
-                   )
-                 order by statement.id
-                """, (rs, rowNum) -> new ScheduleTarget(
-                rs.getObject("id", UUID.class), rs.getObject("due_on", LocalDate.class)),
-                bookId, cardAssetId);
-        for (ScheduleTarget target : targets) {
-            jdbcTemplate.update("""
-                    insert into card_payment_schedule (
-                        id, book_id, statement_id, settlement_asset_id, scheduled_on,
-                        status, attempt_count, created_at, updated_at, version
-                    ) values (?, ?, ?, ?, ?, 'SCHEDULED', 0, ?, ?, 0)
-                    on conflict (statement_id) do update
-                       set settlement_asset_id = excluded.settlement_asset_id,
-                           scheduled_on = excluded.scheduled_on,
-                           status = 'SCHEDULED', attempt_count = 0,
-                           last_error = null, next_retry_at = null,
-                           updated_at = excluded.updated_at,
-                           version = card_payment_schedule.version + 1
-                    """, UuidV7.next(), bookId, target.statementId(), setting.getSettlementAssetId(),
-                    Date.valueOf(target.dueOn()), Timestamp.from(now), Timestamp.from(now));
-        }
-
+        // Retain only cancellation for historical schedules; never prepare new execution.
         jdbcTemplate.update("""
                 update card_payment_schedule schedule
                    set status = 'CANCELLED', last_error = null, next_retry_at = null,
@@ -323,19 +261,6 @@ public class AssetLedgerRepository {
                    and schedule.statement_id = statement.id
                    and statement.card_asset_id = ?
                    and schedule.status in ('SCHEDULED', 'PROCESSING', 'FAILED')
-                   and not exists (
-                       select 1
-                         from card_statement_forecast forecast
-                        where forecast.statement_id = statement.id
-                          and statement.status in ('OPEN', 'FINALIZED')
-                          and not statement.additional_usage_after_payment
-                          and forecast.payment_amount_won > 0
-                          and not exists (
-                              select 1 from card_statement_payment payment
-                               where payment.statement_id = statement.id
-                                 and payment.payment_type = 'REGULAR'
-                          )
-                   )
                 """, Timestamp.from(now), bookId, cardAssetId);
     }
 
@@ -442,6 +367,4 @@ public class AssetLedgerRepository {
         return Math.abs(value);
     }
 
-    private record ScheduleTarget(UUID statementId, LocalDate dueOn) {
-    }
 }

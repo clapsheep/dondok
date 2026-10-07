@@ -142,7 +142,7 @@ export function LedgerDeletionDialog({ initialLedger, onRequestClose, onResolved
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !remove.isPending) requestClose() }}>
     <DialogContent
-      className="left-1/2 top-auto bottom-[max(.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-[calc(100vw-2rem)] -translate-x-1/2 translate-y-0 md:top-1/2 md:bottom-auto md:w-[min(36rem,calc(100vw-3rem))] md:-translate-y-1/2"
+      className="left-1/2 top-auto bottom-[max(.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-[calc(100vw-2rem)] -translate-x-1/2 translate-y-0 md:top-1/2 md:bottom-auto md:w-[min(36rem,calc(100vw-3rem))] md:-translate-y-1/2 p-0 sm:p-0"
       aria-labelledby="ledger-deletion-dialog-title"
       aria-describedby="ledger-deletion-dialog-description"
       initialFocus={heading}
