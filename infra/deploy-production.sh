@@ -94,7 +94,7 @@ SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd -P)"
   || fail 'source checkout HEAD does not match the requested revision'
 
 file_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
 require_private_file() {
