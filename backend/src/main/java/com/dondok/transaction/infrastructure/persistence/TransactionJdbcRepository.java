@@ -86,6 +86,7 @@ public class TransactionJdbcRepository {
             UUID statementId = jdbcTemplate.queryForObject("""
                     select id from card_statement
                      where card_asset_id = ? and cycle_start = ? and cycle_end = ?
+                     for update
                     """, UUID.class, cardAssetId, Date.valueOf(cycle.start()), Date.valueOf(cycle.end()));
             LocalDate dueOn = jdbcTemplate.queryForObject(
                     "select due_on from card_statement where id = ?", LocalDate.class, statementId);
@@ -100,7 +101,10 @@ public class TransactionJdbcRepository {
                     Date.valueOf(dueOn), absorbedByBalanceAnchor, Timestamp.from(now));
             recalculateStatement(statementId, now);
             if (!absorbedByBalanceAnchor
-                    && setting.isAutoSettlementEnabled() && setting.getSettlementAssetId() != null) {
+                    && setting.isAutoSettlementEnabled() && setting.getSettlementAssetId() != null
+                    && Boolean.FALSE.equals(jdbcTemplate.queryForObject(
+                            "select additional_usage_after_payment from card_statement where id = ?",
+                            Boolean.class, statementId))) {
                 jdbcTemplate.update("""
                         insert into card_payment_schedule (
                             id, book_id, statement_id, settlement_asset_id, scheduled_on,
@@ -131,21 +135,34 @@ public class TransactionJdbcRepository {
             performerClause = " and performed_by_member_id = ?";
             arguments.add(performedByMemberId);
         }
+        // Keep canonical financial amounts separate from card transfers, in one bounded snapshot.
+        List<Object> paymentArguments = new ArrayList<>(arguments);
+        arguments.addAll(paymentArguments);
         String sql = """
-                select occurred_on,
-                       coalesce(sum(statistics_amount_won)
-                           filter (where transaction_type = 'INCOME'), 0) income_won,
-                       coalesce(sum(statistics_amount_won)
-                           filter (where transaction_type = 'EXPENSE'), 0) expense_won
-                  from ledger_financial_activity
-                 where book_id = ? and occurred_on >= ? and occurred_on < ?
+                select occurred_on, sum(income_won) income_won, sum(expense_won) expense_won,
+                       sum(card_payment_won) card_payment_won
+                  from (
+                    select occurred_on,
+                           case when transaction_type = 'INCOME' then statistics_amount_won else 0 end income_won,
+                           case when transaction_type = 'EXPENSE' then statistics_amount_won else 0 end expense_won,
+                           0::bigint card_payment_won
+                      from ledger_financial_activity
+                     where book_id = ? and occurred_on >= ? and occurred_on < ?
                 """ + performerClause + """
+                    union all
+                    select occurred_on, 0, 0, amount_won
+                      from ledger_transaction
+                     where book_id = ? and occurred_on >= ? and occurred_on < ?
+                       and deleted_at is null and transaction_type = 'TRANSFER'
+                       and transfer_subtype in ('CARD_SETTLEMENT', 'CARD_PREPAYMENT')
+                """ + performerClause + """
+                  ) activity
                  group by occurred_on
                  order by occurred_on
                 """;
         return jdbcTemplate.query(sql, (rs, rowNum) -> new CalendarRow(
                 rs.getObject("occurred_on", LocalDate.class), rs.getLong("income_won"),
-                rs.getLong("expense_won")), arguments.toArray());
+                rs.getLong("expense_won"), rs.getLong("card_payment_won")), arguments.toArray());
     }
 
     public PageRows page(
@@ -451,22 +468,19 @@ public class TransactionJdbcRepository {
                         where charge.statement_id = statement.id
                           and not charge.absorbed_by_balance_anchor
                    ), 0),
-                       status = case
-                           when statement.status = 'PAID' and statement.due_on > ? then 'OPEN'
-                           when statement.status = 'PAID' then 'FINALIZED'
-                           else statement.status
-                       end,
-                       finalized_at = case
-                           when statement.status = 'PAID' and statement.due_on > ? then null
-                           else statement.finalized_at
-                       end,
-                       settled_at = case
-                           when statement.status = 'PAID' then null
-                           else statement.settled_at
-                       end,
                        updated_at = ?, version = version + 1
                  where statement.id = ?
-                """, Date.valueOf(today), Date.valueOf(today), Timestamp.from(now), statementId);
+                """, Timestamp.from(now), statementId);
+        jdbcTemplate.update("""
+                update card_statement statement
+                   set status = case when statement.due_on > ? then 'OPEN' else 'FINALIZED' end,
+                       additional_usage_after_payment = additional_usage_after_payment or statement.due_on <= ?,
+                       finalized_at = case when statement.due_on > ? then null else coalesce(finalized_at, ?) end,
+                       settled_at = null
+                  from card_statement_forecast forecast
+                 where statement.id = ? and forecast.statement_id = statement.id
+                   and statement.status = 'PAID' and forecast.payment_amount_won > 0
+                """, Date.valueOf(today), Date.valueOf(today), Date.valueOf(today), Timestamp.from(now), statementId);
     }
 
     public record PostingWrite(UUID assetId, long deltaWon) {
@@ -497,7 +511,7 @@ public class TransactionJdbcRepository {
     }
     public record InstallmentWrite(int number, long amountWon, CardBillingCyclePolicy.Cycle cycle) {
     }
-    public record CalendarRow(LocalDate date, long incomeWon, long expenseWon) {
+    public record CalendarRow(LocalDate date, long incomeWon, long expenseWon, long cardPaymentWon) {
     }
     public record PostingRow(short lineNo, UUID assetId, String assetName, long deltaWon) {
     }

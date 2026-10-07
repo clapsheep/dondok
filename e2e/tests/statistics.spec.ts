@@ -14,7 +14,7 @@ type MonthlyStatistics = {
   periodEndExclusive: string
   appliedFilters: {
     performedByMemberId: string | null
-    assetOwnerType: 'ALL' | 'JOINT' | 'MEMBER'
+    assetOwnerType: 'ALL' | 'MEMBER'
     assetOwnerMemberId: string | null
     categoryId: string | null
   }
@@ -33,7 +33,7 @@ type StatisticsSeed = {
   ownerMemberId: string
   otherMemberId: string
   otherMemberName: string
-  jointAssetId: string
+  otherAssetId: string
   cardAssetId: string
   foodCategoryId: string
   currentMonth: string
@@ -189,7 +189,7 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   const categoryTransactions = page.getByRole('dialog', { name: '교통비 거래 내역' })
   await expect(categoryTransactions.getByText(`${seed.currentMonth.slice(0, 4)}년 ${Number(seed.currentMonth.slice(5))}월 통계에 포함된 거래만 보여드려요.`, { exact: true })).toBeVisible()
   const transactionList = categoryTransactions.getByRole('list', { name: '교통비 거래 내역' })
-  await expect(transactionList.getByText('통계 지출 B 공동 교통', { exact: true })).toBeVisible()
+  await expect(transactionList.getByText('통계 지출 B 상대 자산 교통', { exact: true })).toBeVisible()
   await expect(transactionList.getByText('-40,000원', { exact: true })).toBeVisible()
   await expect(categoryTransactions.getByText('사용자 선택 통계 제외 지출', { exact: true })).toHaveCount(0)
   await categoryTransactions.getByRole('button', { name: '거래 내역 닫기' }).click()
@@ -241,13 +241,13 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await expect.poll(() => new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
   await filterTrigger.click()
   filterDialog = page.getByRole('dialog', { name: '세부 필터' })
-  const jointRadio = filterDialog.getByRole('group', { name: '자산 소유자' }).getByRole('radio', { name: '공동 소유', exact: true })
+  const ownerRadio = filterDialog.getByRole('group', { name: '자산 소유자' }).getByRole('radio', { name: seed.otherMemberName, exact: true })
   const foodRadio = filterDialog.getByRole('group', { name: '분류' }).getByRole('radio', { name: '식비 · 지출', exact: true })
-  await expect(jointRadio.locator('xpath=..').locator('[data-joint-avatar]')).toHaveCount(1)
-  await jointRadio.check()
+  await expect(ownerRadio.locator('xpath=..').locator('[data-member-avatar]')).toHaveCount(1)
+  await ownerRadio.check()
   await foodRadio.check()
   await foodRadio.focus()
-  await expectFilterDraftAcrossRotation(page, { jointRadio, foodRadio })
+  await expectFilterDraftAcrossRotation(page, { ownerRadio, foodRadio })
   expect(new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
   await expectStatisticsSummary(page, { income: '+100,000원', expense: '+190,000원', net: '+290,000원' })
 
@@ -256,14 +256,15 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
     return response.request().method() === 'GET'
       && url.pathname === '/api/statistics/monthly'
       && url.searchParams.get('performedByMemberId') === seed.otherMemberId
-      && url.searchParams.get('assetOwnerType') === 'JOINT'
+      && url.searchParams.get('assetOwnerType') === 'MEMBER'
+      && url.searchParams.get('assetOwnerMemberId') === seed.otherMemberId
       && url.searchParams.get('categoryId') === seed.foodCategoryId
   })
   await filterDialog.getByRole('button', { name: '필터 적용' }).click()
   expect((await filteredResponse).status()).toBe(200)
   await expect(page.getByText(/세부 필터 2개 적용됨$/)).toBeVisible()
   await expect.poll(() => new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
-  expect(new URL(page.url()).searchParams.get('owner')).toBe('joint')
+  expect(new URL(page.url()).searchParams.get('owner')).toBe(`member:${seed.otherMemberId}`)
   expect(new URL(page.url()).searchParams.get('category')).toBe(seed.foodCategoryId)
   expect(new URL(page.url()).searchParams.has('direction')).toBe(false)
   await expectStatisticsSummary(page, { income: '0원', expense: '-30,000원', net: '-30,000원' })
@@ -279,12 +280,13 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
     return response.request().method() === 'GET'
       && url.pathname.includes(`/api/statistics/monthly/categories/${seed.foodCategoryId}/transactions`)
       && url.searchParams.get('performedByMemberId') === seed.otherMemberId
-      && url.searchParams.get('assetOwnerType') === 'JOINT'
+      && url.searchParams.get('assetOwnerType') === 'MEMBER'
+      && url.searchParams.get('assetOwnerMemberId') === seed.otherMemberId
   })
   await page.getByRole('button', { name: '식비 거래 내역 보기' }).click()
   expect((await filteredCategoryResponse).status()).toBe(200)
   const filteredCategoryTransactions = page.getByRole('dialog', { name: '식비 거래 내역' })
-  await expect(filteredCategoryTransactions.getByText('통계 지출 B 공동 식비', { exact: true })).toBeVisible()
+  await expect(filteredCategoryTransactions.getByText('통계 지출 B 상대 자산 식비', { exact: true })).toBeVisible()
   await expect(filteredCategoryTransactions.getByText('통계 지출 B 개인 식비', { exact: true })).toHaveCount(0)
   await expect(filteredCategoryTransactions.getByText('통계 포함 카드 구매', { exact: true })).toHaveCount(0)
   await filteredCategoryTransactions.getByRole('button', { name: '거래 내역 닫기' }).click()
@@ -292,7 +294,7 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await page.getByRole('button', { name: '이전 달' }).click()
   await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(seed.previousMonth)
   expect(new URL(page.url()).searchParams.get('member')).toBe(seed.otherMemberId)
-  expect(new URL(page.url()).searchParams.get('owner')).toBe('joint')
+  expect(new URL(page.url()).searchParams.get('owner')).toBe(`member:${seed.otherMemberId}`)
   expect(new URL(page.url()).searchParams.get('category')).toBe(seed.foodCategoryId)
   await expect(page.getByText('선택한 조건에 맞는 기록이 없습니다', { exact: true })).toBeVisible()
   await expectTouchTarget(page.getByRole('button', { name: '이번 달' }), '이번 달')
@@ -474,9 +476,9 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
     incomeOwner: `${currentMonth}-02`,
     expenseOwner: `${currentMonth}-03`,
     expenseOther: `${currentMonth}-04`,
-    expenseJoint: `${currentMonth}-05`,
-    transportJoint: `${currentMonth}-06`,
-    incomeJoint: `${currentMonth}-07`,
+    expenseOtherAsset: `${currentMonth}-05`,
+    transportOtherAsset: `${currentMonth}-06`,
+    incomeOtherAsset: `${currentMonth}-07`,
     currentCardPurchase: `${currentMonth}-08`,
     transfer: `${currentMonth}-09`,
     refund: `${currentMonth}-10`,
@@ -543,11 +545,11 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
       return transaction
     }
 
-    const jointAsset = await mutate<Asset>('/api/assets', {
+    const otherAsset = await mutate<Asset>('/api/assets', {
       assetTypeId: bankType.assetTypeId,
-      ownershipScope: 'JOINT',
-      ownerMemberId: null,
-      name: '공동 통계 계좌',
+      ownershipScope: 'PERSONAL',
+      ownerMemberId: other.memberId,
+      name: '상대 통계 계좌',
       openedOn: `${currentMonth}-01`,
       memo: null,
       openingBalanceWon: 777_777,
@@ -575,16 +577,16 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
     }, true)
 
     await createTransaction({ type: 'INCOME', occurredOn: dates.incomeOwner, amountWon: 500_000, categoryId: incomeOther.categoryId, assetId: account.assetId, performedByMemberId: owner.memberId, description: '통계 수입 A' }, true)
-    await createTransaction({ type: 'INCOME', occurredOn: dates.incomeJoint, amountWon: 100_000, categoryId: incomeOther.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 수입 B 공동' }, true)
-    await createTransaction({ type: 'INCOME', occurredOn: dates.incomeJoint, amountWon: 888_888, categoryId: incomeOther.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '사용자 선택 통계 제외 수입', excludedFromStatistics: true }, false)
+    await createTransaction({ type: 'INCOME', occurredOn: dates.incomeOtherAsset, amountWon: 100_000, categoryId: incomeOther.categoryId, assetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '통계 수입 B 상대 자산' }, true)
+    await createTransaction({ type: 'INCOME', occurredOn: dates.incomeOtherAsset, amountWon: 888_888, categoryId: incomeOther.categoryId, assetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '사용자 선택 통계 제외 수입', excludedFromStatistics: true }, false)
     await createTransaction({ type: 'EXPENSE', occurredOn: dates.expenseOwner, amountWon: 10_000, categoryId: food.categoryId, assetId: account.assetId, performedByMemberId: owner.memberId, description: '통계 지출 A 식비' }, true)
     await createTransaction({ type: 'EXPENSE', occurredOn: dates.expenseOther, amountWon: 20_000, categoryId: food.categoryId, assetId: account.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 개인 식비' }, true)
-    await createTransaction({ type: 'EXPENSE', occurredOn: dates.expenseJoint, amountWon: 30_000, categoryId: food.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 공동 식비' }, true)
-    await createTransaction({ type: 'EXPENSE', occurredOn: dates.transportJoint, amountWon: 40_000, categoryId: transport.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 공동 교통' }, true)
-    await createTransaction({ type: 'EXPENSE', occurredOn: dates.transportJoint, amountWon: 999_999, categoryId: transport.categoryId, assetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '사용자 선택 통계 제외 지출', excludedFromStatistics: true }, false)
+    await createTransaction({ type: 'EXPENSE', occurredOn: dates.expenseOtherAsset, amountWon: 30_000, categoryId: food.categoryId, assetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 상대 자산 식비' }, true)
+    await createTransaction({ type: 'EXPENSE', occurredOn: dates.transportOtherAsset, amountWon: 40_000, categoryId: transport.categoryId, assetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '통계 지출 B 상대 자산 교통' }, true)
+    await createTransaction({ type: 'EXPENSE', occurredOn: dates.transportOtherAsset, amountWon: 999_999, categoryId: transport.categoryId, assetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '사용자 선택 통계 제외 지출', excludedFromStatistics: true }, false)
     const currentCardPurchase = await createTransaction({ type: 'EXPENSE', occurredOn: dates.currentCardPurchase, amountWon: 120_000, categoryId: food.categoryId, assetId: card.assetId, performedByMemberId: other.memberId, description: '통계 포함 카드 구매', installmentCount: 1 }, true)
     const previousCardPurchase = await createTransaction({ type: 'EXPENSE', occurredOn: dates.previousCardPurchase, amountWon: 400_000, categoryId: food.categoryId, assetId: card.assetId, performedByMemberId: other.memberId, description: '지난달 카드 구매', installmentCount: 1 }, true)
-    await createTransaction({ type: 'TRANSFER', occurredOn: dates.transfer, amountWon: 50_000, sourceAssetId: account.assetId, destinationAssetId: jointAsset.assetId, performedByMemberId: other.memberId, description: '통계 제외 일반 이체' }, false)
+    await createTransaction({ type: 'TRANSFER', occurredOn: dates.transfer, amountWon: 50_000, sourceAssetId: account.assetId, destinationAssetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '통계 제외 일반 이체' }, false)
 
     const refundInput = { refundedOn: dates.refund, amountWon: 400_000, expectedVersion: previousCardPurchase.version, description: '이번달 실제 환불' }
     const refundPreview = await mutate<{ previewToken: string }>(`/api/transactions/${previousCardPurchase.transactionId}/card-purchase-refunds/preview`, refundInput)
@@ -607,7 +609,7 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
     return {
       ownerMemberId: owner.memberId,
       otherMemberId: other.memberId,
-      jointAssetId: jointAsset.assetId,
+      otherAssetId: otherAsset.assetId,
       cardAssetId: card.assetId,
       foodCategoryId: food.categoryId,
       currentMonth,
@@ -661,10 +663,10 @@ async function expectFilterContract(dialog: Locator) {
   await expectTouchTarget(dialog.getByRole('button', { name: '통계 필터 닫기' }), '통계 필터 닫기')
 }
 
-async function expectFilterDraftAcrossRotation(page: Page, controls: { jointRadio: Locator; foodRadio: Locator }) {
+async function expectFilterDraftAcrossRotation(page: Page, controls: { ownerRadio: Locator; foodRadio: Locator }) {
   for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.setViewportSize(viewport)
-    await expect(controls.jointRadio, `${viewport.label} 자산 소유자 draft`).toBeChecked()
+    await expect(controls.ownerRadio, `${viewport.label} 자산 소유자 draft`).toBeChecked()
     await expect(controls.foodRadio, `${viewport.label} 분류 draft`).toBeChecked()
     await expect(controls.foodRadio, `${viewport.label} focus`).toBeFocused()
     expect(await hasPageOverflow(page), `${viewport.label} filter dialog page overflow`).toBe(false)
@@ -727,7 +729,7 @@ async function attachSeedManifest(testInfo: TestInfo, page: Page, seed: Statisti
       ownerLoginId: seed.ownerLoginId,
       ownerMemberId: seed.ownerMemberId,
       otherMemberId: seed.otherMemberId,
-      jointAssetId: seed.jointAssetId,
+      otherAssetId: seed.otherAssetId,
       cardAssetId: seed.cardAssetId,
       foodCategoryId: seed.foodCategoryId,
       currentMonth: seed.currentMonth,

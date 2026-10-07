@@ -59,12 +59,11 @@ erDiagram
 
 ## 4. 자산과 소유권
 
-자산 소유 형태는 MVP에서 두 가지다.
+모든 자산은 같은 가계부의 구성원 한 명을 소유자로 둔다. `owner_member_id`는 NOT NULL이며 가계부를 포함한 FK로 참조한다. `ownership_scope`는 기존 개인 자산 API와의 호환을 위해 `PERSONAL` 고정값으로 유지한다.
 
-- `PERSONAL`: 특정 `owner_member_id` 필수
-- `JOINT`: 가계부 공동 소유, owner는 null
+소유 표시는 명의와 통계 구분을 위한 마커이며 ACL이 아니다. 모든 활성 멤버가 모든 자산을 동일하게 등록·수정·보관하고 거래에 선택할 수 있다. A 소유 카드의 결제 계좌로 B 소유 계좌를 지정하는 것도 허용한다.
 
-소유 표시는 명의와 통계 구분을 위한 마커이며 ACL이 아니다. 모든 활성 멤버가 개인·공동 자산을 동일하게 등록·수정·보관하고 거래에 선택할 수 있다. A 소유 카드의 결제 계좌로 B 소유 또는 공동 소유 계좌를 지정하는 것도 허용한다. 일부 멤버만 공동 소유하거나 지분율이 필요해질 때만 별도 owner N:M 테이블을 추가한다.
+V29는 활성·보관 여부와 관계없이 기존 공동 소유 또는 소유자 없는 자산이 하나라도 있으면 데이터 변경 없이 실패한다. 소유자를 생성자 등으로 추론하지 않으며, 확인된 명의자로 이전 버전에서 명시적으로 변경한 뒤 재실행한다. 공동 소유가 없으면 기존 명의·잔액·거래를 변경하지 않고 제약만 강화한다.
 
 자산 종류의 사용자 표시명과 기능은 분리하되 종류 집합은 고정 시스템 코드로 관리한다.
 
@@ -145,14 +144,14 @@ erDiagram
 - `performed_by_member_id`: 누구의 수입·지출 또는 누가 실행한 일반 이체인지
 - `created_by_member_id`: 앱에 최초 입력한 멤버
 - `updated_by_member_id`: 마지막 수정 멤버
-- 자동 카드 정산은 작성자와 거래 주체가 없고 `source_type=CARD_AUTOPAY`
-- 카드 선결제는 실행자를 `created_by_member_id`로 남기지만 거래 주체는 없음
+- 자동 카드 정산은 작성자가 없고 카드 소유자가 거래 주체이며 `source_type=CARD_AUTOPAY`
+- 카드 선결제는 실행자를 `created_by_member_id`로, 카드 소유자를 `performed_by_member_id`로 남김
 
-작성자는 감사 정보이며 소비 통계는 `performed_by_member_id`를 기준으로 한다. 수입·지출·일반 이체의 거래 주체는 같은 가계부의 멤버 한 명을 필수로 지정하고 공동·분할 attribution scope는 만들지 않는다. 카드 정산·선결제는 결제 계좌가 자금 출처인 통계 제외 자산 이동이므로 거래 주체를 두지 않는다.
+작성자는 감사 정보이며 소비 통계는 `performed_by_member_id`를 기준으로 한다. 수입·지출·일반 이체의 거래 주체는 같은 가계부의 멤버 한 명을 필수로 지정하고 공동·분할 attribution scope는 만들지 않는다. 카드 정산·선결제는 결제 계좌가 자금 출처인 통계 제외 자산 이동이며 생성 시점의 카드 소유자를 거래 주체로 보존한다. V30은 기존 결제의 명세와 카드 연결로 현재 소유자를 채우고, 모든 TRANSFER의 주체를 필수로 제한한다. 취소된 결제도 이관하며 날짜·금액·posting·작성자를 바꾸지 않는다. 연결이 없는 과거 결제는 전체 migration을 실패시켜 운영자가 확인하게 한다.
 
 사용자가 직접 만드는 `TRANSFER/NORMAL`의 두 posting 자산은 모두 활성 `asset_type.system_code`가 `BANK`, `SAVINGS`, `INVESTMENT` 중 하나여야 한다. 두 자산의 `owner_member_id`와 `ownership_scope`는 서로 같을 필요가 없고 소유 marker에 따른 FK 외 권한 제약을 추가하지 않는다. 이 유형 일관성은 여러 테이블을 조회해야 하므로 단순 DB `CHECK`로 중복하지 않고 transaction application service가 같은 가계부·활성 상태와 함께 검증한다. 카드 정산·선결제처럼 별도 subtype과 전용 command를 쓰는 시스템 이체는 각 정책이 허용 자산을 검증한다.
 
-자산 소유자를 다른 구성원으로 변경할 때 사용자가 동의하면 해당 자산의 삭제되지 않은 수입·지출 거래 `performed_by_member_id`를 새 소유자로 한 트랜잭션에서 bulk update한다. 이체·카드 정산은 통계 대상이 아니므로 자동 변경하지 않는다. 공동 소유로 바꾸면 공동 거래 주체가 없으므로 기존 거래 주체를 유지한다.
+자산 소유자를 다른 구성원으로 변경할 때 사용자가 동의하면 해당 자산의 삭제되지 않은 수입·지출 거래 `performed_by_member_id`를 새 소유자로 한 트랜잭션에서 bulk update한다. 이체·카드 정산은 통계 대상이 아니므로 자동 변경하지 않는다.
 
 거래별 posting 개수와 부호는 `TransactionPostingPolicy`가 생성하고 application service가 검증한다. PostgreSQL에는 PK/FK/unique/0이 아닌 금액만 강제한다. 하나의 Spring 애플리케이션만 DB를 쓰는 초기 구조에서 모든 거래마다 deferred trigger로 다시 계산하는 것은 과한 검증으로 판단했다.
 
@@ -215,7 +214,7 @@ erDiagram
 - 남은 금액이 0이고 명세가 확정됐다면 statement `PAID`
 - 결제 계좌 장부 잔액과 관계없이 남은 전액을 기록하고 음수 잔액 허용
 
-사용자가 직접 기록한 `PREPAYMENT`는 명세 version을 확인하는 전용 취소 command로 되돌릴 수 있다. 결제 행에는 취소 시각·취소 구성원을 남기고 연결 `CARD_PREPAYMENT` 거래를 soft delete해 계좌와 카드 posting을 잔액에서 동시에 제외한다. 명세는 현재 날짜와 결제일을 기준으로 `OPEN` 또는 `FINALIZED`로 다시 열고, 자동 정산 일정이 선결제로 완료됐던 경우 `SCHEDULED`로 되돌린다. 환불 반환에 사용된 결제나 이후 정규 결제가 완료된 명세는 연쇄 이력을 임의로 바꾸지 않고 `409`로 거부한다. 자동 정산 `REGULAR` 결제는 선결제 취소 대상이 아니다.
+사용자가 직접 기록한 `PREPAYMENT`는 명세 version을 확인하는 전용 취소 command로 되돌릴 수 있다. 결제 행에는 취소 시각·취소 구성원을 남기고 연결 `CARD_PREPAYMENT` 거래를 soft delete해 계좌와 카드 posting을 잔액에서 동시에 제외한다. 명세는 현재 날짜와 결제일을 기준으로 `OPEN` 또는 `FINALIZED`로 다시 열고, 자동 정산 일정이 선결제로 완료됐던 경우 `SCHEDULED`로 되돌린다. 환불 반환에 사용된 결제나 이후 정규 결제가 완료된 명세는 연쇄 이력을 임의로 바꾸지 않고 `409`로 거부한다. 자동 정산 `REGULAR`과 수동 전액 `MANUAL`도 같은 취소 command를 사용하되 예약을 CANCELLED로 유지한다. REGULAR은 연결 schedule이 반드시 존재해야 하며 MANUAL은 예약 없이도 취소할 수 있다.
 
 카드 구매는 일시불·할부를 지원하고 할부 이자는 자동 계산하지 않는다. 카드의 음수 opening posting은 `OPENING_BALANCE` origin의 1회 charge로 마감·결제 설정에 따른 명세에 포함하고 과거 due date면 catch-up worker가 처리한다. 장부 잔액 부족은 실패가 아니며 기술 오류만 재시도한다.
 
@@ -229,7 +228,7 @@ erDiagram
 
 MVP 통계는 선택 월 수입·지출·순액과 카테고리 비중, 선택 월이 속한 연도의 1~12월 수입·지출 합계를 제공한다. 일별 거래는 통계에서 중복 집계하지 않고 홈의 일별 원장에서 조회한다. 거래 목록은 날짜·생성 시각·ID 기반 cursor pagination으로 필요한 범위만 조회하고, 달력·통계는 시작일과 종료일이 있는 bounded query만 허용한다. 자산 원장은 `primary_asset_id = ?` 또는 `transaction_posting.asset_id = ?`인 거래만 같은 cursor로 조회하고 `ix_ledger_transaction_primary_asset_history`, `ix_transaction_posting_asset_balance`, `ix_ledger_transaction_daily`를 조합해 전체 원장을 애플리케이션 메모리로 올리지 않는다. 홈의 구성원별 보기는 선택한 경우에만 `performed_by_member_id = ?`를 bounded 달력 projection과 cursor 목록 SQL에 추가하고, 전체 보기에는 nullable `OR` 조건을 만들지 않는다. JPA `LAZY` 연관관계를 순회해 목록을 만드는 대신 projection과 명시적 SQL로 N+1과 전체 원장 로드를 피한다.
 
-월간 통계는 `excluded_from_statistics=false`인 수입·지출만 담는 `ledger_financial_activity`가 노출하는 `primary_asset_id`를 자산 소유 marker 필터에 사용한다. 체크카드 지출도 실제 posting 계좌가 아니라 사용자가 선택한 체크카드의 소유 marker로 귀속하고, 개인 소유는 `asset.owner_member_id`, 공동 소유는 `asset.ownership_scope = 'JOINT'`의 현재 값을 적용한다. 거래 주체·자산 소유자·분류 필터는 모두 같은 가계부에 속하는지 먼저 확인한 뒤 AND로 조합한다. 선택 월 합계·분류는 월 범위 `GROUPING SETS`, 연간 막대는 같은 연도의 `date_trunc('month')` group query로 제한한다. 두 query는 read-only repeatable-read transaction에서 같은 MVCC snapshot을 공유하고 application layer는 누락된 달만 0으로 채워 항상 12개를 반환한다. 실제 실행 계획에서 병목이 확인되기 전에는 새 통계 전용 인덱스나 materialized view를 추가하지 않는다.
+월간 통계는 `excluded_from_statistics=false`인 수입·지출만 담는 `ledger_financial_activity`가 노출하는 `primary_asset_id`를 자산 소유 marker 필터에 사용한다. 체크카드 지출도 실제 posting 계좌가 아니라 사용자가 선택한 체크카드의 소유 marker로 귀속하고, `asset.owner_member_id`의 현재 값을 적용한다. 거래 주체·자산 소유자·분류 필터는 모두 같은 가계부에 속하는지 먼저 확인한 뒤 AND로 조합한다. 선택 월 합계·분류는 월 범위 `GROUPING SETS`, 연간 막대는 같은 연도의 `date_trunc('month')` group query로 제한한다. 두 query는 read-only repeatable-read transaction에서 같은 MVCC snapshot을 공유하고 application layer는 누락된 달만 0으로 채워 항상 12개를 반환한다. 실제 실행 계획에서 병목이 확인되기 전에는 새 통계 전용 인덱스나 materialized view를 추가하지 않는다.
 
 ```sql
 sum(case
@@ -298,7 +297,7 @@ DB가 강제할 것:
 - PK, FK, composite FK, unique
 - 초대 URL token digest·6자리 직접 코드 digest와 단일 가계부 멤버십 중복
 - KRW 금액 양수와 posting 0 금지
-- 개인/공동 자산의 owner null 규칙
+- 모든 자산의 단일 소유자 필수 규칙과 같은 가계부 FK
 - 자동 정산과 결제 계좌 관계
 - 체크카드·적금 설정의 같은 가계부 연결 FK, 자기 연결 금지와 자동이체일 범위
 - statement 날짜 순서와 중복 명세·정산
@@ -327,3 +326,13 @@ UI 경고면 충분한 것:
 ## 11. 남은 제품 결정
 
 G1 데이터·핵심 계약은 답변을 완료했다. 이후 기능 구현에 필요한 Q-015~Q-023과 운영 결정은 중복 목록을 만들지 않고 [`../product/open-decisions.md`](../product/open-decisions.md)에서 관리한다.
+
+### 수동 전액 결제 (V31)
+
+`card_statement_payment.payment_type=MANUAL`은 실행자가 남은 전액을 직접 결제 기록한 경우다. 작성자를 필수로 두며 날짜는 실행일이고 `TRANSFER/CARD_SETTLEMENT`, `source_type=SYSTEM`으로 기존 posting·환불 반환·명의자 조회를 재사용한다. 선결제의 날짜 제한과 자동 정산의 원 예정일·정규 결제 unique 정책은 그대로 둔다. 명세 행 잠금 아래 남은 금액·version·결제 계좌를 함께 비교하고 불일치는 412로 거부한다. 전액 결제는 명세를 PAID로, 유효 schedule을 COMPLETED로 만든다. 수동 결제 취소는 명세를 다시 열고 존재하는 schedule을 CANCELLED로 둬 즉시 재정산하지 않는다.
+
+### 결제 이후 추가 사용 (V32)
+
+`card_statement.additional_usage_after_payment`는 결제일 당일 이후 PAID 명세의 청구 증가로 남은 금액이 생긴 이력을 보존한다. 신규 구매와 구매 정정은 명세 잠금 안에서 청구를 재계산하고 잔액이 양수일 때만 다시 연다. true이면 구매·설정 변경의 예약 생성 대상에서 제외하며 worker도 추가 정산을 거부한다. 이미 잘못 PAID 처리됐으나 잔액이 남은 명세는 V32에서 다시 노출하며 기존 결제·posting은 변경하지 않는다. 배포 후 되돌릴 때는 데이터를 삭제하거나 과거 migration을 수정하지 않고 전진 수정한다. 표시값은 API `additionalUsageAfterPayment`로 공유하고, 기존 거래 성공의 명세·자산 캐시 무효화와 다른 세션 진입/focus 재조회를 유지한다.
+
+V30의 과거 거래 이관은 명세 결제 연결을 우선한다. 기존 구매 정정은 0원이 된 payment 행을 지우고 연결 거래만 soft-delete했으므로, 이런 취소 거래는 posting이 정확히 한 신용카드를 가리킬 때만 해당 명의자로 이관한다. 작성자나 출금 계좌로 추정하지 않고 금액·posting·삭제 상태를 유지한다. 활성 연결 누락과 카드가 없는/복수인 취소 거래는 여전히 제약 검증에서 중단한다.

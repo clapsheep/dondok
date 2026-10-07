@@ -3,7 +3,7 @@ import { ArrowLeft, LoaderCircle, Plus, RotateCcw, Settings, X } from 'lucide-re
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
-import { JointAvatar, MemberAvatar } from '../../components/MemberAvatar'
+import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/Dialog'
 import { ApiError } from '../../lib/api'
@@ -11,6 +11,7 @@ import type { LedgerBook } from '../membership/api'
 import { transactionApi, transactionKeys, type Transaction } from '../transactions/api'
 import { AssetTransactionEditor } from '../transactions/TransactionFormPage'
 import { transactionRowDestination, transactionTypeLabel } from '../transactions/transactionRow'
+import { UnpaidCardStatementsSection } from '../card-statements/UnpaidCardStatementsSection'
 import { assetApi, assetKeys, type Asset } from './api'
 import { buildAssetLedgerTimeline, type AssetLedgerEntry } from './assetLedgerTimeline'
 import { formatDate, formatPaymentDueDate, formatWon } from './format'
@@ -90,7 +91,7 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   const editAction = currentAsset.status === 'ACTIVE'
     ? <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="자산 편집"><Settings size={20} /></Link></Button>
     : <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="사용 종료 자산 관리"><RotateCcw size={20} /></Link></Button>
-  const navigationState = location.state as { transactionDeleted?: boolean; prepaymentCancelled?: boolean; automaticSettlementCancelled?: boolean; assetUpdated?: boolean; assetRestored?: boolean } | null
+  const navigationState = location.state as { transactionDeleted?: boolean; prepaymentCancelled?: boolean; automaticSettlementCancelled?: boolean; manualPaymentCancelled?: boolean; assetUpdated?: boolean; assetRestored?: boolean } | null
   const deleted = Boolean(navigationState?.transactionDeleted)
   const prepaymentCancelled = Boolean(navigationState?.prepaymentCancelled)
   const automaticSettlementCancelled = Boolean(navigationState?.automaticSettlementCancelled)
@@ -139,10 +140,13 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
 
         {deleted ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 삭제했어요.</p> : null}
         {prepaymentCancelled ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">선결제를 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.</p> : null}
+        {navigationState?.manualPaymentCancelled ? <p className="mt-4 text-sm" role="status">수동 결제를 취소하고 잔액과 미결제 내역을 복원했어요.</p> : null}
         {automaticSettlementCancelled ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자동 정산을 삭제하고 결제 계좌와 카드 잔액을 되돌렸어요.</p> : null}
         {updated ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산 정보를 변경했어요. 현재 잔액과 설정에 반영했습니다.</p> : null}
         {restored ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산을 다시 사용할 수 있게 복원했어요.</p> : null}
         {recordSaved ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 기록했어요. 현재 잔액과 거래 내역을 새로 반영했습니다.</p> : null}
+
+        {currentAsset.behavior === 'CREDIT_CARD' ? <UnpaidCardStatementsSection asset={currentAsset} /> : null}
 
         <div className="mt-5">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] pb-2"><div className="flex min-w-0 items-baseline gap-2"><h2 className="text-lg font-semibold">거래 내역</h2>{items.length ? <span className="text-xs text-[var(--muted)]">최신순</span> : null}</div>{currentAsset.status === 'ACTIVE' ? <Button type="button" onClick={openRecord}><Plus size={16} />기록 추가</Button> : null}</div>
@@ -230,7 +234,6 @@ function AssetTransactionRow({ transaction, balanceAfterWon, asset, returnTo }: 
 }
 
 function ownerPresentation(asset: Asset, ledger: LedgerBook) {
-  if (asset.ownershipScope === 'JOINT') return { label: '공동 소유', avatar: <JointAvatar size="xs" /> }
   const member = ledger.members.find((item) => item.memberId === asset.ownerMemberId)
   const name = member?.displayName ?? '구성원'
   return { label: member?.currentUser ? '내 자산' : `${name} 소유`, avatar: <MemberAvatar displayName={name} memberId={member?.memberId ?? asset.assetId} size="xs" /> }

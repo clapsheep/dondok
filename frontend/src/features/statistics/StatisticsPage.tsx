@@ -415,8 +415,7 @@ function StatisticsError({ error, onRetry }: { error: Error | null; onRetry: () 
 
 function statisticsFilterSummary(state: StatisticsUrlState, ledger: LedgerBook, categories: Category[], statistics?: MonthlyStatistics) {
   const labels: string[] = []
-  if (state.owner === 'joint') labels.push('공동 소유 자산')
-  else if (state.owner.startsWith('member:')) labels.push(`${memberName(state.owner.slice('member:'.length), ledger)} 소유 자산`)
+  if (state.owner.startsWith('member:')) labels.push(`${memberName(state.owner.slice('member:'.length), ledger)} 소유 자산`)
   if (state.categoryId) {
     const categoryName = categories.find((category) => category.categoryId === state.categoryId)?.name
       ?? statistics?.categoryBreakdown.find((category) => category.categoryId === state.categoryId)?.categoryName

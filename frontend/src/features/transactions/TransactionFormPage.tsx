@@ -387,7 +387,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
               <div className="grid gap-4 pt-1 xl:grid-cols-[1fr_auto_1fr] xl:items-end">
                 {transferAssets.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이체하려면 계좌·적금·주식 계좌 중 서로 다른 자산이 두 개 이상 필요해요.</p> : null}
                 {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이 이체에 연결된 자산은 현재 일반 이체에 사용할 수 없어요. 보내는 자산과 받는 자산을 다시 선택해 주세요.</p> : null}
-                <p className="text-xs leading-5 text-[var(--muted)] xl:col-span-3">함께 쓰는 구성원의 계좌·적금·주식 계좌와 공동 자산을 모두 선택할 수 있어요.</p>
+                <p className="text-xs leading-5 text-[var(--muted)] xl:col-span-3">함께 쓰는 모든 구성원의 계좌·적금·주식 계좌를 선택할 수 있어요.</p>
                 <AssetPicker id="sourceAsset" label="보내는 자산" assets={transferAssets} members={ledger.members} value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId} placeholder="계좌·적금·주식 계좌를 선택해 주세요" required />
                 <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] xl:block" size={20} />
                 <AssetPicker id="destinationAsset" label="받는 자산" assets={transferAssets} members={ledger.members} value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId} placeholder="계좌·적금·주식 계좌를 선택해 주세요" required />

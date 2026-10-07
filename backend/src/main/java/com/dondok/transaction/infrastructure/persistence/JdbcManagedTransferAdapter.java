@@ -23,12 +23,12 @@ public class JdbcManagedTransferAdapter implements ManagedTransferPort {
         jdbcTemplate.update("""
                 insert into ledger_transaction (
                     id, book_id, transaction_type, transfer_subtype, occurred_on, amount_won,
-                    description, source_type, source_id, created_by_member_id, updated_by_member_id,
+                    description, source_type, source_id, performed_by_member_id, created_by_member_id, updated_by_member_id,
                     created_at, updated_at, version
-                ) values (?, ?, 'TRANSFER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ) values (?, ?, 'TRANSFER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """, command.transactionId(), command.bookId(), command.transferSubtype().name(),
                 Date.valueOf(command.occurredOn()), command.amountWon(), command.description(),
-                command.sourceType(), command.sourceId(), command.createdByMemberId(),
+                command.sourceType(), command.sourceId(), command.performedByMemberId(), command.createdByMemberId(),
                 command.createdByMemberId(), Timestamp.from(command.now()), Timestamp.from(command.now()));
         short lineNo = 1;
         for (Posting posting : command.postings()) {
@@ -61,6 +61,8 @@ public class JdbcManagedTransferAdapter implements ManagedTransferPort {
         if (row.type() != TransactionType.TRANSFER || row.transferSubtype() == null) {
             throw new IllegalStateException("managed transfer has invalid transaction shape");
         }
+        Member performer = row.performerId() == null
+                ? null : new Member(row.performerId(), row.performerName());
         Member creator = row.creatorId() == null
                 ? null : new Member(row.creatorId(), row.creatorName());
         List<Posting> postings = rows.postings().stream()
@@ -68,6 +70,6 @@ public class JdbcManagedTransferAdapter implements ManagedTransferPort {
                 .toList();
         return new ManagedTransfer(
                 row.transactionId(), row.transferSubtype(), row.occurredOn(), row.amountWon(),
-                row.description(), creator, postings, row.version(), row.createdAt(), row.updatedAt());
+                row.description(), performer, creator, postings, row.version(), row.createdAt(), row.updatedAt());
     }
 }

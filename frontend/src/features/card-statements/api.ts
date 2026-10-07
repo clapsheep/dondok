@@ -2,7 +2,7 @@ import { api, jsonBody } from '../../lib/api'
 import type { Transaction } from '../transactions/api'
 
 export type CardStatementStatus = 'OPEN' | 'FINALIZED' | 'PAID' | 'CANCELLED'
-export type CardStatementPaymentType = 'PREPAYMENT' | 'REGULAR'
+export type CardStatementPaymentType = 'PREPAYMENT' | 'REGULAR' | 'MANUAL'
 export type CardPaymentScheduleStatus = 'SCHEDULED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 
 export type CardPaymentSchedule = {
@@ -34,6 +34,7 @@ export type CardStatementSummary = {
   grossAmountWon: number
   paidAmountWon: number
   remainingAmountWon: number
+  additionalUsageAfterPayment: boolean
   version: number
   automaticSettlement: CardPaymentSchedule | null
 }
@@ -88,6 +89,8 @@ export type CardPaymentCancellationResult = {
   cancelledTransactionId: string
 }
 
+export type ManualCardPaymentInput = { expectedVersion: number; expectedAmountWon: number; settlementAssetId: string }
+
 export type CorrectCardStatementPaymentAccountInput = {
   settlementAssetId: string
   expectedVersion: number
@@ -113,6 +116,11 @@ export const cardStatementApi = {
     body: jsonBody(input),
   }),
   applyPrepayment: (statementId: string, input: ApplyCardStatementPrepaymentInput, idempotencyKey: string) => api<CardStatementPaymentResult>(`/api/card-statements/${statementId}/prepayments`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: jsonBody(input),
+  }),
+  payManually: (statementId: string, input: ManualCardPaymentInput, idempotencyKey: string) => api<CardStatementPaymentResult>(`/api/card-statements/${statementId}/payments`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },
     body: jsonBody(input),

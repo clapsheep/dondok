@@ -235,13 +235,8 @@ public class StatisticsJdbcRepository {
             joins.append(" join asset selected_asset")
                     .append(" on selected_asset.book_id = activity.book_id")
                     .append(" and selected_asset.id = activity.primary_asset_id");
-            if (assetOwner.type() == AssetOwnerFilter.Type.JOINT) {
-                filters.append(" and selected_asset.ownership_scope = 'JOINT'");
-            } else {
-                filters.append(" and selected_asset.ownership_scope = 'PERSONAL'")
-                        .append(" and selected_asset.owner_member_id = ?");
-                arguments.add(assetOwner.memberId());
-            }
+            filters.append(" and selected_asset.owner_member_id = ?");
+            arguments.add(assetOwner.memberId());
         }
         return new QueryParts(joins.toString(), filters.toString(), arguments);
     }

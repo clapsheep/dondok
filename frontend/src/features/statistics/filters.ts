@@ -3,7 +3,7 @@ import type { CategoryKind } from '../categories/api'
 import type { StatisticsFilters } from './api'
 
 export type StatisticsDirection = Lowercase<CategoryKind>
-export type StatisticsOwnerFilter = 'all' | 'joint' | `member:${string}`
+export type StatisticsOwnerFilter = 'all' | `member:${string}`
 
 export type StatisticsUrlState = {
   month: string
@@ -37,15 +37,6 @@ export function parseStatisticsUrl(params: URLSearchParams, options: ParseOption
 }
 
 export function statisticsFiltersFromUrl(state: StatisticsUrlState): StatisticsFilters {
-  if (state.owner === 'joint') {
-    return {
-      month: state.month,
-      performedByMemberId: state.memberId,
-      assetOwnerType: 'JOINT',
-      assetOwnerMemberId: null,
-      categoryId: state.categoryId,
-    }
-  }
   if (state.owner.startsWith('member:')) {
     return {
       month: state.month,
@@ -79,7 +70,6 @@ export function activeStatisticsFilterCount(state: StatisticsUrlState) {
 }
 
 function parseOwner(value: string | null, validMemberIds: ReadonlySet<string>): StatisticsOwnerFilter {
-  if (value === 'joint') return 'joint'
   if (!value?.startsWith('member:')) return 'all'
   const memberId = value.slice('member:'.length)
   return validMemberIds.has(memberId) ? `member:${memberId}` : 'all'

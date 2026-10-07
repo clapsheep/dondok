@@ -1,3 +1,4 @@
+import { CardStatementPayButton } from './CardStatementPayButton'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Landmark, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -180,7 +181,7 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
       void queryClient.invalidateQueries({ queryKey: assetKeys.all })
       setWorkflow(createStatementPrepaymentWorkflow<CardStatementPrepaymentPreview>(snapshot(result.statement)))
       setCancellingPayment(undefined)
-      setSuccess(`${cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산' : '선결제'}을 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.`)
+      setSuccess(`${cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산' : cancellingPayment?.paymentType === 'MANUAL' ? '수동 결제' : '선결제'}을 취소하고 결제 계좌와 카드 잔액을 되돌렸어요.`)
     },
     onError: async (error) => {
       if (!(error instanceof ApiError) || error.status !== 412) return
@@ -288,6 +289,7 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
           }}
         />
 
+        {!cardInactive && authoritative.remainingAmountWon > 0 && ['OPEN', 'FINALIZED'].includes(authoritative.status) ? <section className="border-t border-[var(--line)] py-5" aria-label="미결제 전액 결제"><h2 className="mb-3 text-lg font-semibold">미결제 전액 결제</h2><CardStatementPayButton statementId={authoritative.statementId} onPaid={(amount) => setSuccess(`${formatWon(amount)} 수동 결제를 기록했어요.`)} /></section> : null}
         {cardInactive ? null : authoritative.prepayableAmountWon > 0 && authoritative.settlementAsset ? (
           <StatementPrepaymentPanel
             workflow={workflow}
@@ -310,7 +312,7 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
             <Button asChild className="mt-4" variant="secondary"><Link to={`/assets/${authoritative.cardAsset.assetId}/edit`}>결제 계좌 설정</Link></Button>
           </section>
         ) : authoritative.remainingAmountWon > 0 ? (
-          <p className="border-t border-[var(--line)] pt-5 text-sm text-[var(--muted)]">결제일이 되었거나 명세 상태가 변경되어 지금은 선결제할 수 없어요.</p>
+          <p className="border-t border-[var(--line)] pt-5 text-sm text-[var(--muted)]">부분 선결제는 결제일 전까지만 가능해요. 남은 전액은 위의 결제하기로 기록할 수 있어요.</p>
         ) : (
           <p className="border-t border-[var(--line)] pt-5 text-sm text-[var(--muted)]">이 명세의 결제가 모두 완료됐어요.</p>
         )}
@@ -320,10 +322,10 @@ function CardStatementContent({ statement, ledger }: { statement: CardStatementD
       </section>
       <Dialog open={Boolean(cancellingPayment)} onOpenChange={(open) => { if (!open && !cancelPaymentMutation.isPending) setCancellingPayment(undefined) }}>
         <DialogContent className="max-w-md">
-          <DialogTitle>{cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산을 삭제할까요?' : '선결제를 취소할까요?'}</DialogTitle>
-          <DialogDescription className="mt-2">{cancellingPayment ? `${formatDate(cancellingPayment.paidOn)}에 기록한 ${formatWon(cancellingPayment.amountWon)} ${cancellingPayment.paymentType === 'REGULAR' ? '자동 정산을 삭제' : '선결제를 취소'}합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.${cancellingPayment.paymentType === 'REGULAR' ? ' 이 명세는 자동으로 다시 정산되지 않습니다.' : ''}` : ''}</DialogDescription>
+          <DialogTitle>{cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산을 삭제할까요?' : cancellingPayment?.paymentType === 'MANUAL' ? '수동 결제를 취소할까요?' : '선결제를 취소할까요?'}</DialogTitle>
+          <DialogDescription className="mt-2">{cancellingPayment ? `${formatDate(cancellingPayment.paidOn)}에 기록한 ${formatWon(cancellingPayment.amountWon)} ${cancellingPayment.paymentType === 'REGULAR' ? '자동 정산을 삭제' : cancellingPayment.paymentType === 'MANUAL' ? '수동 결제를 취소' : '선결제를 취소'}합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.${cancellingPayment.paymentType !== 'PREPAYMENT' ? ' 이 명세는 자동으로 다시 정산되지 않습니다.' : ''}` : ''}</DialogDescription>
           {cancelPaymentMutation.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{cancelPaymentMutation.error.message}</p> : null}
-          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPaymentMutation.isPending} onClick={() => setCancellingPayment(undefined)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPaymentMutation.isPending || !cancellingPayment} onClick={() => cancellingPayment && cancelPaymentMutation.mutate({ paymentId: cancellingPayment.paymentId, expectedVersion: authoritative.version })}>{cancelPaymentMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}{cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산 삭제' : '선결제 취소'}</Button></div>
+          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPaymentMutation.isPending} onClick={() => setCancellingPayment(undefined)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPaymentMutation.isPending || !cancellingPayment} onClick={() => cancellingPayment && cancelPaymentMutation.mutate({ paymentId: cancellingPayment.paymentId, expectedVersion: authoritative.version })}>{cancelPaymentMutation.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}{cancellingPayment?.paymentType === 'REGULAR' ? '자동 정산 삭제' : cancellingPayment?.paymentType === 'MANUAL' ? '수동 결제 취소' : '선결제 취소'}</Button></div>
         </DialogContent>
       </Dialog>
     </AppShell>
@@ -340,6 +342,7 @@ function StatementSummary({ statement }: { statement: CardStatementDetail }) {
         <SummaryValue label="남은 결제" value={formatWon(statement.remainingAmountWon)} emphasized />
         <SummaryValue label="결제 계좌" value={statement.settlementAsset?.name ?? '설정되지 않음'} />
       </dl>
+      {statement.additionalUsageAfterPayment && statement.remainingAmountWon > 0 ? <p className="mt-4 text-sm leading-6 text-[var(--muted)]">결제 후 사용 내역이 추가됐어요. 기존 결제는 유지되며 추가분은 자동 정산하지 않아요. 남은 금액을 직접 결제 기록해 주세요.</p> : null}
       <dl className="mt-4 grid gap-x-6 gap-y-2 border-y border-[var(--line)] py-3 text-sm @min-[32rem]:grid-cols-2">
         <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">자동 정산</dt><dd className="font-semibold">{statement.autoSettlementEnabled ? '사용' : '사용 안 함'}</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">정산 상태</dt><dd className="font-semibold">{statement.automaticSettlement ? `${cardPaymentScheduleStatusLabel(statement.automaticSettlement.status)} · ${formatDate(statement.automaticSettlement.scheduledOn)}` : '일정 없음'}</dd></div>
@@ -375,7 +378,7 @@ function PaymentHistory({ statement, assets, members, editing, online, pending, 
           {statement.payments.map((payment) => (
             <li className="grid gap-2 py-3 @min-[32rem]:grid-cols-[minmax(0,1fr)_auto] @min-[32rem]:items-center" key={payment.paymentId}>
               <span><strong>{cardStatementPaymentTypeLabel(payment.paymentType)}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{formatDate(payment.paidOn)} · {payment.settlementAssetName}</span></span>
-              <div className="flex flex-wrap items-center gap-2 @min-[32rem]:justify-end"><span className="font-semibold tabular-nums">{formatWon(payment.effectiveAmountWon)}{payment.returnedAmountWon > 0 ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]">반환 {formatWon(payment.returnedAmountWon)}</span> : null}</span>{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onEdit(payment)} disabled={pending}><Landmark size={16} />출금 계좌 변경</Button> : null}{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onCancelPayment(payment)} disabled={pending}><Trash2 size={16} />{payment.paymentType === 'REGULAR' ? '자동 정산 삭제' : '선결제 취소'}</Button> : null}</div>
+              <div className="flex flex-wrap items-center gap-2 @min-[32rem]:justify-end"><span className="font-semibold tabular-nums">{formatWon(payment.effectiveAmountWon)}{payment.returnedAmountWon > 0 ? <span className="mt-1 block text-xs font-normal text-[var(--muted)]">반환 {formatWon(payment.returnedAmountWon)}</span> : null}</span>{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onEdit(payment)} disabled={pending}><Landmark size={16} />출금 계좌 변경</Button> : null}{payment.returnedAmountWon === 0 ? <Button type="button" variant="ghost" onClick={() => onCancelPayment(payment)} disabled={pending}><Trash2 size={16} />{payment.paymentType === 'REGULAR' ? '자동 정산 삭제' : payment.paymentType === 'MANUAL' ? '수동 결제 취소' : '선결제 취소'}</Button> : null}</div>
               {editing?.paymentId === payment.paymentId ? (
                 <div className="border-t border-[var(--line-subtle)] pt-3 @min-[32rem]:col-span-2">
                   <p className="text-sm leading-6 text-[var(--muted)]">금액과 결제일은 그대로 두고 출금 계좌만 변경해요.</p>

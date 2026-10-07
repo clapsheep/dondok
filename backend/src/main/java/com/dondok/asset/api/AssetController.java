@@ -151,7 +151,7 @@ public class AssetController {
     public record CreateAssetRequest(
             @NotNull UUID assetTypeId,
             @NotNull AssetOwnershipScope ownershipScope,
-            UUID ownerMemberId,
+            @NotNull UUID ownerMemberId,
             FinancialInstitutionCode financialInstitutionCode,
             CardIssuerCode cardIssuerCode,
             @NotBlank @Size(max = 100) String name,
@@ -167,7 +167,7 @@ public class AssetController {
     public record UpdateAssetRequest(
             @NotNull UUID assetTypeId,
             @NotNull AssetOwnershipScope ownershipScope,
-            UUID ownerMemberId,
+            @NotNull UUID ownerMemberId,
             FinancialInstitutionCode financialInstitutionCode,
             CardIssuerCode cardIssuerCode,
             @NotBlank @Size(max = 100) String name,

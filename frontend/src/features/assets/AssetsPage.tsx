@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle, Plus, RefreshCw, WalletCards } from 'lucide-react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
-import { JointAvatar, MemberAvatar } from '../../components/MemberAvatar'
+import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { PageTitle } from '../../components/ui/PageTitle'
 import { cn } from '../../lib/cn'
@@ -15,7 +15,7 @@ import { financialInstitution, financialInstitutionName, financialInstitutionUsa
 import { CardIssuerAvatar } from './CardIssuerPicker'
 import { cardIssuer } from './cardIssuers'
 import { shouldStackMoneyRail } from './moneyRail'
-import { ALL_ASSET_OWNER_VIEW, JOINT_ASSET_OWNER_VIEW, buildAssetOwnerViews, defaultAssetOwnerViewKey, filterAssetsByOwner, resolveAssetOwnerView, type AssetOwnerView } from './ownerView'
+import { ALL_ASSET_OWNER_VIEW, buildAssetOwnerViews, defaultAssetOwnerViewKey, filterAssetsByOwner, resolveAssetOwnerView, type AssetOwnerView } from './ownerView'
 import { buildAssetStatusOverview, type AssetGroupSummary, type AssetOverview } from './overview'
 
 const ASSET_LIMIT = 50
@@ -113,9 +113,7 @@ export function AssetsPage({ ledger }: { ledger: LedgerBook }) {
             ledger={ledger}
             showOwnerMetadata={selectedOwnerView.key === ALL_ASSET_OWNER_VIEW}
             hasFilteredAssets={Boolean(filteredAssets?.length)}
-            emptyMessage={selectedOwnerView.key === JOINT_ASSET_OWNER_VIEW
-              ? '공동 소유로 표시된 자산이 없어요.'
-              : `${selectedOwnerView.label} 소유로 표시된 자산이 없어요.`}
+            emptyMessage={`${selectedOwnerView.label} 소유로 표시된 자산이 없어요.`}
             onShowAll={() => selectOwnerView(ALL_ASSET_OWNER_VIEW)}
           />
         ) : null}
@@ -159,7 +157,7 @@ function AssetOwnerSubmenu({ ownerViews, selectedOwnerViewKey, resultCount, onSe
               aria-label={accessibleLabel}
               onClick={() => onSelect(ownerView.key)}
             >
-              {ownerView.key === JOINT_ASSET_OWNER_VIEW ? <JointAvatar size="xs" /> : ownerView.key.startsWith('member:') ? <MemberAvatar displayName={ownerView.label} memberId={ownerView.key.slice('member:'.length)} size="xs" /> : null}
+              {ownerView.key.startsWith('member:') ? <MemberAvatar displayName={ownerView.label} memberId={ownerView.key.slice('member:'.length)} size="xs" /> : null}
               <span className="block whitespace-nowrap" title={ownerView.label}>{ownerView.label}</span>
             </Button>
           )
@@ -255,8 +253,8 @@ function ArchivedAssetList({ assets, ledger, showOwnerMetadata }: { assets: Asse
 
 function ArchivedAssetRow({ asset, ledger, showOwnerMetadata }: { asset: Asset; ledger: LedgerBook; showOwnerMetadata: boolean }) {
   const ownerMember = ledger.members.find((member) => member.memberId === asset.ownerMemberId)
-  const owner = asset.ownershipScope === 'JOINT' ? '공동 소유' : ownerMember?.displayName ?? '구성원'
-  const visibleOwner = asset.ownershipScope === 'JOINT' ? '공동' : ownerMember?.currentUser ? '나' : owner
+  const owner = ownerMember?.displayName ?? '구성원'
+  const visibleOwner = ownerMember?.currentUser ? '나' : owner
   const institution = ['BANK', 'SAVINGS', 'LOAN', 'INVESTMENT'].includes(asset.systemCode) ? financialInstitution(asset.financialInstitutionCode) : undefined
   const issuer = asset.systemCode === 'CREDIT_CARD' || asset.systemCode === 'DEBIT_CARD' ? cardIssuer(asset.cardIssuerCode) : undefined
   const brandName = institution ? financialInstitutionName(asset.financialInstitutionCode, financialInstitutionUsageFor(asset.systemCode)) : issuer?.name
@@ -317,8 +315,8 @@ function AssetGroup({ group, ledger, showOwnerMetadata }: { group: AssetGroupSum
 
 function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset; groupKey: AssetGroupSummary['key']; ledger: LedgerBook; showOwnerMetadata: boolean }) {
   const ownerMember = ledger.members.find((member) => member.memberId === asset.ownerMemberId)
-  const owner = asset.ownershipScope === 'JOINT' ? '공동 소유' : ownerMember?.displayName ?? '구성원'
-  const visibleOwner = asset.ownershipScope === 'JOINT' ? '공동' : ownerMember?.currentUser ? '나' : owner
+  const owner = ownerMember?.displayName ?? '구성원'
+  const visibleOwner = ownerMember?.currentUser ? '나' : owner
   const showAssetType = !isDefaultAssetName(asset.name, asset.assetTypeName)
   const isLiquidAsset = groupKey === 'liquid'
   const isCardAsset = groupKey === 'cards'
@@ -395,7 +393,6 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
 }
 
 function AssetOwnerAvatar({ asset, ownerMember }: { asset: Asset; ownerMember?: LedgerBook['members'][number] }) {
-  if (asset.ownershipScope === 'JOINT') return <JointAvatar size="xs" />
   return <MemberAvatar displayName={ownerMember?.displayName ?? '구성원'} memberId={ownerMember?.memberId ?? asset.ownerMemberId ?? asset.assetId} size="xs" />
 }
 

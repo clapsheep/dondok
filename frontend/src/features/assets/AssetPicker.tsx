@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
-import { JointAvatar, MemberAvatar } from '../../components/MemberAvatar'
+import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { Label } from '../../components/ui/Label'
 import {
@@ -97,7 +97,7 @@ export function AssetPicker({
   const missingSelected = !selected && value && missingSelection?.assetId === value ? missingSelection : undefined
   const currentMember = members.find((member) => member.currentUser)
   const ownAssets = currentMember
-    ? assets.filter((asset) => asset.ownershipScope === 'PERSONAL' && asset.ownerMemberId === currentMember.memberId)
+    ? assets.filter((asset) => asset.ownerMemberId === currentMember.memberId)
     : []
   const visibleAssets = showAllAssets ? assets : ownAssets
   const groups = pickerGroups(visibleAssets)
@@ -181,7 +181,7 @@ export function AssetPicker({
               className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-2 text-left text-xs text-[var(--muted)] transition-colors hover:bg-forest-50 hover:text-forest-800 dark:hover:bg-forest-950 dark:hover:text-forest-100"
               onClick={() => changeAssetScope(true)}
             >
-              <span>현재 선택은 공동·다른 구성원 자산이에요.</span>
+              <span>현재 선택은 다른 구성원 자산이에요.</span>
               <span className="shrink-0 font-semibold text-forest-700 dark:text-forest-100">목록에서 보기</span>
             </button>
           ) : null}
@@ -224,7 +224,7 @@ export function AssetPicker({
                   ))}
                 </div>
               </section>
-            )) : <p className="px-2 py-8 text-center text-sm text-[var(--muted)]">{!showAllAssets && assets.length ? '선택할 수 있는 내 자산이 없어요. 모든 자산 보기를 켜서 공동·다른 구성원 자산을 확인해 주세요.' : '선택할 수 있는 자산이 없어요.'}</p>}
+            )) : <p className="px-2 py-8 text-center text-sm text-[var(--muted)]">{!showAllAssets && assets.length ? '선택할 수 있는 내 자산이 없어요. 모든 자산 보기를 켜서 다른 구성원 자산을 확인해 주세요.' : '선택할 수 있는 자산이 없어요.'}</p>}
           </div>
         </PopoverContent>
       </Popover>
@@ -303,17 +303,15 @@ function ownerLabel(asset: Asset, members: LedgerMember[]) {
   return resolveOwner(asset, members).label
 }
 
-type ResolvedOwner = { label: string; member?: LedgerMember; joint: boolean }
+type ResolvedOwner = { label: string; member?: LedgerMember }
 
 function resolveOwner(asset: Asset, members: LedgerMember[]): ResolvedOwner {
-  if (asset.ownershipScope === 'JOINT') return { label: '공동', joint: true }
   const member = members.find((item) => item.memberId === asset.ownerMemberId)
-  if (!member) return { label: '구성원', joint: false }
-  return { label: member.currentUser ? '나' : member.displayName, member, joint: false }
+  if (!member) return { label: '구성원' }
+  return { label: member.currentUser ? '나' : member.displayName, member }
 }
 
 function OwnerAvatar({ owner }: { owner: ResolvedOwner }) {
-  if (owner.joint) return <JointAvatar size="xs" />
   if (!owner.member) return null
   return <MemberAvatar displayName={owner.member.displayName} memberId={owner.member.memberId} size="xs" />
 }

@@ -28,6 +28,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -67,6 +69,231 @@ class CardStatementSettlementIntegrationTest {
             jdbcTemplate.update("delete from app_user where id = ?", userId);
         }
         mutableClock.set(PREPAYMENT_NOW);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 0, 35})
+    void manualFullPaymentWorksBeforeOnAndAfterDueDateWithoutAutopay(int daysFromDue) {
+        Fixture fixture = fixture(false, 0);
+        UUID ownerUser = createUser("수동 결제 카드 명의자");
+        UUID ownerMember = UUID.randomUUID();
+        jdbcTemplate.update("insert into ledger_member (id, book_id, user_id) values (?, ?, ?)",
+                ownerMember, fixture.bookId(), ownerUser);
+        jdbcTemplate.update("update asset set owner_member_id = ? where id = ?", ownerMember, fixture.card().assetId());
+        UUID statementId = statementId(purchase(fixture, 120_000, "manual-purchase").transactionId());
+        prepay(fixture, statementId, 30_000, "manual-prior-prepay");
+        var initial = statements.statement(fixture.userId(), statementId);
+        LocalDate today = initial.dueOn().plusDays(daysFromDue);
+        mutableClock.set(today.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant());
+        var command = new CardStatementService.ManualPaymentCommand(initial.version(), 90_000, fixture.bank().assetId());
+        var paid = statements.payManually(fixture.userId(), statementId, "manual-full", command);
+        var replay = statements.payManually(fixture.userId(), statementId, "manual-full", command);
+        assertThat(replay.payment().paymentId()).isEqualTo(paid.payment().paymentId());
+        assertThat(paid.payment().paymentType()).isEqualTo("MANUAL");
+        assertThat(paid.payment().paidOn()).isEqualTo(today);
+        assertThat(paid.settlementTransaction().performedBy().memberId()).isEqualTo(ownerMember);
+        assertThat(paid.settlementTransaction().createdBy().memberId()).isEqualTo(fixture.memberId());
+        assertThat(paid.statement().status()).isEqualTo("PAID");
+        assertThat(paid.statement().remainingAmountWon()).isZero();
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-120_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+        assertThat(statements.statements(fixture.userId(), fixture.card().assetId(), null, 20, false).items()).isEmpty();
+        var calendar = transactionService.calendar(fixture.userId(), java.time.YearMonth.from(today), ownerMember);
+        assertThat(calendar.totalExpenseWon()).isZero();
+        assertThat(calendar.days()).anySatisfy(day -> {
+            assertThat(day.date()).isEqualTo(today);
+            assertThat(day.cardPaymentWon()).isEqualTo(90_000);
+        });
+        assertThatThrownBy(() -> statements.payManually(fixture.userId(), statementId, "different-key", command))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.getStatus().value()).isEqualTo(412));
+        var cancelled = statements.cancelPayment(fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CancelPaymentCommand(paid.statement().version()));
+        assertThat(cancelled.statement().remainingAmountWon()).isEqualTo(90_000);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-30_000);
+        assertThat(balance(fixture.card().assetId())).isEqualTo(-90_000);
+    }
+
+    @Test
+    void manualPaymentRejectsChangedAccountAndAnotherLedger() {
+        Fixture fixture = fixture(false, 0);
+        UUID statementId = statementId(purchase(fixture, 40_000, "manual-stale").transactionId());
+        var initial = statements.statement(fixture.userId(), statementId);
+        var command = new CardStatementService.ManualPaymentCommand(initial.version(), 40_000, fixture.bank().assetId());
+        var otherAccount = createBank(fixture, "새 출금 계좌", 0, "manual-other-bank");
+        updateCard(fixture, fixture.card(), otherAccount.assetId(), false);
+        assertThatThrownBy(() -> statements.payManually(fixture.userId(), statementId, "manual-stale", command))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.getErrorCode()).isEqualTo("VERSION_CONFLICT"));
+        Fixture outsider = fixture(false, 0);
+        assertThatThrownBy(() -> statements.payManually(outsider.userId(), statementId, "manual-outsider", command))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.getErrorCode()).isEqualTo("CARD_STATEMENT_NOT_FOUND"));
+        assertThat(queryLong("select count(*) from card_statement_payment where statement_id = ?", statementId)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void concurrentManualAndManualOrWorkerPayOnlyOnce(boolean raceWorker) throws Exception {
+        Fixture fixture = fixture(true, 0);
+        UUID statementId = statementId(purchase(fixture, 80_000, "manual-race").transactionId());
+        var initial = statements.statement(fixture.userId(), statementId);
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        var command = new CardStatementService.ManualPaymentCommand(initial.version(), 80_000, fixture.bank().assetId());
+        UUID schedule = scheduleId(statementId);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Object> first = executor.submit(() -> {
+                ready.countDown(); start.await();
+                try { return statements.payManually(fixture.userId(), statementId, "manual-race-a", command); }
+                catch (ApiException error) { return error; }
+            });
+            Future<Object> second = executor.submit(() -> {
+                ready.countDown(); start.await();
+                try { return raceWorker ? settlementService.settle(schedule)
+                        : statements.payManually(fixture.userId(), statementId, "manual-race-b", command); }
+                catch (ApiException error) { return error; }
+            });
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            Object firstResult = first.get(10, TimeUnit.SECONDS);
+            Object secondResult = second.get(10, TimeUnit.SECONDS);
+            for (Object result : List.of(firstResult, secondResult)) {
+                if (result instanceof ApiException error) assertThat(error.getErrorCode()).isEqualTo("VERSION_CONFLICT");
+            }
+        } finally { executor.shutdownNow(); }
+        var paid = statements.statement(fixture.userId(), statementId);
+        assertThat(paid.payments()).hasSize(1);
+        assertThat(paid.remainingAmountWon()).isZero();
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-80_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+        assertThat(settlementService.settle(schedule)).isEqualTo(CardSettlementService.SettlementOutcome.SKIPPED);
+        if (paid.payments().get(0).paymentType().equals("MANUAL")) {
+            statements.cancelPayment(fixture.userId(), statementId, paid.payments().get(0).paymentId(),
+                    new CardStatementService.CancelPaymentCommand(paid.version()));
+            assertThat(scheduleStatus(statementId)).isEqualTo("CANCELLED");
+            assertThat(settlementService.settle(schedule)).isEqualTo(CardSettlementService.SettlementOutcome.SKIPPED);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"REGULAR", "MANUAL", "PREPAYMENT"})
+    void latePurchaseAfterFullPaymentRemainsUnpaidUntilManualPayment(String paymentType) {
+        Fixture fixture = fixture(true, 0);
+        UUID statementId = statementId(purchase(fixture, 100_000, "late-original").transactionId());
+        if (paymentType.equals("PREPAYMENT")) prepay(fixture, statementId, 100_000, "late-prepay");
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        if (paymentType.equals("REGULAR")) settlementService.settle(scheduleId(statementId));
+        if (paymentType.equals("MANUAL")) {
+            var initial = statements.statement(fixture.userId(), statementId);
+            statements.payManually(fixture.userId(), statementId, "late-manual-original",
+                    new CardStatementService.ManualPaymentCommand(initial.version(), 100_000, fixture.bank().assetId()));
+        }
+        var original = statements.statement(fixture.userId(), statementId).payments().get(0);
+        purchase(fixture, 20_000, "late-added");
+        worker.runDueSettlements();
+        var reopened = statements.statement(fixture.userId(), statementId);
+        assertThat(reopened.status()).isEqualTo("FINALIZED");
+        assertThat(reopened.remainingAmountWon()).isEqualTo(20_000);
+        assertThat(reopened.additionalUsageAfterPayment()).isTrue();
+        assertThat(reopened.payments()).containsExactly(original);
+        assertThat(statements.statements(fixture.userId(), fixture.card().assetId(), null, 20, false).items()).hasSize(1);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-100_000);
+        AssetService.AssetView disabled = updateCard(fixture, fixture.card(), fixture.bank().assetId(), false);
+        updateCard(fixture, disabled, fixture.bank().assetId(), true);
+        worker.runDueSettlements();
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-100_000);
+        reopened = statements.statement(fixture.userId(), statementId);
+        var paid = statements.payManually(fixture.userId(), statementId, "late-manual-residual",
+                new CardStatementService.ManualPaymentCommand(reopened.version(), 20_000, fixture.bank().assetId()));
+        assertThat(paid.statement().status()).isEqualTo("PAID");
+        assertThat(paid.statement().remainingAmountWon()).isZero();
+        assertThat(paid.statement().payments()).hasSize(2).contains(original);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-120_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PAID", "FINALIZED"})
+    void workerNeverHidesResidualWhenAnOldRegularPaymentExists(String staleStatus) {
+        Fixture fixture = fixture(true, 0);
+        UUID statementId = statementId(purchase(fixture, 100_000, "stale-original").transactionId());
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        settlementService.settle(scheduleId(statementId));
+        purchase(fixture, 20_000, "stale-added");
+        // Simulate schedules and status left by the earlier application version.
+        jdbcTemplate.update("update card_statement set status = ?, settled_at = case when ? = 'PAID' then now() else null end, additional_usage_after_payment = false where id = ?", staleStatus, staleStatus, statementId);
+        jdbcTemplate.update("update card_payment_schedule set status = 'SCHEDULED' where statement_id = ?", statementId);
+        assertThat(settlementService.settle(scheduleId(statementId))).isEqualTo(CardSettlementService.SettlementOutcome.CANCELLED);
+        var current = statements.statement(fixture.userId(), statementId);
+        assertThat(current.status()).isEqualTo("FINALIZED");
+        assertThat(current.remainingAmountWon()).isEqualTo(20_000);
+        assertThat(current.additionalUsageAfterPayment()).isTrue();
+        assertThat(current.payments()).hasSize(1);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-100_000);
+    }
+
+    @Test
+    void newUsageBeforeDueDateStillSchedulesTheResidualAfterFullPrepayment() {
+        Fixture fixture = fixture(true, 0);
+        UUID statementId = statementId(purchase(fixture, 100_000, "early-original").transactionId());
+        prepay(fixture, statementId, 100_000, "early-prepay");
+        purchase(fixture, 20_000, "early-added");
+        var reopened = statements.statement(fixture.userId(), statementId);
+        assertThat(reopened.status()).isEqualTo("OPEN");
+        assertThat(reopened.additionalUsageAfterPayment()).isFalse();
+        assertThat(reopened.remainingAmountWon()).isEqualTo(20_000);
+        assertThat(scheduleStatus(statementId)).isEqualTo("SCHEDULED");
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        worker.runDueSettlements();
+        assertThat(statements.statement(fixture.userId(), statementId).remainingAmountWon()).isZero();
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-120_000);
+    }
+
+    @Test
+    void cardOwnerReceivesPaymentHistoryIndependentlyOfAccountOwnerAndWriter() {
+        Fixture fixture = fixture(true, 0);
+        UUID otherUser = createUser("카드 명의자");
+        UUID cardOwner = UUID.randomUUID();
+        jdbcTemplate.update("insert into ledger_member (id, book_id, user_id) values (?, ?, ?)",
+                cardOwner, fixture.bookId(), otherUser);
+        jdbcTemplate.update("update asset set owner_member_id = ? where id = ?", cardOwner, fixture.card().assetId());
+        UUID statementId = statementId(purchase(fixture, 120_000, "owner-purchase").transactionId());
+        var prepayment = prepay(fixture, statementId, 30_000, "owner-prepay");
+        var replay = statements.statement(fixture.userId(), statementId);
+        assertThat(prepayment.settlementTransaction().performedBy().memberId()).isEqualTo(cardOwner);
+        assertThat(prepayment.settlementTransaction().createdBy().memberId()).isEqualTo(fixture.memberId());
+        assertThat(replay.payments()).hasSize(1);
+        var july = transactionService.calendar(fixture.userId(), java.time.YearMonth.of(2026, 7), cardOwner);
+        assertThat(july.totalIncomeWon()).isZero();
+        assertThat(july.totalExpenseWon()).isZero();
+        assertThat(july.days()).singleElement().satisfies(day -> {
+            assertThat(day.date()).isEqualTo(LocalDate.of(2026, 7, 18));
+            assertThat(day.cardPaymentWon()).isEqualTo(30_000);
+        });
+        assertThat(transactionService.transactions(fixture.userId(), LocalDate.of(2026, 7, 1),
+                LocalDate.of(2026, 8, 1), null, 30, cardOwner).items())
+                .extracting(TransactionService.TransactionView::transactionId)
+                .containsExactly(prepayment.settlementTransaction().transactionId());
+        assertThat(transactionService.calendar(fixture.userId(), java.time.YearMonth.of(2026, 7), fixture.memberId())
+                .days()).allMatch(day -> day.cardPaymentWon() == 0);
+
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        assertThat(settlementService.settle(scheduleId(statementId))).isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+        var regular = statements.statement(fixture.userId(), statementId).payments().stream()
+                .filter(payment -> payment.paymentType().equals("REGULAR")).findFirst().orElseThrow();
+        var transaction = transactionService.transaction(fixture.userId(), regular.settlementTransactionId());
+        assertThat(transaction.performedBy().memberId()).isEqualTo(cardOwner);
+        assertThat(transaction.createdBy()).isNull();
+        var august = transactionService.calendar(fixture.userId(), java.time.YearMonth.from(transaction.occurredOn()), cardOwner);
+        assertThat(august.days()).singleElement().satisfies(day -> assertThat(day.cardPaymentWon()).isEqualTo(90_000));
+        assertThat(august.totalExpenseWon()).isZero();
+        assertThat(august.totalIncomeWon()).isZero();
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-120_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+
+        // Subsequent ownership changes never rewrite the recorded payment participant.
+        jdbcTemplate.update("update asset set owner_member_id = ? where id = ?", fixture.memberId(), fixture.card().assetId());
+        assertThat(transactionService.transaction(fixture.userId(), transaction.transactionId()).performedBy().memberId()).isEqualTo(cardOwner);
     }
 
     @Test
@@ -116,7 +343,7 @@ class CardStatementSettlementIntegrationTest {
                 fixture, statementId, 40_000, "prepay-40");
         assertThat(second.statement().remainingAmountWon()).isEqualTo(50_000);
         assertThat(second.statement().payments()).hasSize(2);
-        assertThat(second.settlementTransaction().performedBy()).isNull();
+        assertThat(second.settlementTransaction().performedBy().memberId()).isEqualTo(fixture.memberId());
         assertThat(second.settlementTransaction().createdBy().memberId()).isEqualTo(fixture.memberId());
         assertThat(balance(fixture.bank().assetId())).isEqualTo(-70_000);
         assertThat(balance(fixture.card().assetId())).isEqualTo(-50_000);
@@ -159,6 +386,9 @@ class CardStatementSettlementIntegrationTest {
                 new CardStatementService.CancelPaymentCommand(paid.statement().version()));
 
         assertThat(cancelled.statement().status()).isEqualTo("OPEN");
+        assertThat(transactionService.calendar(fixture.userId(), java.time.YearMonth.of(2026, 7), fixture.memberId())
+                .days()).allMatch(day -> day.cardPaymentWon() == 0);
+
         assertThat(cancelled.statement().remainingAmountWon()).isEqualTo(100_000);
         assertThat(cancelled.statement().payments()).isEmpty();
         assertThat(cancelled.cancelledPaymentId()).isEqualTo(paid.payment().paymentId());
@@ -501,8 +731,9 @@ class CardStatementSettlementIntegrationTest {
                 """, fixture.bookId())).isOne();
     }
 
-    @Test
-    void fullPrepaymentIsPaidAndCorrectionIncreaseReopensAndReactivatesSchedule() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void fullPrepaymentCorrectionIncreaseReschedulesOnlyBeforeDueDate(boolean pastDue) {
         Fixture fixture = fixture(true, 100_000);
         TransactionService.TransactionView purchase = purchase(fixture, 100_000, "full-purchase");
         UUID statementId = statementId(purchase.transactionId());
@@ -510,6 +741,7 @@ class CardStatementSettlementIntegrationTest {
                 fixture, statementId, 100_000, "full-prepayment");
         assertThat(fullyPaid.statement().status()).isEqualTo("PAID");
         assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
+        if (pastDue) mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
 
         CardPurchaseManagementService.CorrectionCommand correction =
                 new CardPurchaseManagementService.CorrectionCommand(
@@ -529,9 +761,14 @@ class CardStatementSettlementIntegrationTest {
 
         CardStatementService.CardStatementDetail reopened = statements.statement(
                 fixture.userId(), statementId);
-        assertThat(reopened.status()).isEqualTo("OPEN");
+        assertThat(reopened.status()).isEqualTo(pastDue ? "FINALIZED" : "OPEN");
         assertThat(reopened.remainingAmountWon()).isEqualTo(50_000);
-        assertThat(reopened.automaticSettlement().status()).isEqualTo("SCHEDULED");
+        assertThat(reopened.additionalUsageAfterPayment()).isEqualTo(pastDue);
+        assertThat(reopened.automaticSettlement().status()).isEqualTo(pastDue ? "COMPLETED" : "SCHEDULED");
+        if (pastDue) {
+            worker.runDueSettlements();
+            assertThat(balance(fixture.bank().assetId())).isZero();
+        }
     }
 
     @Test
@@ -670,6 +907,11 @@ class CardStatementSettlementIntegrationTest {
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo("CARD_ASSET_INACTIVE"));
+
+        assertThatThrownBy(() -> statements.payManually(fixture.userId(), statementId, "archived-manual",
+                new CardStatementService.ManualPaymentCommand(archivedStatement.version(), 75_000, fixture.bank().assetId())))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo("CARD_ASSET_INACTIVE"));
 
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
         assertThat(settlementService.settle(scheduleId))

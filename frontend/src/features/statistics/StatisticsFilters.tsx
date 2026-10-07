@@ -1,7 +1,7 @@
 import { Filter, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Button } from '../../components/ui/Button'
-import { JointAvatar, MemberAvatar } from '../../components/MemberAvatar'
+import { MemberAvatar } from '../../components/MemberAvatar'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
 import { RadioGroup as RadioGroupPrimitive, RadioGroupItem } from '../../components/ui/RadioGroup'
 import type { Category } from '../categories/api'
@@ -106,7 +106,6 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
           <div className="grid gap-6 py-5 md:grid-cols-2">
             <FilterRadioGroup legend="자산 소유자" description="거래의 주 자산에 현재 표시된 소유 marker를 기준으로 해요." value={draft.owner} onValueChange={(owner) => setDraft((current) => ({ ...current, owner: owner as StatisticsUrlState['owner'] }))}>
               <FilterRadioOption name="statistics-owner" value="all">전체</FilterRadioOption>
-              <FilterRadioOption name="statistics-owner" value="joint"><JointAvatar /><span>공동 소유</span></FilterRadioOption>
               {members.map((member) => <FilterRadioOption key={member.memberId} name="statistics-owner" value={`member:${member.memberId}`}><MemberAvatar displayName={member.displayName} memberId={member.memberId} /><span>{member.displayName}{member.currentUser ? ' (나)' : ''}</span></FilterRadioOption>)}
             </FilterRadioGroup>
 
@@ -159,8 +158,7 @@ function filterTriggerSummary(state: StatisticsUrlState, members: LedgerMember[]
   const count = activeStatisticsFilterCount(state)
   if (!count) return '세부 필터'
   const labels: string[] = []
-  if (state.owner === 'joint') labels.push('공동 소유')
-  else if (state.owner.startsWith('member:')) labels.push(`${members.find((member) => member.memberId === state.owner.slice(7))?.displayName ?? '선택한 구성원'} 소유`)
+  if (state.owner.startsWith('member:')) labels.push(`${members.find((member) => member.memberId === state.owner.slice(7))?.displayName ?? '선택한 구성원'} 소유`)
   if (state.categoryId) labels.push(categories.find((category) => category.categoryId === state.categoryId)?.name ?? '선택한 분류')
   return `${labels.join(' · ')} · 필터 ${count}개`
 }

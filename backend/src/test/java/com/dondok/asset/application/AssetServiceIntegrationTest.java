@@ -72,8 +72,8 @@ class AssetServiceIntegrationTest {
 
         UUID bankTypeId = typeId(ledger.userId(), "BANK");
         AssetService.AssetCommand command = command(
-                bankTypeId, AssetOwnershipScope.JOINT, null,
-                "공동 생활비 계좌", 1_250_000, null);
+                bankTypeId, AssetOwnershipScope.PERSONAL, ledger.memberId(),
+                "생활비 계좌", 1_250_000, null);
 
         AssetService.AssetView created = assetService.create(
                 ledger.userId(), "same-bank-request", command);
@@ -83,14 +83,30 @@ class AssetServiceIntegrationTest {
         assertThat(replayed.assetId()).isEqualTo(created.assetId());
         assertThat(created.currentBalanceWon()).isEqualTo(1_250_000);
         assertThat(created.openingBalanceWon()).isEqualTo(1_250_000);
-        assertThat(created.ownershipScope()).isEqualTo(AssetOwnershipScope.JOINT);
-        assertThat(created.ownerMemberId()).isNull();
+        assertThat(created.ownershipScope()).isEqualTo(AssetOwnershipScope.PERSONAL);
+        assertThat(created.ownerMemberId()).isEqualTo(ledger.memberId());
         assertThat(count("select count(*) from asset where book_id = ?", ledger.bookId())).isEqualTo(5);
         assertThat(count("select count(*) from ledger_transaction where book_id = ? and source_type = 'OPENING_BALANCE'",
                 ledger.bookId())).isOne();
         assertThat(jdbcTemplate.queryForObject(
                 "select delta_won from transaction_posting where asset_id = ?", Long.class, created.assetId()))
                 .isEqualTo(1_250_000L);
+    }
+
+    @Test
+    void rejectsMissingAndForeignOwnersWithoutWritingAnAsset() {
+        TestLedger ledger = createLedger("명의자 검증");
+        TestLedger otherLedger = createLedger("다른 가계부 명의자");
+        UUID cashTypeId = typeId(ledger.userId(), "CASH");
+        for (UUID invalidOwner : new UUID[] {null, otherLedger.memberId()}) {
+            assertThatThrownBy(() -> assetService.create(
+                    ledger.userId(), UUID.randomUUID().toString(),
+                    command(cashTypeId, AssetOwnershipScope.PERSONAL, invalidOwner,
+                            "잘못된 명의자", 0, null)))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.getErrorCode()).isEqualTo("ASSET_OWNER_INVALID"));
+        }
+        assertThat(count("select count(*) from asset where book_id = ?", ledger.bookId())).isEqualTo(4);
     }
 
     @Test

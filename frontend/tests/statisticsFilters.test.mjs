@@ -52,8 +52,9 @@ test('공동 전체 선택은 member=all로 명시해 새로고침 뒤에도 유
   assert.equal(statisticsSearchParams(state, memberA).toString(), 'month=2026-07&member=all')
 })
 
-test('공동 소유 URL을 API의 JOINT 필터로 변환한다', () => {
+test('폐기된 공동 소유 URL은 전체 소유자 필터로 복구한다', () => {
   const state = parseStatisticsUrl(new URLSearchParams({ owner: 'joint' }), options)
-  assert.equal(statisticsFiltersFromUrl(state).assetOwnerType, 'JOINT')
+  assert.equal(statisticsFiltersFromUrl(state).assetOwnerType, 'ALL')
+  assert.equal(statisticsSearchParams(state, memberA).has('owner'), false)
   assert.equal(statisticsFiltersFromUrl(state).assetOwnerMemberId, null)
 })

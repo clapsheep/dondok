@@ -773,9 +773,9 @@ class CardPurchaseManagementServiceIntegrationTest {
                     category_id, performed_by_member_id, primary_asset_id, description,
                     source_type, source_id, created_by_member_id, updated_by_member_id,
                     created_at, updated_at, version
-                ) values (?, ?, 'TRANSFER', 'CARD_PREPAYMENT', ?, ?, null, null, null,
+                ) values (?, ?, 'TRANSFER', 'CARD_PREPAYMENT', ?, ?, null, ?, null,
                           'test payment', 'CARD_PREPAYMENT', ?, ?, ?, ?, ?, 0)
-                """, transactionId, fixture.bookId(), Date.valueOf(paidOn), amountWon,
+                """, transactionId, fixture.bookId(), Date.valueOf(paidOn), amountWon, fixture.memberId(),
                 paymentId, fixture.memberId(), fixture.memberId(), now, now);
         jdbcTemplate.update("""
                 insert into transaction_posting (
