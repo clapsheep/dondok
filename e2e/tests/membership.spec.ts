@@ -71,7 +71,7 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   const accounts = await createOtherMemberAccount(page, `${memberName} 계좌`)
   await page.goto('/transactions/new')
   await page.getByRole('button', { name: '이체', exact: true }).click()
-  await expect(page.getByText('함께 쓰는 구성원의 계좌·적금·주식 계좌와 공동 자산을 모두 선택할 수 있어요.')).toBeVisible()
+  await expect(page.getByText('함께 쓰는 모든 구성원의 계좌·적금·주식 계좌를 선택할 수 있어요.')).toBeVisible()
   const sourceAccount = page.getByLabel('보내는 자산')
   const destinationAccount = page.getByLabel('받는 자산')
   const sourcePicker = await openAssetPicker(page, '보내는 자산')
@@ -153,7 +153,7 @@ type AccountSeed = { assetId: string; name: string; balanceWon: number }
 async function createOtherMemberAccount(page: Page, name: string): Promise<{ source: AccountSeed; destination: AccountSeed }> {
   return page.evaluate(async (accountName) => {
     type Member = { memberId: string; currentUser: boolean }
-    type Asset = { assetId: string; assetTypeId: string; systemCode: string; ownershipScope: 'PERSONAL' | 'JOINT'; ownerMemberId: string | null; name: string; currentBalanceWon: number }
+    type Asset = { assetId: string; assetTypeId: string; systemCode: string; ownershipScope: 'PERSONAL'; ownerMemberId: string; name: string; currentBalanceWon: number }
     type AssetType = { assetTypeId: string; systemCode: string }
     const requiredJson = async <T,>(path: string): Promise<T> => {
       const response = await fetch(path, { credentials: 'include' })

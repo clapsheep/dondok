@@ -14,8 +14,8 @@ type MockAsset = {
   systemCode: 'CASH' | 'BANK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'INVESTMENT' | 'LOAN'
   behavior: 'STANDARD' | 'CREDIT_CARD' | 'DEBIT_CARD'
   paymentSourceCapable: boolean
-  ownershipScope: 'PERSONAL' | 'JOINT'
-  ownerMemberId: string | null
+  ownershipScope: 'PERSONAL'
+  ownerMemberId: string
   financialInstitutionCode: 'OTHER' | 'KB_KOOKMIN' | 'TOSS_BANK' | null
   cardIssuerCode: 'OTHER' | 'SHINHAN' | null
   name: string
@@ -152,25 +152,17 @@ test('자산 현황은 자금 signed 금액과 카드별 가까운 결제일 두
     buttonName: `${otherMember.displayName} 자산 보기`,
     ownerKey: `member:${otherMember.memberId}`,
     accessibleOwner: otherMember.displayName,
-    summary: { assets: '0원', liabilities: '0원', net: '0원', currentMonth: '0원', nextMonth: '0원' },
-    visibleAssets: ['투자'],
-    hiddenAssets: ['현금', '계좌 2', '마이너스통장', '신용카드', '체크카드', CUSTOM_CARD_NAME, '대출'],
-  })
-  await expectOwnerProjection(page, {
-    buttonName: '공동 소유 자산 보기',
-    ownerKey: 'joint',
-    accessibleOwner: '공동 소유',
     summary: { assets: '500,000원', liabilities: '350,000원', net: '150,000원', currentMonth: '400,000원', nextMonth: '270,000원' },
-    visibleAssets: ['현금', '신용카드', CUSTOM_CARD_NAME],
-    hiddenAssets: ['계좌 2', '마이너스통장', '체크카드', '투자', '대출'],
+    visibleAssets: ['현금', '신용카드', CUSTOM_CARD_NAME, '투자'],
+    hiddenAssets: ['계좌 2', '마이너스통장', '체크카드', '대출'],
     visibleTypes: { [CUSTOM_CARD_NAME]: '신용카드' },
   })
 
   await page.reload()
-  await expect(page.getByRole('button', { name: '공동 소유 자산 보기' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: `${otherMember.displayName} 자산 보기` })).toHaveAttribute('aria-pressed', 'true')
   await expectSummaryValues(page, { assets: '500,000원', liabilities: '350,000원', net: '150,000원', currentMonth: '400,000원', nextMonth: '270,000원' })
 
-  await page.goto('/assets?owner=member%3Amissing')
+  await page.goto('/assets?owner=joint')
   await expect(page.getByRole('button', { name: `${currentMember.displayName} (나) 자산 보기` })).toHaveAttribute('aria-pressed', 'true')
   await expectSummaryValues(page, { assets: '2,100,000원', liabilities: '950,000원', net: '1,150,000원', currentMonth: '0원', nextMonth: '0원' })
 })
@@ -238,10 +230,9 @@ async function expectOwnerSubmenu(page: Page, currentMemberName: string, otherMe
   const jointButton = group.getByRole('button', { name: '공동 소유 자산 보기' })
   const currentMemberButton = group.getByRole('button', { name: `${currentMemberName} (나) 자산 보기` })
   const otherMemberButton = group.getByRole('button', { name: `${otherMemberName} 자산 보기` })
-  await expect(jointButton).toBeVisible()
+  await expect(jointButton).toHaveCount(0)
   await expect(currentMemberButton).toBeVisible()
   await expect(otherMemberButton).toBeVisible()
-  await expect(jointButton.locator('[data-joint-avatar]')).toHaveCount(1)
   await expect(currentMemberButton.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(currentMemberName)[0])
   await expect(otherMemberButton.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(otherMemberName)[0])
   await expect(group.locator('[aria-pressed="true"]')).toHaveCount(1)
@@ -390,7 +381,7 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
     await expect(page.getByRole('heading', { name: emptyGroup, exact: true }), `${viewportLabel}에서 빈 ${emptyGroup} 그룹은 숨겨야 합니다`).toHaveCount(0)
   }
 
-  const cashRow = await expectAssetRow(funds, '현금', { type: '현금', owner: '공동 소유', visibleOwner: '공동' }, { signed: '400,000원' }, viewport)
+  const cashRow = await expectAssetRow(funds, '현금', { type: '현금', owner: otherOwnerName, visibleOwner: otherOwnerName }, { signed: '400,000원' }, viewport)
   const accountRow = await expectAssetRow(funds, '계좌 2', { type: '계좌', owner: ownerName, institution: 'KB국민은행', visibleOwner: '나' }, { signed: '2,100,000원' }, viewport)
   const overdraftRow = await expectAssetRow(funds, '마이너스통장', { type: '계좌', owner: ownerName, institution: '토스뱅크', visibleType: '계좌', visibleOwner: '나' }, { signed: '-300,000원' }, viewport)
   await expectLiquidBalanceHierarchy(
@@ -398,10 +389,10 @@ async function expectOverviewMeaning(page: Page, ownerName: string, otherOwnerNa
     [...cashRow.assets, ...accountRow.assets, ...overdraftRow.assets],
     viewport,
   )
-  const creditRow = await expectAssetRow(cards, '신용카드', { type: '신용카드', owner: '공동 소유', issuer: '기타 카드사', visibleOwner: '공동' }, { cardCurrent: '280,000원', cardNext: '190,000원' }, viewport)
+  const creditRow = await expectAssetRow(cards, '신용카드', { type: '신용카드', owner: otherOwnerName, issuer: '기타 카드사', visibleOwner: otherOwnerName }, { cardCurrent: '280,000원', cardNext: '190,000원' }, viewport)
   const debitRow = await expectAssetRow(cards, '체크카드', { type: '체크카드', owner: ownerName, issuer: '기타 카드사', visibleOwner: '나' }, {}, viewport)
   await expect(debitRow.row).toContainText('결제 예정 없음')
-  const positiveCardRow = await expectAssetRow(cards, CUSTOM_CARD_NAME, { type: '신용카드', owner: '공동 소유', issuer: '기타 카드사', visibleType: '신용카드', visibleOwner: '공동' }, { cardCurrent: '120,000원', cardNext: '80,000원' }, viewport)
+  const positiveCardRow = await expectAssetRow(cards, CUSTOM_CARD_NAME, { type: '신용카드', owner: otherOwnerName, issuer: '기타 카드사', visibleType: '신용카드', visibleOwner: otherOwnerName }, { cardCurrent: '120,000원', cardNext: '80,000원' }, viewport)
   const investmentRow = await expectAssetRow(investments, '투자', { type: '투자', owner: otherOwnerName, institution: '기타 증권사', visibleOwner: otherOwnerName }, { zero: true }, viewport)
   const loanRow = await expectAssetRow(loans, '대출', { type: '대출', owner: ownerName, institution: '기타 대출 기관', visibleOwner: '나' }, { debt: '600,000원' }, viewport)
   await expectGroupMarkersBelowAssetRows([
@@ -744,10 +735,9 @@ async function expectAssetRow(
   if (identity.visibleOwner) await expect(ownerMetadata).toHaveText(identity.visibleOwner)
   else await expect(ownerMetadata).toHaveCount(0)
   if (identity.visibleOwner) {
-    if (identity.owner === '공동 소유') await expect(identityLine.locator('[data-joint-avatar]')).toHaveCount(1)
-    else await expect(identityLine.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(identity.owner)[0])
+    await expect(identityLine.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', Array.from(identity.owner)[0])
   } else {
-    await expect(identityLine.locator('[data-member-avatar], [data-joint-avatar]')).toHaveCount(0)
+    await expect(identityLine.locator('[data-member-avatar]')).toHaveCount(0)
   }
 
   const identityGeometry = await identityLine.evaluate((element) => {
@@ -868,12 +858,12 @@ function escapeRegExp(value: string) {
 
 function overviewAssets(currentMemberId: string, otherMemberId = currentMemberId): MockAsset[] {
   return [
-    mockAsset({ id: 'cash', type: '현금', systemCode: 'CASH', behavior: 'STANDARD', balance: 400_000, ownershipScope: 'JOINT' }),
+    mockAsset({ id: 'cash', type: '현금', systemCode: 'CASH', behavior: 'STANDARD', balance: 400_000, ownerMemberId: otherMemberId }),
     mockAsset({ id: 'bank', type: '계좌', name: '계좌 2', systemCode: 'BANK', behavior: 'STANDARD', balance: 2_100_000, ownerMemberId: currentMemberId, paymentSourceCapable: true, financialInstitutionCode: 'KB_KOOKMIN' }),
     mockAsset({ id: 'overdraft', type: '계좌', name: '마이너스통장', systemCode: 'BANK', behavior: 'STANDARD', balance: -300_000, ownerMemberId: currentMemberId, paymentSourceCapable: true, financialInstitutionCode: 'TOSS_BANK' }),
-    mockAsset({ id: 'credit', type: '신용카드', systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: -350_000, ownershipScope: 'JOINT', cardCurrent: 280_000, cardNext: 190_000 }),
+    mockAsset({ id: 'credit', type: '신용카드', systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: -350_000, ownerMemberId: otherMemberId, cardCurrent: 280_000, cardNext: 190_000 }),
     mockAsset({ id: 'debit', type: '체크카드', systemCode: 'DEBIT_CARD', behavior: 'DEBIT_CARD', balance: -50_000, ownerMemberId: currentMemberId, cardCurrent: 0, cardNext: 0 }),
-    mockAsset({ id: 'positive-credit', type: '신용카드', name: CUSTOM_CARD_NAME, systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: 100_000, ownershipScope: 'JOINT', cardCurrent: 120_000, cardNext: 80_000 }),
+    mockAsset({ id: 'positive-credit', type: '신용카드', name: CUSTOM_CARD_NAME, systemCode: 'CREDIT_CARD', behavior: 'CREDIT_CARD', balance: 100_000, ownerMemberId: otherMemberId, cardCurrent: 120_000, cardNext: 80_000 }),
     mockAsset({ id: 'investment', type: '투자', systemCode: 'INVESTMENT', behavior: 'STANDARD', balance: 0, ownerMemberId: otherMemberId }),
     mockAsset({ id: 'loan', type: '대출', systemCode: 'LOAN', behavior: 'STANDARD', balance: -600_000, ownerMemberId: currentMemberId }),
   ]
@@ -887,7 +877,7 @@ function mockAsset(input: {
   behavior: MockAsset['behavior']
   balance: number
   ownershipScope?: MockAsset['ownershipScope']
-  ownerMemberId?: string
+  ownerMemberId: string
   paymentSourceCapable?: boolean
   cardCurrent?: number
   cardNext?: number
@@ -902,7 +892,7 @@ function mockAsset(input: {
     behavior: input.behavior,
     paymentSourceCapable: input.paymentSourceCapable ?? false,
     ownershipScope: input.ownershipScope ?? 'PERSONAL',
-    ownerMemberId: input.ownershipScope === 'JOINT' ? null : input.ownerMemberId ?? null,
+    ownerMemberId: input.ownerMemberId,
     financialInstitutionCode: input.financialInstitutionCode ?? null,
     cardIssuerCode: input.cardIssuerCode ?? null,
     name: input.name ?? input.type,

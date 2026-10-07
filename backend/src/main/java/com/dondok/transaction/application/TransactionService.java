@@ -103,7 +103,7 @@ public class TransactionService {
         List<DaySummary> days = transactions.calendar(
                         member.getBookId(), from, toExclusive, performedByMemberId).stream()
                 .map(row -> new DaySummary(row.date(), row.incomeWon(), row.expenseWon(),
-                        row.incomeWon() - row.expenseWon()))
+                        row.incomeWon() - row.expenseWon(), row.cardPaymentWon()))
                 .toList();
         long income = days.stream().mapToLong(DaySummary::incomeWon).sum();
         long expense = days.stream().mapToLong(DaySummary::expenseWon).sum();
@@ -709,7 +709,7 @@ public class TransactionService {
         CARD_REFUND,
         SYSTEM
     }
-    public record DaySummary(LocalDate date, long incomeWon, long expenseWon, long netWon) {
+    public record DaySummary(LocalDate date, long incomeWon, long expenseWon, long netWon, long cardPaymentWon) {
     }
     public record CalendarView(YearMonth month, long totalIncomeWon, long totalExpenseWon,
                                long netWon, List<DaySummary> days) {

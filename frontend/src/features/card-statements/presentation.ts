@@ -20,7 +20,7 @@ export function cardPaymentScheduleStatusLabel(status: CardPaymentScheduleStatus
 }
 
 export function cardStatementPaymentTypeLabel(type: CardStatementPaymentType) {
-  return type === 'PREPAYMENT' ? '선결제' : '정기 결제'
+  return { PREPAYMENT: '선결제', REGULAR: '정기 결제', MANUAL: '수동 결제' }[type]
 }
 
 export function sortCardStatementsForDisplay(statements: CardStatementSummary[]) {

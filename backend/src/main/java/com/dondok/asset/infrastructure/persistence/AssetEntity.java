@@ -23,7 +23,7 @@ public class AssetEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "ownership_scope", nullable = false, length = 10)
     private AssetOwnershipScope ownershipScope;
-    @Column(name = "owner_member_id") private UUID ownerMemberId;
+    @Column(name = "owner_member_id", nullable = false) private UUID ownerMemberId;
     @Enumerated(EnumType.STRING)
     @Column(name = "financial_institution_code", length = 40)
     private FinancialInstitutionCode financialInstitutionCode;

@@ -4,6 +4,7 @@ export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER'
 export type TransactionManagementType = 'GENERAL' | 'CARD_PURCHASE' | 'CARD_REFUND' | 'SYSTEM'
 
 export type CalendarDay = {
+  cardPaymentWon: number
   date: string
   incomeWon: number
   expenseWon: number
@@ -27,7 +28,7 @@ export type Transaction = {
   cardPayment: {
     statementId: string
     paymentId: string
-    paymentType: 'PREPAYMENT' | 'REGULAR'
+    paymentType: 'PREPAYMENT' | 'REGULAR' | 'MANUAL'
     statementVersion: number
     returnedAmountWon: number
   } | null

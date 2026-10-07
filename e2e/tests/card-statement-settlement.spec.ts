@@ -43,6 +43,110 @@ test.afterEach(async ({ page }, testInfo) => {
   })
 })
 
+test('카드 자산의 미결제 섹션에서 지난 대금을 수동 결제하고 취소한다', async ({ page, request }, testInfo) => {
+  const account = await registerAndLogin(page, request, `수동 결제 QC ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  const cardName = `수동 카드 ${Date.now().toString().slice(-6)}`
+  const assets = await createAutomaticSettlementCard(page, cardName, monthsAgoInSeoul(3), false)
+  await attachSeedManifest(testInfo, page, account.loginId, { flow: 'manual-overdue-payment', ...assets })
+  await createCardPurchase(page, { amount: '100000', occurredOn: monthsAgoInSeoul(2), description: '미결제 수동 정산 검증', cardName })
+  await page.goto(`/assets/${assets.cardAssetId}`)
+  const unpaid = page.getByRole('region', { name: '미결제 내역', exact: true })
+  await expect(unpaid.getByRole('button', { name: '결제하기', exact: true })).toBeVisible()
+  for (const viewport of [{ width: 320, height: 740 }, ...RESPONSIVE_VIEWPORTS]) {
+    await page.setViewportSize(viewport)
+    await expect(unpaid).toBeVisible()
+    expect(await hasPageOverflow(page)).toBe(false)
+    const sectionBox = await unpaid.boundingBox()
+    const historyBox = await page.getByRole('heading', { name: '거래 내역', exact: true }).boundingBox()
+    expect(sectionBox!.y + sectionBox!.height).toBeLessThanOrEqual(historyBox!.y)
+    await testInfo.attach(`manual-unpaid-${viewport.width}`, { body: await page.screenshot(), contentType: 'image/png' })
+  }
+  await unpaid.getByRole('button', { name: '결제하기', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '미결제 대금 결제' })
+  await expect(dialog).toContainText('100,000원')
+  await dialog.getByRole('button', { name: '전액 결제 기록' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(unpaid).toContainText('미결제 카드 대금이 없어요.')
+  expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: -100000, [assets.cardAssetId]: 0 })
+  const recorded = page.getByRole('link', { name: /카드 대금 수동 결제 거래 상세/ })
+  await expect(recorded).toBeVisible()
+  await page.goto(`/?view=calendar&month=${currentMonthInSeoul()}`)
+  await expect(page.getByRole('gridcell', { name: /카드 대금 결제 100,000원/ })).toBeVisible()
+  await page.goto(`/assets/${assets.cardAssetId}`)
+  await recorded.click()
+  await page.getByRole('button', { name: '수동 결제 취소', exact: true }).click()
+  await page.getByRole('dialog', { name: '수동 결제를 취소할까요?' }).getByRole('button', { name: '수동 결제 취소', exact: true }).click()
+  await expect(unpaid.getByRole('button', { name: '결제하기', exact: true })).toBeVisible()
+  expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: 0, [assets.cardAssetId]: -100000 })
+})
+
+test('결제 후 과거 사용을 추가하면 추가분만 미결제로 표시하고 따로 결제한다', async ({ page, request }, testInfo) => {
+  const account = await registerAndLogin(page, request, `추가 사용 QC ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  const cardName = `추가 카드 ${Date.now().toString().slice(-6)}`
+  const assets = await createAutomaticSettlementCard(page, cardName, monthsAgoInSeoul(3), false)
+  await attachSeedManifest(testInfo, page, account.loginId, { flow: 'late-usage-after-payment', ...assets })
+  await createCardPurchase(page, { amount: '100000', occurredOn: monthsAgoInSeoul(2), description: '기존 카드 사용', cardName })
+  await page.goto(`/assets/${assets.cardAssetId}`)
+  const unpaid = page.getByRole('region', { name: '미결제 내역', exact: true })
+  await unpaid.getByRole('button', { name: '결제하기', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '전액 결제 기록' }).click()
+  await expect(unpaid).toContainText('미결제 카드 대금이 없어요.')
+  await createCardPurchase(page, { amount: '20000', occurredOn: monthsAgoInSeoul(2), description: '뒤늦게 추가한 카드 사용', cardName })
+  await page.goto(`/assets/${assets.cardAssetId}`)
+  await expect(unpaid).toContainText('결제 후 사용 내역이 추가됐어요.')
+  await expect(unpaid).toContainText('청구 120,000원 · 결제 완료 100,000원')
+  expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: -100000, [assets.cardAssetId]: -20000 })
+  expect(await hasPageOverflow(page)).toBe(false)
+  await testInfo.attach('late-unpaid-section', { body: await page.screenshot(), contentType: 'image/png' })
+  await unpaid.getByRole('link', { name: '명세 보기' }).click()
+  await expect(page.getByRole('region', { name: '명세 요약' })).toContainText('결제 후 사용 내역이 추가됐어요.')
+  await page.getByRole('region', { name: '미결제 전액 결제' }).getByRole('button', { name: '결제하기', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('20,000원')
+  await page.getByRole('dialog').getByRole('button', { name: '전액 결제 기록' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page.getByText('결제 후 사용 내역이 추가됐어요.', { exact: false })).toHaveCount(0)
+  expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: -120000, [assets.cardAssetId]: 0 })
+  await page.goto(`/assets/${assets.cardAssetId}`)
+  await expect(unpaid).toContainText('미결제 카드 대금이 없어요.')
+  await expect(page.getByRole('link', { name: /카드 대금 수동 결제 거래 상세/ })).toHaveCount(2)
+})
+
+test('두 세션에서 같은 미결제를 결제하면 오래된 확인은 거부한다', async ({ page, request, browser }, testInfo) => {
+  const account = await registerAndLogin(page, request, `수동 충돌 QC ${test.info().workerIndex}`)
+  await page.getByRole('button', { name: '가계부 시작하기' }).click()
+  await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  const cardName = `수동 충돌 ${Date.now().toString().slice(-6)}`
+  const assets = await createAutomaticSettlementCard(page, cardName, monthsAgoInSeoul(3), false)
+  await attachSeedManifest(testInfo, page, account.loginId, { flow: 'manual-concurrent-payment', ...assets })
+  await createCardPurchase(page, { amount: '80000', occurredOn: monthsAgoInSeoul(2), description: '수동 결제 경합 검증', cardName })
+  const other = await loginInIndependentContext(browser, page, account, testInfo)
+  const evidence = evidenceByPage.get(page)
+  if (evidence) trackPage(other.page, evidence, 'stale-manual-payer')
+  try {
+    for (const target of [page, other.page]) {
+      await target.goto(`/assets/${assets.cardAssetId}`)
+      await target.getByRole('region', { name: '미결제 내역', exact: true }).getByRole('button', { name: '결제하기', exact: true }).click()
+      await expect(target.getByRole('dialog', { name: '미결제 대금 결제' })).toContainText('80,000원')
+    }
+    await page.getByRole('dialog').getByRole('button', { name: '전액 결제 기록' }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    const responsePromise = other.page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/payments'))
+    await other.page.getByRole('dialog').getByRole('button', { name: '전액 결제 기록' }).click()
+    const response = await responsePromise
+    expect(response.status()).toBe(412)
+    await attachConflictEvidence(testInfo, response, await response.json())
+    await expect(other.page.getByRole('dialog').getByRole('alert')).toBeVisible()
+    await expect(other.page.getByRole('dialog').getByRole('button', { name: '전액 결제 기록' })).toBeDisabled()
+    await other.page.getByRole('button', { name: '최신 내용 확인' }).click()
+    await expect(other.page.getByRole('dialog')).toContainText('현재 결제할 미결제 금액이 없거나')
+    expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: -80000, [assets.cardAssetId]: 0 })
+  } finally { await other.context.close() }
+})
+
 test('자동 정산 거래를 삭제하면 계좌와 카드 잔액을 복원하고 다시 정산하지 않는다', async ({ page, request }, testInfo) => {
   test.setTimeout(180_000)
   const purchaseDate = monthsAgoInSeoul(2)
@@ -86,17 +190,47 @@ test('자동 정산 거래를 삭제하면 계좌와 카드 잔액을 복원하�
     [automatic.cardAssetId]: 0,
   })
 
-  await page.goto(`/transactions/${payment.transactionId}`)
+  await attachSeedManifest(testInfo, page, account.loginId, {
+    flow: 'cancel-automatic-settlement', purchaseDate,
+    statementId: payment.statementId,
+    cardAssetId: automatic.cardAssetId,
+    accountAssetId: automatic.accountAssetId,
+  })
+
+  const recorded = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/transactions/${id}`)
+    if (!response.ok) throw new Error(`transaction returned ${response.status}`)
+    return await response.json() as { occurredOn: string; performedBy: { displayName: string }; createdBy: unknown }
+  }, payment.transactionId)
+  expect(recorded.performedBy.displayName).toBe(`자동 정산 삭제 QC ${test.info().workerIndex}`)
+  expect(recorded.createdBy).toBeNull()
+  await page.goto(`/?view=calendar&month=${recorded.occurredOn.slice(0, 7)}`)
+  const paymentCell = page.getByRole('gridcell', { name: /카드 대금 결제 100,000원/ })
+  for (const viewport of [{ width: 320, height: 740 }, ...RESPONSIVE_VIEWPORTS]) {
+    await page.setViewportSize(viewport)
+    await expect(paymentCell).toBeVisible()
+    await expect(paymentCell.getByText('카드결제', { exact: true })).toBeVisible()
+    expect(await hasPageOverflow(page)).toBe(false)
+  }
+  await testInfo.attach('card-payment-calendar', { body: await page.screenshot(), contentType: 'image/png' })
+  await paymentCell.getByRole('button').click()
+  const paymentLink = page.getByRole('dialog').getByRole('link', { name: /카드.*정산/ })
+  await expect(paymentLink).toBeVisible()
+  await paymentLink.click()
   await expect(page.getByRole('heading', { name: '거래 상세', exact: true })).toBeVisible()
+  await expect(page.getByText('카드 명의자', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '자동 정산 삭제', exact: true }).click()
   const cancellation = page.getByRole('dialog', { name: '자동 정산을 삭제할까요?' })
   await expect(cancellation).toContainText('이 명세는 자동으로 다시 정산되지 않습니다.')
   await cancellation.getByRole('button', { name: '자동 정산 삭제', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('자동 정산을 삭제하고')
+  await expect(page.getByRole('dialog').getByText('이 날짜에 기록한 거래가 없어요.', { exact: true })).toBeVisible()
   expect(await assetBalances(page, [automatic.accountAssetId, automatic.cardAssetId])).toEqual({
     [automatic.accountAssetId]: 0,
     [automatic.cardAssetId]: -100_000,
   })
+  await page.getByRole('button', { name: '달력으로 돌아가기', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
+  await expect(page.getByRole('gridcell', { name: /카드 대금 결제/ })).toHaveCount(0)
   const noReappearanceBefore = Date.now() + 65_000
   await expect.poll(async () => {
     if (await readAutomaticPayment()) return 'reappeared'
@@ -107,12 +241,6 @@ test('자동 정산 거래를 삭제하면 계좌와 카드 잔액을 복원하�
     message: '삭제한 자동 정산은 다음 worker 주기에도 다시 생성되지 않아야 합니다',
   }).toBe('stable')
 
-  await attachSeedManifest(testInfo, page, account.loginId, {
-    flow: 'cancel-automatic-settlement', purchaseDate,
-    statementId: payment.statementId,
-    cardAssetId: automatic.cardAssetId,
-    accountAssetId: automatic.accountAssetId,
-  })
 })
 
 test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남은 결제·통계 제외를 확인한다', async ({ page, request }, testInfo) => {
@@ -202,7 +330,7 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(page.getByTitle('-120,000원', { exact: true }).first()).toBeVisible()
   await expect(page.getByTitle('+0원', { exact: true })).toHaveCount(0)
   await expect(page.getByTitle('0원', { exact: true }).first()).toBeVisible()
-  await page.getByRole('radio', { name: '모두 모든 구성원 기록 보기' }).locator('..').click()
+  await expect(page.getByRole('gridcell', { name: /카드 대금 결제 30,000원/ })).toBeVisible()
   await page.getByRole('button', { name: '일별 보기' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: '카드 선결제' })).toHaveCount(1)
   expect(await hasPageOverflow(page)).toBe(false)
@@ -342,8 +470,8 @@ async function createCardPurchase(page: Page, purchase: { amount: string; occurr
   await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
 }
 
-async function createAutomaticSettlementCard(page: Page, name: string, openedOn: string) {
-  return page.evaluate(async ({ cardName, cardOpenedOn }) => {
+async function createAutomaticSettlementCard(page: Page, name: string, openedOn: string, autoSettlementEnabled = true) {
+  return page.evaluate(async ({ cardName, cardOpenedOn, automatic }) => {
     type AssetType = { assetTypeId: string; systemCode: string }
     type Member = { memberId: string; currentUser: boolean }
     const read = async <T,>(path: string): Promise<T> => {
@@ -410,7 +538,7 @@ async function createAutomaticSettlementCard(page: Page, name: string, openedOn:
           paymentDay: 25,
           paymentMonthOffset: 1,
           settlementAssetId: account.assetId,
-          autoSettlementEnabled: true,
+          autoSettlementEnabled: automatic,
         },
         debitCardSettings: null,
         savingsSettings: null,
@@ -419,7 +547,7 @@ async function createAutomaticSettlementCard(page: Page, name: string, openedOn:
     if (!response.ok) throw new Error(`/api/assets returned ${response.status}: ${await response.text()}`)
     const card = await response.json() as { assetId: string }
     return { cardAssetId: card.assetId, accountAssetId: account.assetId }
-  }, { cardName: name, cardOpenedOn: openedOn })
+  }, { cardName: name, cardOpenedOn: openedOn, automatic: autoSettlementEnabled })
 }
 
 async function openDefaultCardStatement(page: Page) {
@@ -567,7 +695,7 @@ async function attachSeedManifest(testInfo: TestInfo, page: Page, loginId: strin
     body: Buffer.from(JSON.stringify({
       runId: evidence?.runId,
       seedVersion: 'card-statement-ui-v1',
-      migrationVersion: 'V13',
+      migrationVersion: 'V31',
       loginId,
       timezone: 'Asia/Seoul',
       ...flow,

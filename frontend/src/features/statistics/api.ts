@@ -2,7 +2,7 @@ import { api } from '../../lib/api'
 import type { CategoryKind } from '../categories/api'
 import { transactionKeys } from '../transactions/api'
 
-export type StatisticsAssetOwnerType = 'ALL' | 'JOINT' | 'MEMBER'
+export type StatisticsAssetOwnerType = 'ALL' | 'MEMBER'
 
 export type StatisticsFilters = {
   month: string

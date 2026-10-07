@@ -18,7 +18,7 @@ test('일반 이체 후보에는 활성 자산 중 계좌·적금·주식 계좌
   )
 })
 
-test('이체 계좌 이름에는 현재 사용자·다른 구성원·공동 소유를 구분해 표시한다', () => {
+test('이체 계좌 이름에는 현재 사용자·다른 구성원을 구분해 표시한다', () => {
   const members = [
     { memberId: 'owner', displayName: '박수양', currentUser: true },
     { memberId: 'partner', displayName: '서혜지', currentUser: false },
@@ -26,5 +26,4 @@ test('이체 계좌 이름에는 현재 사용자·다른 구성원·공동 소�
 
   assert.equal(transferAssetLabel({ name: '생활비', ownershipScope: 'PERSONAL', ownerMemberId: 'owner' }, members), '생활비 · 나')
   assert.equal(transferAssetLabel({ name: '국민 개인', ownershipScope: 'PERSONAL', ownerMemberId: 'partner' }, members), '국민 개인 · 서혜지')
-  assert.equal(transferAssetLabel({ name: '공동 적금', ownershipScope: 'JOINT', ownerMemberId: null }, members), '공동 적금 · 공동')
 })

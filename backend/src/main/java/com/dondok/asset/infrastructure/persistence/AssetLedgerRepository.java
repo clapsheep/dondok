@@ -286,6 +286,7 @@ public class AssetLedgerRepository {
                   join card_statement_forecast forecast on forecast.statement_id = statement.id
                  where statement.book_id = ? and statement.card_asset_id = ?
                    and statement.status in ('OPEN', 'FINALIZED')
+                   and not statement.additional_usage_after_payment
                    and forecast.payment_amount_won > 0
                    and not exists (
                        select 1 from card_statement_payment payment
@@ -327,6 +328,7 @@ public class AssetLedgerRepository {
                          from card_statement_forecast forecast
                         where forecast.statement_id = statement.id
                           and statement.status in ('OPEN', 'FINALIZED')
+                          and not statement.additional_usage_after_payment
                           and forecast.payment_amount_won > 0
                           and not exists (
                               select 1 from card_statement_payment payment

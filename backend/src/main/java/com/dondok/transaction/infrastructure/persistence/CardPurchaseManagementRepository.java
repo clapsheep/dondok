@@ -643,6 +643,7 @@ public class CardPurchaseManagementRepository {
             jdbcTemplate.update("""
                     update card_statement statement
                        set status = case when statement.due_on > ? then 'OPEN' else 'FINALIZED' end,
+                           additional_usage_after_payment = additional_usage_after_payment or statement.due_on <= ?,
                            finalized_at = case
                                when statement.due_on > ? then null
                                else coalesce(statement.finalized_at, ?)
@@ -654,7 +655,7 @@ public class CardPurchaseManagementRepository {
                        and forecast.statement_id = statement.id
                        and statement.status = 'PAID'
                        and forecast.payment_amount_won > 0
-                    """, Date.valueOf(today), Date.valueOf(today), Timestamp.from(now),
+                    """, Date.valueOf(today), Date.valueOf(today), Date.valueOf(today), Timestamp.from(now),
                     Timestamp.from(now), statementId);
         }
     }

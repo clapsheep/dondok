@@ -17,8 +17,6 @@ export function transferAssetLabel(
   asset: OwnedTransferAccount,
   members: readonly TransferMember[],
 ): string {
-  if (asset.ownershipScope === 'JOINT') return `${asset.name} · 공동`
-
   const owner = members.find((member) => member.memberId === asset.ownerMemberId)
   if (!owner) return `${asset.name} · 구성원`
   return `${asset.name} · ${owner.currentUser ? '나' : owner.displayName}`

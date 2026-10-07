@@ -175,11 +175,11 @@ class MonthlyStatisticsServiceIntegrationTest {
         Fixture fixture = fixture("필터 사용자");
         UUID secondMember = addMember(fixture.bookId(), "두 번째 구성원");
         AssetService.AssetView ownerBank = asset(fixture.userId(), "BANK");
-        AssetService.AssetView jointCash = assetService.create(
-                fixture.userId(), "statistics-joint-cash",
+        AssetService.AssetView ownerCash = assetService.create(
+                fixture.userId(), "statistics-owner-cash",
                 new AssetService.AssetCommand(
-                        assetType(fixture.userId(), "CASH"), AssetOwnershipScope.JOINT, null,
-                        "공동 현금", LocalDate.of(2026, 7, 1), null, 0, null));
+                        assetType(fixture.userId(), "CASH"), AssetOwnershipScope.PERSONAL, fixture.memberId(),
+                        "본인 현금", LocalDate.of(2026, 7, 1), null, 0, null));
         AssetService.AssetView secondMemberDebitCard = assetService.create(
                 fixture.userId(), "statistics-second-debit-card",
                 new AssetService.AssetCommand(
@@ -191,7 +191,7 @@ class MonthlyStatisticsServiceIntegrationTest {
 
         createExpense(fixture, "filter-1", 70_000, food,
                 secondMemberDebitCard.assetId(), secondMember);
-        createExpense(fixture, "filter-2", 30_000, food, jointCash.assetId(), secondMember);
+        createExpense(fixture, "filter-2", 30_000, food, ownerCash.assetId(), secondMember);
         createExpense(fixture, "filter-3", 20_000, food,
                 secondMemberDebitCard.assetId(), fixture.memberId());
         createExpense(fixture, "filter-4", 10_000, medical,
@@ -202,7 +202,7 @@ class MonthlyStatisticsServiceIntegrationTest {
         assertThat(monthly(fixture.userId(), null,
                 AssetOwnerFilter.Type.MEMBER, secondMember, null).totals().expenseWon()).isEqualTo(100_000);
         assertThat(monthly(fixture.userId(), null,
-                AssetOwnerFilter.Type.JOINT, null, null).totals().expenseWon()).isEqualTo(30_000);
+                AssetOwnerFilter.Type.MEMBER, fixture.memberId(), null).totals().expenseWon()).isEqualTo(30_000);
         assertThat(monthly(fixture.userId(), secondMember,
                 AssetOwnerFilter.Type.MEMBER, secondMember, food).totals().expenseWon()).isEqualTo(70_000);
         assertThat(monthly(fixture.userId(), null,
@@ -218,13 +218,13 @@ class MonthlyStatisticsServiceIntegrationTest {
 
         jdbcTemplate.update("""
                 update asset
-                   set ownership_scope = 'JOINT', owner_member_id = null
+                   set owner_member_id = ?
                  where id = ?
-                """, secondMemberDebitCard.assetId());
+                """, fixture.memberId(), secondMemberDebitCard.assetId());
         assertThat(monthly(fixture.userId(), null,
                 AssetOwnerFilter.Type.MEMBER, secondMember, null).totals().expenseWon()).isZero();
         assertThat(monthly(fixture.userId(), null,
-                AssetOwnerFilter.Type.JOINT, null, null).totals().expenseWon()).isEqualTo(130_000);
+                AssetOwnerFilter.Type.MEMBER, fixture.memberId(), null).totals().expenseWon()).isEqualTo(130_000);
     }
 
     @Test
@@ -344,7 +344,7 @@ class MonthlyStatisticsServiceIntegrationTest {
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo("STATISTICS_FILTER_INVALID"));
         assertThatThrownBy(() -> monthly(first.userId(), null,
-                AssetOwnerFilter.Type.JOINT, first.memberId(), null))
+                AssetOwnerFilter.Type.ALL, first.memberId(), null))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo("STATISTICS_FILTER_INVALID"));
@@ -407,7 +407,7 @@ class MonthlyStatisticsServiceIntegrationTest {
         managedTransferPort.create(new ManagedTransferPort.CreateCommand(
                 UUID.randomUUID(), fixture.bookId(), subtype, LocalDate.of(2026, 7, 14),
                 amountWon, "통계 제외 카드 자산 이동", sourceType, UUID.randomUUID(),
-                fixture.memberId(), Instant.now(), List.of(
+                destination.ownerMemberId(), fixture.memberId(), Instant.now(), List.of(
                         new ManagedTransferPort.Posting(source.assetId(), -amountWon),
                         new ManagedTransferPort.Posting(destination.assetId(), amountWon))));
     }

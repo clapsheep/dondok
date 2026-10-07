@@ -21,6 +21,7 @@ public interface ManagedTransferPort {
             String description,
             String sourceType,
             UUID sourceId,
+            UUID performedByMemberId,
             UUID createdByMemberId,
             Instant now,
             List<Posting> postings
@@ -42,6 +43,7 @@ public interface ManagedTransferPort {
             LocalDate occurredOn,
             long amountWon,
             String description,
+            Member performedBy,
             Member createdBy,
             List<Posting> postings,
             long version,

@@ -9,7 +9,6 @@ import { Checkbox } from '../../components/ui/Checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
-import { RadioGroup, RadioGroupItem } from '../../components/ui/RadioGroup'
 import { SelectField } from '../../components/ui/SelectField'
 import { Switch } from '../../components/ui/Switch'
 import { TextareaField } from '../../components/ui/TextareaField'
@@ -30,7 +29,6 @@ import {
   type CardSettingsInput,
   type CreateAssetInput,
   type DebitCardSettings,
-  type OwnershipScope,
   type SavingsSettings,
   type UpdateAssetInput,
 } from './api'
@@ -48,7 +46,6 @@ const archivedAtFormat = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium',
 
 type AssetDraft = {
   assetTypeId: string
-  ownershipScope: OwnershipScope
   ownerMemberId: string
   financialInstitutionCode: FinancialInstitutionCode
   cardIssuerCode: CardIssuerCode
@@ -76,7 +73,6 @@ type PaymentSourceTarget = 'settlementAssetId' | 'debitCardPaymentAssetId' | 'sa
 const CREATE_VISIBLE_FIELDS = new Set<keyof AssetDraft>(['assetTypeId', 'financialInstitutionCode', 'cardIssuerCode', 'name', 'openingBalanceWon', 'openedOn'])
 const EDIT_VISIBLE_FIELDS = new Set<keyof AssetDraft>([
   'assetTypeId',
-  'ownershipScope',
   'ownerMemberId',
   'financialInstitutionCode',
   'cardIssuerCode',
@@ -251,9 +247,8 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   const selectedTypeDisplayName = selectedType?.name ?? '선택한 자산 종류'
   const amountLabel = selectedType?.systemCode === 'LOAN' ? '기준일 대출 잔액' : '기준일 잔액'
   const paymentSourceCandidates = assets.filter((asset) => asset.paymentSourceCapable && asset.assetId !== initialAsset?.assetId)
-  const ownerChangedToPersonal = Boolean(initialAsset)
-    && draft.ownershipScope === 'PERSONAL'
-    && (initialAsset?.ownershipScope !== 'PERSONAL' || initialAsset.ownerMemberId !== draft.ownerMemberId)
+  const ownerChanged = Boolean(initialAsset)
+    && initialAsset?.ownerMemberId !== draft.ownerMemberId
 
   const saveAsset = useMutation({
     mutationFn: (command: SaveCommand) => command.kind === 'create'
@@ -356,7 +351,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
     }
 
     if (editing) {
-      saveAsset.mutate({ kind: 'update', input: { ...parsed.input, expectedVersion: draft.expectedVersion, reassignTransactionsToNewOwner: ownerChangedToPersonal && draft.reassignTransactionsToNewOwner } })
+      saveAsset.mutate({ kind: 'update', input: { ...parsed.input, expectedVersion: draft.expectedVersion, reassignTransactionsToNewOwner: ownerChanged && draft.reassignTransactionsToNewOwner } })
       return
     }
     const fingerprint = JSON.stringify(parsed.input)
@@ -454,15 +449,8 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
             error={fieldErrors.name}
           />
           {editing ? <>
-            <fieldset>
-              <legend className="text-sm font-semibold">소유 형태</legend>
-              <RadioGroup className="mt-2 grid grid-cols-2 divide-x divide-[var(--line)] border-y border-[var(--line)]" value={draft.ownershipScope} onValueChange={(value) => { const scope = value as AssetDraft['ownershipScope']; update('ownershipScope', scope); if (scope === 'JOINT') update('reassignTransactionsToNewOwner', false) }}>
-                <OwnershipOption label="구성원 소유" description="구성원 한 명의 자산" value="PERSONAL" checked={draft.ownershipScope === 'PERSONAL'} />
-                <OwnershipOption label="공동 소유" description="가계부 구성원의 공동 자산" value="JOINT" checked={draft.ownershipScope === 'JOINT'} />
-              </RadioGroup>
-            </fieldset>
-            {draft.ownershipScope === 'PERSONAL' ? <MemberPicker id="ownerMember" label="소유자" members={ledger.members} value={draft.ownerMemberId} onChange={(value) => update('ownerMemberId', value)} error={fieldErrors.ownerMemberId} /> : null}
-            {ownerChangedToPersonal ? (
+            <MemberPicker id="ownerMember" label="소유자" members={ledger.members} value={draft.ownerMemberId} onChange={(value) => update('ownerMemberId', value)} error={fieldErrors.ownerMemberId} />
+            {ownerChanged ? (
               <label className="flex min-h-11 cursor-pointer items-start gap-3 border-y border-[var(--line)] px-1 py-3" htmlFor="reassignTransactionsToNewOwner">
                 <Checkbox id="reassignTransactionsToNewOwner" className="mt-1" checked={draft.reassignTransactionsToNewOwner} onCheckedChange={(checked) => update('reassignTransactionsToNewOwner', checked)} />
                 <span><span className="block text-sm font-semibold">기존 수입·지출의 구성원도 변경</span><span className="mt-1 block text-xs leading-5 text-[var(--muted)]">이 자산에 연결된 기존 기록도 새 소유자의 수입·지출로 바꿔요. 이체는 바꾸지 않아요.</span></span>
@@ -517,7 +505,7 @@ function ArchivedAssetDetail({ asset, assets, ledger }: { asset: Asset; assets: 
       </header>
       <dl className="grid gap-x-6 gap-y-4 border-b border-[var(--line)] py-5 text-sm min-[30rem]:grid-cols-2" aria-label="사용 종료 자산 정보">
         <ReadOnlyAssetValue label="종류" value={asset.assetTypeName} />
-        <ReadOnlyAssetValue label="소유" value={ownerLabel(asset.ownershipScope, asset.ownerMemberId, ledger)} />
+        <ReadOnlyAssetValue label="소유" value={ownerLabel(asset.ownerMemberId, ledger)} />
         <ReadOnlyAssetValue label="잔액 기준일" value={asset.openedOn} />
         <ReadOnlyAssetValue label="사용 종료 일시" value={asset.archivedAt ? archivedAtFormat.format(new Date(asset.archivedAt)) : '확인할 수 없음'} />
         <ReadOnlyAssetValue label="기준일 잔액" value={formatWon(asset.openingBalanceWon)} />
@@ -970,8 +958,8 @@ function ConflictPanel({ latest, loading, loadError, draft, draftName, draftType
   onApply: () => void
   onReset: () => void
 }) {
-  const latestOwner = latest ? ownerLabel(latest.ownershipScope, latest.ownerMemberId, ledger) : ''
-  const draftOwner = ownerLabel(draft.ownershipScope, draft.ownerMemberId || null, ledger)
+  const latestOwner = latest ? ownerLabel(latest.ownerMemberId, ledger) : ''
+  const draftOwner = ownerLabel(draft.ownerMemberId || null, ledger)
   const latestIsCreditCard = latest?.behavior === 'CREDIT_CARD'
   const draftIsCreditCard = draftBehavior === 'CREDIT_CARD'
   const latestIsDebitCard = latest?.behavior === 'DEBIT_CARD'
@@ -1034,8 +1022,7 @@ function assetNameForSetting(assetId: string | null | undefined, assets: Asset[]
   return assets.find((asset) => asset.assetId === assetId)?.name ?? '등록된 계좌'
 }
 
-function ownerLabel(scope: OwnershipScope, ownerMemberId: string | null, ledger: LedgerBook) {
-  if (scope === 'JOINT') return '공동 소유'
+function ownerLabel(ownerMemberId: string | null, ledger: LedgerBook) {
   return ledger.members.find((member) => member.memberId === ownerMemberId)?.displayName ?? '구성원 소유'
 }
 
@@ -1047,15 +1034,9 @@ function dayOfMonthLabel(day: number | undefined) {
   return day && Number.isInteger(day) ? `${day}일` : '선택하지 않음'
 }
 
-function OwnershipOption({ label, description, value, checked }: { label: string; description: string; value: AssetDraft['ownershipScope']; checked: boolean }) {
-  const id = `ownership-${value.toLowerCase()}`
-  return <label htmlFor={id} className={`flex min-h-11 min-w-0 cursor-pointer items-center justify-center gap-2 px-2 py-2 text-center text-sm font-semibold transition-colors focus-within:z-10 focus-within:ring-3 focus-within:ring-[var(--ring)] ${checked ? 'bg-forest-50 text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'bg-[var(--surface)] text-[var(--muted)]'}`}><RadioGroupItem id={id} value={value} /><span>{label}<span className="sr-only">: {description}</span></span></label>
-}
-
 function newDraft(types: AssetType[], ledger: LedgerBook, preferredSystemCode: string | null): AssetDraft {
   return {
     assetTypeId: types.find((type) => type.systemCode === preferredSystemCode)?.assetTypeId ?? types[0]?.assetTypeId ?? '',
-    ownershipScope: 'PERSONAL',
     ownerMemberId: ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? '',
     financialInstitutionCode: 'OTHER',
     cardIssuerCode: 'OTHER',
@@ -1080,7 +1061,6 @@ function newDraft(types: AssetType[], ledger: LedgerBook, preferredSystemCode: s
 function draftFromAsset(asset: Asset): AssetDraft {
   return {
     assetTypeId: asset.assetTypeId,
-    ownershipScope: asset.ownershipScope,
     ownerMemberId: asset.ownerMemberId ?? '',
     financialInstitutionCode: asset.financialInstitutionCode ?? 'OTHER',
     cardIssuerCode: asset.cardIssuerCode ?? 'OTHER',
@@ -1109,7 +1089,7 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
   const normalizedAmount = draft.openingBalanceWon.replaceAll(',', '').trim()
   const openingBalanceWon = normalizedAmount === '' ? 0 : Number(normalizedAmount)
   if (!selectedType) errors.assetTypeId = '자산 종류를 선택해 주세요.'
-  if (editing && draft.ownershipScope === 'PERSONAL' && !draft.ownerMemberId) errors.ownerMemberId = '소유자를 선택해 주세요.'
+  if (!draft.ownerMemberId) errors.ownerMemberId = '소유자를 선택해 주세요.'
   if (!draft.openedOn) errors.openedOn = '잔액 기준일을 선택해 주세요.'
   if (normalizedAmount !== '' && (!/^-?\d+$/.test(normalizedAmount) || !Number.isSafeInteger(openingBalanceWon))) errors.openingBalanceWon = '원 단위 정수 금액을 입력해 주세요.'
 
@@ -1142,8 +1122,8 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
     errors,
     input: {
       assetTypeId: draft.assetTypeId,
-      ownershipScope: editing ? draft.ownershipScope : 'PERSONAL',
-      ownerMemberId: editing && draft.ownershipScope === 'JOINT' ? null : draft.ownerMemberId,
+      ownershipScope: 'PERSONAL',
+      ownerMemberId: draft.ownerMemberId,
       financialInstitutionCode: financialInstitutionUsageFor(selectedType?.systemCode)
         ? draft.financialInstitutionCode
         : null,
@@ -1164,7 +1144,6 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
 function fieldErrorsFromApi(error: ApiError, editing: boolean, input: CreateAssetInput): FieldErrors {
   const fieldNames: Partial<Record<string, keyof AssetDraft>> = {
     assetTypeId: 'assetTypeId',
-    ownershipScope: 'ownershipScope',
     ownerMemberId: 'ownerMemberId',
     financialInstitutionCode: 'financialInstitutionCode',
     cardIssuerCode: 'cardIssuerCode',

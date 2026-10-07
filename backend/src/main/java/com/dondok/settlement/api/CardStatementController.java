@@ -55,6 +55,23 @@ public class CardStatementController {
         return service.statement(principal.userId(), statementId);
     }
 
+    @PostMapping("/card-statements/{statementId}/payments")
+    @ResponseStatus(HttpStatus.CREATED)
+    CardStatementService.CardStatementPaymentResult payManually(
+            @AuthenticationPrincipal DondokPrincipal principal,
+            @PathVariable UUID statementId,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 100) String idempotencyKey,
+            @Valid @RequestBody ManualPaymentRequest request
+    ) {
+        return service.payManually(principal.userId(), statementId, idempotencyKey,
+                new CardStatementService.ManualPaymentCommand(
+                        request.expectedVersion(), request.expectedAmountWon(), request.settlementAssetId()));
+    }
+
+    public record ManualPaymentRequest(
+            @Min(0) long expectedVersion, @Positive long expectedAmountWon, @NotNull UUID settlementAssetId
+    ) {}
+
     @PostMapping("/card-statements/{statementId}/prepayments/preview")
     CardStatementService.CardStatementPrepaymentPreview preview(
             @AuthenticationPrincipal DondokPrincipal principal,

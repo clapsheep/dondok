@@ -584,6 +584,43 @@ paths:
               schema: { $ref: "#/components/schemas/CardStatementDetail" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/card-statements/{statementId}/payments:
+    parameters:
+      - name: statementId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: 미결제 카드 명세 수동 전액 결제
+      description: 자동 정산 여부·결제일과 관계없이 남은 전액을 오늘(서울) 계좌에서 카드로 이체 기록한다. version·금액·결제 계좌가 달라지면 412로 거부한다. 실제 은행 결제 요청은 수행하지 않는다.
+      operationId: payCardStatementManually
+      tags: [CardStatement]
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/CsrfHeader" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion, expectedAmountWon, settlementAssetId]
+              properties:
+                expectedVersion: { type: integer, format: int64, minimum: 0 }
+                expectedAmountWon: { type: integer, format: int64, minimum: 1 }
+                settlementAssetId: { type: string, format: uuid }
+      responses:
+        "201":
+          description: 결제 후 명세·MANUAL 결제·이체 거래
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CardStatementPaymentResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
   /api/card-statements/{statementId}/prepayments:
     parameters:
       - name: statementId
@@ -679,7 +716,7 @@ paths:
         "412": { $ref: "#/components/responses/PreconditionFailed" }
     delete:
       summary: 카드 선결제 또는 자동 정산 취소
-      description: PREPAYMENT 또는 REGULAR 결제를 취소하며 결제 계좌·카드 posting과 명세 상태를 한 트랜잭션에서 복원한다. 자동 정산 취소 시 해당 명세의 schedule은 CANCELLED로 유지해 다시 출금하지 않는다. 환불 반환에 사용된 결제와 이후 정규 결제가 생긴 선결제는 취소하지 않는다.
+      description: PREPAYMENT·REGULAR·MANUAL 결제를 취소하며 결제 계좌·카드 posting과 명세 상태를 한 트랜잭션에서 복원한다. 자동 정산·수동 전액 결제 취소 시 해당 명세의 schedule은 CANCELLED로 유지해 다시 출금하지 않는다. 환불 반환에 사용된 결제와 이후 정규 결제가 생긴 선결제는 취소하지 않는다.
       operationId: cancelCardStatementPayment
       tags: [CardStatement]
       security: [{ cookieAuth: [] }]
@@ -835,7 +872,7 @@ paths:
           in: query
           required: false
           description: 선택 자산의 현재 소유 marker 기준이며 기본값은 가계부 전체다.
-          schema: { type: string, enum: [ALL, JOINT, MEMBER], default: ALL }
+          schema: { type: string, enum: [ALL, MEMBER], default: ALL }
         - name: assetOwnerMemberId
           in: query
           required: false
@@ -877,7 +914,7 @@ paths:
         - name: assetOwnerType
           in: query
           required: false
-          schema: { type: string, enum: [ALL, JOINT, MEMBER], default: ALL }
+          schema: { type: string, enum: [ALL, MEMBER], default: ALL }
         - name: assetOwnerMemberId
           in: query
           required: false
@@ -1318,7 +1355,8 @@ components:
       enum: [STANDARD, CREDIT_CARD, DEBIT_CARD, SAVINGS]
     AssetOwnershipScope:
       type: string
-      enum: [PERSONAL, JOINT]
+      enum: [PERSONAL]
+      description: 호환을 위해 유지하는 고정값. 모든 자산은 구성원 한 명을 소유자로 지정한다.
     FinancialInstitutionCode:
       type: string
       enum:
@@ -1416,17 +1454,14 @@ components:
         transferDay: { type: integer, minimum: 1, maximum: 31 }
     AssetInput:
       type: object
-      required: [assetTypeId, ownershipScope, name, openedOn, openingBalanceWon]
+      required: [assetTypeId, ownershipScope, ownerMemberId, name, openedOn, openingBalanceWon]
       properties:
         assetTypeId:
           type: string
           format: uuid
           description: 현재 가계부의 고정 시스템 자산 종류 ID
         ownershipScope: { $ref: "#/components/schemas/AssetOwnershipScope" }
-        ownerMemberId:
-          oneOf:
-            - { type: string, format: uuid }
-            - { type: "null" }
+        ownerMemberId: { type: string, format: uuid }
         financialInstitutionCode:
           description: BANK·SAVINGS는 은행·상호금융, LOAN은 은행·캐피탈, INVESTMENT는 증권사 정적 코드를 저장한다. 생략하면 OTHER로 저장되며 다른 자산 종류에서는 null로 정규화한다.
           oneOf:
@@ -1530,10 +1565,7 @@ components:
         behavior: { $ref: "#/components/schemas/AssetBehavior" }
         paymentSourceCapable: { type: boolean }
         ownershipScope: { $ref: "#/components/schemas/AssetOwnershipScope" }
-        ownerMemberId:
-          oneOf:
-            - { type: string, format: uuid }
-            - { type: "null" }
+        ownerMemberId: { type: string, format: uuid }
         financialInstitutionCode:
           oneOf:
             - { $ref: "#/components/schemas/FinancialInstitutionCode" }
@@ -1834,7 +1866,7 @@ components:
         paymentId: { type: string, format: uuid }
         paymentType:
           type: string
-          enum: [PREPAYMENT, REGULAR]
+          enum: [PREPAYMENT, REGULAR, MANUAL]
         statementVersion: { type: integer, format: int64, minimum: 0 }
         returnedAmountWon: { type: integer, format: int64, minimum: 0 }
     Transaction:
@@ -1892,6 +1924,7 @@ components:
             - { $ref: "#/components/schemas/TransactionCategory" }
             - { type: "null" }
         performedBy:
+          description: 거래 주체. 카드 정산·선결제는 생성 시점의 카드 소유자이며 결제 계좌 소유자·작성자와 독립적이다.
           oneOf:
             - { $ref: "#/components/schemas/TransactionMember" }
             - { type: "null" }
@@ -1949,7 +1982,7 @@ components:
       required: [paymentId, paymentType, settlementAssetId, settlementAssetName, amountWon, returnedAmountWon, effectiveAmountWon, paidOn, settlementTransactionId, createdByMemberId]
       properties:
         paymentId: { type: string, format: uuid }
-        paymentType: { type: string, enum: [PREPAYMENT, REGULAR] }
+        paymentType: { type: string, enum: [PREPAYMENT, REGULAR, MANUAL] }
         settlementAssetId: { type: string, format: uuid }
         settlementAssetName: { type: string }
         amountWon: { type: integer, format: int64, minimum: 1 }
@@ -1970,7 +2003,7 @@ components:
         expectedVersion: { type: integer, format: int64, minimum: 0 }
     CardStatementSummary:
       type: object
-      required: [statementId, cardAsset, dueOn, status, grossAmountWon, paidAmountWon, remainingAmountWon, version, automaticSettlement]
+      required: [statementId, cardAsset, dueOn, status, grossAmountWon, paidAmountWon, remainingAmountWon, additionalUsageAfterPayment, version, automaticSettlement]
       properties:
         statementId: { type: string, format: uuid }
         cardAsset: { $ref: "#/components/schemas/TransactionAsset" }
@@ -1979,6 +2012,9 @@ components:
         grossAmountWon: { type: integer, format: int64, minimum: 0 }
         paidAmountWon: { type: integer, format: int64, minimum: 0 }
         remainingAmountWon: { type: integer, format: int64, minimum: 0 }
+        additionalUsageAfterPayment:
+          type: boolean
+          description: 결제일 당일 이후 전액 결제한 명세가 추가 사용으로 다시 열린 이력. true인 명세의 남은 금액은 수동 결제하며 자동 정산하지 않는다.
         version: { type: integer, format: int64, minimum: 0 }
         automaticSettlement:
           oneOf:
@@ -2217,12 +2253,17 @@ components:
         deletedVersion: { type: integer, format: int64, minimum: 1 }
     TransactionDaySummary:
       type: object
-      required: [date, incomeWon, expenseWon, netWon]
+      required: [date, incomeWon, expenseWon, netWon, cardPaymentWon]
       properties:
         date: { type: string, format: date }
         incomeWon: { type: integer, format: int64 }
         expenseWon: { type: integer, format: int64 }
         netWon: { type: integer, format: int64 }
+        cardPaymentWon:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 해당 날짜 카드 정산·선결제 금액 합계. 수입·지출·순액에는 포함하지 않으며 카드 명의자의 기록으로 조회한다.
     TransactionCalendar:
       type: object
       required: [month, totalIncomeWon, totalExpenseWon, netWon, days]
@@ -2267,7 +2308,7 @@ components:
           oneOf:
             - { type: string, format: uuid }
             - { type: "null" }
-        assetOwnerType: { type: string, enum: [ALL, JOINT, MEMBER] }
+        assetOwnerType: { type: string, enum: [ALL, MEMBER] }
         assetOwnerMemberId:
           oneOf:
             - { type: string, format: uuid }

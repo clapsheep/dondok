@@ -42,7 +42,7 @@ public class CardSettlementRepository {
         arguments.add(cardAssetId);
         String statusClause = includePaid
                 ? "and statement.status in ('OPEN', 'FINALIZED', 'PAID')"
-                : "and statement.status in ('OPEN', 'FINALIZED')";
+                : "and statement.status in ('OPEN', 'FINALIZED') and forecast.payment_amount_won > 0";
         String cursorClause = "";
         if (cursor != null) {
             cursorClause = "and (statement.due_on, statement.id) < (?, ?)";
@@ -52,9 +52,9 @@ public class CardSettlementRepository {
         arguments.add(limit);
         return jdbcTemplate.query("""
                 select statement.id, statement.book_id, statement.card_asset_id,
-                       card.name card_asset_name, statement.due_on, statement.status,
+                       card.name card_asset_name, card.owner_member_id card_owner_member_id, statement.due_on, statement.status,
                        forecast.gross_amount_won, forecast.paid_amount_won,
-                       forecast.payment_amount_won, statement.version,
+                       forecast.payment_amount_won, statement.additional_usage_after_payment, statement.version,
                        setting.settlement_asset_id, settlement.name settlement_asset_name,
                        coalesce(balance.current_balance_won, 0) settlement_asset_balance_won,
                        coalesce(setting.auto_settlement_enabled, false) auto_settlement_enabled,
@@ -231,14 +231,14 @@ public class CardSettlementRepository {
                  where statement.book_id = ? and statement.id = ?
                 """, Date.valueOf(today), Date.valueOf(today), Timestamp.from(now),
                 Timestamp.from(now), bookId, statementId);
-        if ("REGULAR".equals(payment.paymentType())) {
+        if (List.of("REGULAR", "MANUAL").contains(payment.paymentType())) {
             int scheduleUpdated = jdbcTemplate.update("""
                     update card_payment_schedule
                        set status = 'CANCELLED', last_error = null, next_retry_at = null,
                            updated_at = ?, version = version + 1
                      where book_id = ? and statement_id = ?
                     """, Timestamp.from(now), bookId, statementId);
-            if (scheduleUpdated != 1) {
+            if ("REGULAR".equals(payment.paymentType()) && scheduleUpdated != 1) {
                 throw new IllegalStateException("automatic card payment schedule cancellation was incomplete");
             }
         } else if (autoSettlementEnabled) {
@@ -247,6 +247,9 @@ public class CardSettlementRepository {
                        set status = 'SCHEDULED', last_error = null, next_retry_at = null,
                            updated_at = ?, version = version + 1
                      where book_id = ? and statement_id = ? and status = 'COMPLETED'
+                       and not exists (select 1 from card_statement statement
+                                        where statement.id = card_payment_schedule.statement_id
+                                          and statement.additional_usage_after_payment)
                     """, Timestamp.from(now), bookId, statementId);
         }
         if (paymentUpdated != 1 || transactionUpdated != 1 || statementUpdated != 1) {
@@ -286,6 +289,9 @@ public class CardSettlementRepository {
                     update card_payment_schedule
                        set settlement_asset_id = ?, updated_at = ?, version = version + 1
                      where book_id = ? and statement_id = ? and status = 'COMPLETED'
+                       and not exists (select 1 from card_statement statement
+                                        where statement.id = card_payment_schedule.statement_id
+                                          and statement.additional_usage_after_payment)
                     """, settlementAssetId, Timestamp.from(now), bookId, statementId);
         }
         int statementUpdated = jdbcTemplate.update("""
@@ -310,7 +316,7 @@ public class CardSettlementRepository {
                 payment.settlementTransactionId(), payment.createdByMemberId(), Timestamp.from(payment.now()));
     }
 
-    public void recordPrepayment(UUID statementId, boolean fullyPaid, Instant now) {
+    public void recordUserPayment(UUID statementId, boolean fullyPaid, Instant now) {
         if (!fullyPaid) {
             jdbcTemplate.update("""
                     update card_statement
@@ -375,6 +381,11 @@ public class CardSettlementRepository {
         return bookIds.isEmpty() ? null : bookIds.get(0);
     }
 
+    public UUID findScheduleStatementId(UUID bookId, UUID scheduleId) {
+        return jdbcTemplate.query("select statement_id from card_payment_schedule where book_id = ? and id = ?",
+                (rs, rowNum) -> rs.getObject(1, UUID.class), bookId, scheduleId).stream().findFirst().orElse(null);
+    }
+
     public ScheduleRow lockSchedule(UUID scheduleId) {
         List<ScheduleRow> rows = jdbcTemplate.query("""
                 select schedule.id, schedule.book_id, schedule.statement_id,
@@ -402,6 +413,16 @@ public class CardSettlementRepository {
                 )
                 """, Boolean.class, statementId);
         return Boolean.TRUE.equals(exists);
+    }
+
+    public void retainUnpaidStatement(UUID statementId, Instant now) {
+        jdbcTemplate.update("""
+                update card_statement
+                   set status = 'FINALIZED', additional_usage_after_payment = true,
+                       finalized_at = coalesce(finalized_at, ?), settled_at = null,
+                       updated_at = ?, version = version + 1
+                 where id = ?
+                """, Timestamp.from(now), Timestamp.from(now), statementId);
     }
 
     public void completeRegularSettlement(UUID statementId, UUID scheduleId, Instant now) {
@@ -463,9 +484,9 @@ public class CardSettlementRepository {
     private StatementRow statement(UUID bookId, UUID statementId) {
         List<StatementRow> rows = jdbcTemplate.query("""
                 select statement.id, statement.book_id, statement.card_asset_id,
-                       card.name card_asset_name, statement.due_on, statement.status,
+                       card.name card_asset_name, card.owner_member_id card_owner_member_id, statement.due_on, statement.status,
                        forecast.gross_amount_won, forecast.paid_amount_won,
-                       forecast.payment_amount_won, statement.version,
+                       forecast.payment_amount_won, statement.additional_usage_after_payment, statement.version,
                        setting.settlement_asset_id, settlement.name settlement_asset_name,
                        coalesce(balance.current_balance_won, 0) settlement_asset_balance_won,
                        coalesce(setting.auto_settlement_enabled, false) auto_settlement_enabled,
@@ -493,9 +514,10 @@ public class CardSettlementRepository {
         return new StatementRow(
                 rs.getObject("id", UUID.class), rs.getObject("book_id", UUID.class),
                 rs.getObject("card_asset_id", UUID.class), rs.getString("card_asset_name"),
+                rs.getObject("card_owner_member_id", UUID.class),
                 rs.getObject("due_on", LocalDate.class), rs.getString("status"),
                 rs.getLong("gross_amount_won"), rs.getLong("paid_amount_won"),
-                rs.getLong("payment_amount_won"), rs.getLong("version"),
+                rs.getLong("payment_amount_won"), rs.getBoolean("additional_usage_after_payment"), rs.getLong("version"),
                 settlementAssetId, settlementAssetId == null ? null : rs.getString("settlement_asset_name"),
                 settlementAssetId == null ? 0 : rs.getLong("settlement_asset_balance_won"),
                 rs.getBoolean("auto_settlement_enabled"),
@@ -521,11 +543,13 @@ public class CardSettlementRepository {
             UUID bookId,
             UUID cardAssetId,
             String cardAssetName,
+            UUID cardOwnerMemberId,
             LocalDate dueOn,
             String status,
             long grossAmountWon,
             long paidAmountWon,
             long remainingAmountWon,
+            boolean additionalUsageAfterPayment,
             long version,
             UUID settlementAssetId,
             String settlementAssetName,

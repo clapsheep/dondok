@@ -3,7 +3,7 @@ import type { FinancialInstitutionCode } from './financialInstitutions'
 import type { CardIssuerCode } from './cardIssuers'
 
 export type AssetBehavior = 'STANDARD' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'SAVINGS'
-export type OwnershipScope = 'PERSONAL' | 'JOINT'
+export type OwnershipScope = 'PERSONAL'
 export type AssetStatus = 'ACTIVE' | 'ARCHIVED'
 export type AssetListStatus = AssetStatus | 'ALL'
 export type AssetTypeSystemCode = 'CASH' | 'BANK' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'SAVINGS' | 'INVESTMENT' | 'LOAN' | 'INSURANCE' | 'OTHER'
@@ -49,7 +49,7 @@ export type Asset = {
   behavior: AssetBehavior
   paymentSourceCapable: boolean
   ownershipScope: OwnershipScope
-  ownerMemberId: string | null
+  ownerMemberId: string
   financialInstitutionCode: FinancialInstitutionCode | null
   cardIssuerCode: CardIssuerCode | null
   name: string
@@ -74,7 +74,7 @@ export type Asset = {
 export type CreateAssetInput = {
   assetTypeId: string
   ownershipScope: OwnershipScope
-  ownerMemberId: string | null
+  ownerMemberId: string
   financialInstitutionCode: FinancialInstitutionCode | null
   cardIssuerCode: CardIssuerCode | null
   name: string

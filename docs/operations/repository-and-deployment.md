@@ -321,3 +321,25 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 - 컨테이너 재생성 후 PostgreSQL 데이터 유지 확인
 - QC의 최소 Playwright smoke test 통과
 - 공개 URL의 HTTPS redirect·인증서 갱신·cookie/CSRF/rate limit 검증, backend 포트 비노출과 DB 관리 포트의 LAN 전용 bind 확인
+
+### V29 공동 소유 제거 적용
+
+배포 전 운영자가 기존 접근 절차로 다음 집계만 확인한다. 사용자·자산 상세를 로그나 Git에 남기지 않는다.
+
+```sql
+select count(*) as assets_requiring_owner
+from asset
+where ownership_scope <> 'PERSONAL' or owner_member_id is null;
+```
+
+검사 범위에는 모든 가계부와 사용 종료 자산을 포함한다. 0이면 V29는 명의·금액·거래를 변경하지 않고 개인 명의 제약만 강화한다. 0이 아니면 기존 버전에서 실제 명의자를 확인해 지정한 뒤 다시 검사한다. 생성자·가계부 개설자로 자동 귀속하지 않는다. V29 자체도 같은 검사를 수행해 미정 자산이 있으면 트랜잭션 전체를 중단한다. 실패 시 기존 버전을 유지하고 원인을 해결한 뒤 재실행한다. 성공 후 앱 롤백이 필요하면 공동 소유 쓰기를 허용하는 이전 UI를 재공개하지 말고 V29 호환 버전을 사용한다. 적용된 migration 파일이나 원장 데이터를 삭제해 되돌리지 않는다.
+
+### V30 카드 결제 주체 및 기록 조회
+
+자동 정산·선결제의 주체를 현재 카드 소유자로 이관한다. 과거 소유자 이력이 없어 현재 명의자를 사용하며, 취소된 결제도 포함한다. 날짜·금액·posting·작성자는 유지하고 거래 version을 올려 오래된 편집을 거부한다. 명세·카드 연결이 없는 결제는 제약 검증에서 전체 migration이 롤백되므로 원인을 먼저 확인한다.
+
+배포 시 이전 backend와 정산 worker를 먼저 중지하고 V30 호환 backend를 시작한다. 이전 binary는 주체 없이 결제를 쓰므로 migration 이후 함께 실행하지 않는다. 이후 frontend를 갱신한다. 앱 롤백도 V30 호환 binary로만 수행하고 적용된 migration이나 원장 데이터를 삭제하지 않는다.
+
+### V31 수동 카드 결제
+
+V31은 결제 유형 MANUAL과 해당 유형의 작성자 필수 제약을 추가한다. 기존 행·posting을 변경하지 않는다. V30 이후 순차 적용하며 API와 UI를 함께 갱신한다. MANUAL 데이터를 작성한 뒤에는 해당 유형을 이해하는 버전으로만 앱 롤백한다. 제약을 축소하거나 결제 원장을 삭제하는 down migration은 수행하지 않는다.

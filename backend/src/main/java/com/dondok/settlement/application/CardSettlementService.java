@@ -58,6 +58,10 @@ public class CardSettlementService {
         if (bookId == null || mutationGuard.tryLockBook(bookId).isEmpty()) {
             return SettlementOutcome.SKIPPED;
         }
+        // All user payment commands lock the statement before touching its schedule.
+        UUID statementId = repository.findScheduleStatementId(bookId, scheduleId);
+        StatementRow statement = statementId == null ? null : repository.lockStatement(bookId, statementId);
+        if (statement == null) return SettlementOutcome.SKIPPED;
         ScheduleRow schedule = repository.lockSchedule(scheduleId);
         if (schedule == null || !schedule.bookId().equals(bookId)
                 || List.of("COMPLETED", "CANCELLED").contains(schedule.status())
@@ -67,11 +71,6 @@ public class CardSettlementService {
             return SettlementOutcome.SKIPPED;
         }
 
-        StatementRow statement = repository.lockStatement(schedule.bookId(), schedule.statementId());
-        if (statement == null) {
-            repository.cancelSchedule(scheduleId, now);
-            return SettlementOutcome.CANCELLED;
-        }
         if (!repository.isActiveAsset(statement.bookId(), statement.cardAssetId())) {
             repository.cancelSchedule(scheduleId, now);
             return SettlementOutcome.CANCELLED;
@@ -88,17 +87,15 @@ public class CardSettlementService {
             repository.cancelSchedule(scheduleId, now);
             return SettlementOutcome.CANCELLED;
         }
-        if ("PAID".equals(statement.status())) {
-            repository.completeSchedule(scheduleId, now);
-            return SettlementOutcome.COMPLETED_WITHOUT_PAYMENT;
-        }
         if (statement.remainingAmountWon() == 0) {
             repository.completeRegularSettlement(statement.statementId(), scheduleId, now);
             return SettlementOutcome.COMPLETED_WITHOUT_PAYMENT;
         }
-        if (repository.regularPaymentExists(statement.statementId())) {
-            repository.completeRegularSettlement(statement.statementId(), scheduleId, now);
-            return SettlementOutcome.COMPLETED_WITHOUT_PAYMENT;
+        if (statement.additionalUsageAfterPayment() || "PAID".equals(statement.status())
+                || repository.regularPaymentExists(statement.statementId())) {
+            repository.retainUnpaidStatement(statement.statementId(), now);
+            repository.cancelSchedule(scheduleId, now);
+            return SettlementOutcome.CANCELLED;
         }
 
         long amountWon = paymentPolicy.regularPayment(statement.remainingAmountWon());
@@ -107,7 +104,7 @@ public class CardSettlementService {
         managedTransfers.create(new ManagedTransferPort.CreateCommand(
                 transactionId, statement.bookId(), TransferSubtype.CARD_SETTLEMENT,
                 schedule.scheduledOn(), amountWon, "카드대금 자동 정산", "CARD_AUTOPAY",
-                scheduleId, null, now,
+                scheduleId, statement.cardOwnerMemberId(), null, now,
                 List.of(
                         new ManagedTransferPort.Posting(
                                 statement.settlementAssetId(), -amountWon),

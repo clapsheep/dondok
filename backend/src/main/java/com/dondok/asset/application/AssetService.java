@@ -386,14 +386,8 @@ public class AssetService {
     }
 
     private UUID validateOwner(UUID bookId, AssetOwnershipScope scope, UUID ownerMemberId) {
-        if (scope == AssetOwnershipScope.JOINT) {
-            if (ownerMemberId != null) {
-                throw error(HttpStatus.BAD_REQUEST, "ASSET_OWNER_INVALID",
-                        "공동 소유 자산에는 개인 소유자를 지정할 수 없습니다.");
-            }
-            return null;
-        }
-        if (ownerMemberId == null || members.findByIdAndBookId(ownerMemberId, bookId).isEmpty()) {
+        if (scope != AssetOwnershipScope.PERSONAL || ownerMemberId == null
+                || members.findByIdAndBookId(ownerMemberId, bookId).isEmpty()) {
             throw error(HttpStatus.BAD_REQUEST, "ASSET_OWNER_INVALID",
                     "같은 가계부의 구성원을 소유자로 선택해 주세요.");
         }

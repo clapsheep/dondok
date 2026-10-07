@@ -39,7 +39,7 @@
 
 실제 UI는 [`design/tokens.css`](../../design/tokens.css)의 의미 토큰을 사용한다. 황동색은 작은 본문이나 흰 배경 위 버튼 색으로 쓰지 않는다. 수입·지출·이체는 아이콘, 부호, 레이블을 색과 함께 제공한다. 멤버 색상은 사람 구분용이며 소유권이나 편집 권한을 의미하지 않는다.
 
-구성원 avatar는 6개의 저채도 light/dark 조합 중 구성원 ID로 항상 같은 색을 고르고 표시명의 첫 grapheme을 fallback으로 사용한다. 목록 metadata는 20px, 일반 표시는 28px, 선택 option은 32px을 기본으로 하며 반드시 전체 이름과 함께 둔다. 현재 사용자 `나`와 공동 소유는 별도 문구·공동 icon으로 표시해 이니셜과 색에 의미를 맡기지 않는다.
+구성원 avatar는 6개의 저채도 light/dark 조합 중 구성원 ID로 항상 같은 색을 고르고 표시명의 첫 grapheme을 fallback으로 사용한다. 목록 metadata는 20px, 일반 표시는 28px, 선택 option은 32px을 기본으로 하며 반드시 전체 이름과 함께 둔다. 현재 사용자는 `나` 표식을 함께 표시해 이니셜과 색에 의미를 맡기지 않는다.
 
 통계 분류 차트는 `--chart-1`부터 `--chart-6`까지의 녹색·테라코타·청색·황동·자주·올리브 저채도 팔레트를 사용한다. 이 팔레트는 분류 식별용이라 수입·지출 의미색에 종속하지 않으며, 조각과 분류 행 표지는 같은 색을 사용한다. 색은 정확한 분류명·금액·비율을 보조할 뿐 대체하지 않는다.
 
@@ -99,6 +99,6 @@ Tailwind에서 사용하는 forest 단계는 theme token에 모두 정의해 생
 
 토큰은 직접 화면별로 복제하지 않는다. 새로운 색·간격·컴포넌트 변형은 UX/UI와 Frontend가 의미와 재사용 범위를 합의한 뒤 공통 토큰 또는 shadcn variant로 추가한다.
 
-자산과 연결 계좌 선택은 Base UI Popover 기반 공통 `AssetPicker`를 사용한다. 모바일은 safe area 위의 bottom drawer, iPad·데스크톱은 trigger에 붙는 popover로 같은 DOM을 재배치한다. 모바일 drawer는 종류 필터 결과의 개수와 무관하게 동적 viewport 기준의 일정한 외곽 높이와 위쪽 위치를 유지하고 목록만 내부 스크롤한다. trigger와 option에는 자산 종류 icon, 이름, 종류, 소유자 avatar/marker와 잔액을 함께 두고, 여러 종류가 섞이면 줄바꿈하지 않는 compact 종류 필터를 제공한다. trigger는 48px 안팎, option은 이름·금액과 종류·소유자를 두 줄에 정돈한 52~56px 구분선 행으로 유지하며 큰 카드처럼 만들지 않는다. overlay 헤더 우상단에는 compact `모든 자산 보기` switch를 두고 기본은 꺼서 로그인 구성원의 개인 자산만 보여 주며, 켜면 공동·다른 구성원 자산을 같은 목록에 더한다. 제목·switch·닫기 버튼은 320px에서도 겹치거나 가로 overflow를 만들지 않고, overlay radius는 8px을 넘기지 않는다.
+자산과 연결 계좌 선택은 Base UI Popover 기반 공통 `AssetPicker`를 사용한다. 모바일은 safe area 위의 bottom drawer, iPad·데스크톱은 trigger에 붙는 popover로 같은 DOM을 재배치한다. 모바일 drawer는 종류 필터 결과의 개수와 무관하게 동적 viewport 기준의 일정한 외곽 높이와 위쪽 위치를 유지하고 목록만 내부 스크롤한다. trigger와 option에는 자산 종류 icon, 이름, 종류, 소유자 avatar/marker와 잔액을 함께 두고, 여러 종류가 섞이면 줄바꿈하지 않는 compact 종류 필터를 제공한다. trigger는 48px 안팎, option은 이름·금액과 종류·소유자를 두 줄에 정돈한 52~56px 구분선 행으로 유지하며 큰 카드처럼 만들지 않는다. overlay 헤더 우상단에는 compact `모든 자산 보기` switch를 두고 기본은 꺼서 로그인 구성원의 개인 자산만 보여 주며, 켜면 다른 구성원 자산을 같은 목록에 더한다. 제목·switch·닫기 버튼은 320px에서도 겹치거나 가로 overflow를 만들지 않고, overlay radius는 8px을 넘기지 않는다.
 
 내비게이션의 현재 위치는 배경색만으로 표시하지 않는다. primary leading indicator, 굵기 변화, 텍스트 또는 아이콘 상태와 `aria-current="page"`를 함께 사용한다.

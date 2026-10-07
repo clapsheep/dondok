@@ -114,12 +114,12 @@ async function expectDetailAcrossBreakpoints(
     await page.setViewportSize({ width, height: width < 768 ? 820 : 900 })
     for (const field of [
       page.getByLabel('자산 이름 (선택)', { exact: true }),
-      page.getByRole('group', { name: '소유 형태', exact: true }),
       page.getByRole('radiogroup', { name: '소유자', exact: true }),
       page.getByLabel(amountLabel, { exact: true }),
       page.getByLabel('잔액 기준일', { exact: true }),
       memo,
     ]) await expect(field, `${width}px 상세 필드는 모두 보여야 합니다`).toBeVisible()
+    await expect(page.getByRole('group', { name: '소유 형태', exact: true })).toHaveCount(0)
     await expect(page.getByLabel(amountLabel, { exact: true })).toHaveValue(formatInputWon(amount))
     await expect(memo, `${width}px에서 메모 draft를 보존해야 합니다`).toHaveValue(memoDraft)
     await expect(selectedButton, `${width}px에서 상세 종류 focus를 보존해야 합니다`).toBeFocused()
@@ -128,8 +128,6 @@ async function expectDetailAcrossBreakpoints(
     else await expectAmountAndDateControlsAligned(page, amountLabel, width)
     await expectFormTargetsAtLeast44(page, typeGroup, [
       [page.getByLabel('자산 이름 (선택)', { exact: true }), '자산 이름'],
-      [page.getByRole('radio', { name: '구성원 소유 : 구성원 한 명의 자산', exact: true }), '구성원 소유'],
-      [page.getByRole('radio', { name: '공동 소유 : 가계부 구성원의 공동 자산', exact: true }), '공동 소유'],
       [page.getByRole('radiogroup', { name: '소유자' }).locator('label').first(), '소유자'],
       [page.getByLabel(amountLabel, { exact: true }), amountLabel],
       [page.getByLabel('잔액 기준일'), '잔액 기준일'],
@@ -409,7 +407,7 @@ test('새 가계부의 기본 자산과 이름을 포함한 빠른 자산 등록
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
   await expect(page.getByLabel('대출 기관', { exact: true })).toContainText('KB캐피탈')
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('신혼집 대출')
-  await expect(page.getByRole('radio', { name: '구성원 소유 : 구성원 한 명의 자산', exact: true })).toBeChecked()
+  await expect(page.getByRole('group', { name: '소유 형태', exact: true })).toHaveCount(0)
   const ownerGroup = page.getByRole('radiogroup', { name: '소유자' })
   await expect(ownerGroup.getByRole('radio').first()).toBeChecked()
   await expect(ownerGroup.locator('[data-member-avatar]')).toHaveAttribute('data-member-initial', '빠')

@@ -120,7 +120,7 @@ public record CreateExpense(
 - 체크카드 구매: 선택 자산은 체크카드로 보존하고 연결 결제 계좌에 `-amount`
 - 카드 정산: 이체 policy + `CARD_SETTLEMENT`
 
-공개 일반 이체 command는 출발·도착 자산을 같은 가계부 범위에서 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 각각 `BANK`, `SAVINGS` 또는 `INVESTMENT`인지 검증한다. 소유 marker는 권한 검사에 사용하지 않으므로 현재 사용자, 다른 구성원, 공동 소유 계좌·적금·주식 계좌 사이의 모든 조합을 허용한다. 아니면 기존 호환 오류 코드 `400 TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED`로 전체 요청을 거부한다. 허용된 세 유형 사이의 납입·인출·자금 이동은 같은 일반 이체 posting policy를 사용하며 통계에서 제외한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
+공개 일반 이체 command는 출발·도착 자산을 같은 가계부 범위에서 읽기 잠금으로 확인한 뒤 두 자산의 고정 유형 `systemCode`가 각각 `BANK`, `SAVINGS` 또는 `INVESTMENT`인지 검증한다. 소유 marker는 권한 검사에 사용하지 않으므로 현재 사용자와 다른 구성원 소유 계좌·적금·주식 계좌 사이의 모든 조합을 허용한다. 아니면 기존 호환 오류 코드 `400 TRANSFER_ACCOUNT_OR_SAVINGS_REQUIRED`로 전체 요청을 거부한다. 허용된 세 유형 사이의 납입·인출·자금 이동은 같은 일반 이체 posting policy를 사용하며 통계에서 제외한다. 카드 정산·선결제는 일반 이체 command를 우회하는 전용 use case이므로 이 제한을 공유하지 않고 각 결제 정책이 계좌와 카드 posting을 만든다.
 
 자산 생성·수정의 `openingBalanceWon`과 `openedOn`은 호환 필드명이며 각각 기준일 잔액과 잔액 기준일을 뜻한다. application service는 선언값을 `asset.balance_anchor_won`에 함께 저장하고 기존 내부 `OPENING_BALANCE` 업무 이력도 동기화한다. 현재 잔액 read model은 기준일 잔액에 기준일 당일 이후 유효 posting만 합산하며 기준일 이전 거래는 통계·원장 이력에만 반영한다. 신용카드 구매 생성·정정은 구매일과 카드 잔액 기준일을 비교해 charge의 `absorbed_by_balance_anchor`를 결정하고, 자산 기준일 수정은 기존 구매 charge를 같은 DB 트랜잭션에서 다시 분류한 뒤 명세와 schedule을 재계산한다.
 
@@ -208,7 +208,7 @@ OPEN -> FINALIZED -> PAID
 
 카드 설정의 자동 정산을 켜면 기존 `OPEN`·`FINALIZED` 미결제 명세 schedule을 upsert하고, 끄면 처리 전 schedule을 `CANCELLED`로 바꾼다. 결제 계좌를 바꾸면 처리 전 schedule만 새 계좌로 갱신하고 기존 payment의 실제 출금 계좌는 보존한다. worker는 `scheduled_on <= 오늘`인 schedule을 작은 트랜잭션으로 따라잡고 장부 거래일과 `paid_on`에는 원래 `scheduled_on`을 사용한다. 기술 실패만 지수 backoff로 `FAILED` 재시도하며, 테스트에서는 scheduling infrastructure를 끄고 service/worker 진입점을 직접 실행한다.
 
-카드 정산과 선결제는 경제활동 주체가 없는 통계 제외 자산 이동이다. `settlementAssetId`가 실제 자금 출처이며 자동 정산 사용 여부와 무관하게 카드 생성·수정에서 필수다. 선결제를 실행한 사용자는 `createdByMemberId`로만 남긴다. 결제 계좌의 장부 잔액이 부족해도 남은 전액을 posting하고 음수 잔액을 허용한다. 잔액 부족은 실패가 아니며 기술 오류만 worker 재시도 대상으로 둔다.
+카드 정산과 선결제는 생성 시점의 카드 소유자를 `performedByMemberId`로 기록하는 통계 제외 자산 이동이다. `settlementAssetId`가 실제 자금 출처이며 자동 정산 사용 여부와 무관하게 카드 생성·수정에서 필수다. 선결제를 실행한 사용자는 별도 `createdByMemberId`로 남기며 자동 정산의 작성자는 null이다. 이후 카드 소유자 변경·출금 계좌 정정은 결제에 저장된 주체를 바꾸지 않는다. 결제 계좌의 장부 잔액이 부족해도 남은 전액을 posting하고 음수 잔액을 허용한다. 잔액 부족은 실패가 아니며 기술 오류만 worker 재시도 대상으로 둔다.
 
 ## 7. 카테고리 삭제 유스케이스
 
@@ -322,3 +322,13 @@ public record MoneyWon(long value) {
 - 단일 서버에서는 Redis와 별도 실시간 transport 없이 시작
 
 공개 도메인+HTTPS로 운영하므로 reverse proxy만 외부에 노출하고 secure cookie, CSRF, 인증 관련 rate limit, 방화벽과 암호화 백업을 배포 전에 검증한다.
+
+월간 달력은 동일 월·가계부·거래 주체 조건으로 canonical 수입·지출과 유효 카드 정산·선결제를 각각 읽고 날짜별로 합산한다. `cardPaymentWon`은 별도 필드이며 `incomeWon`·`expenseWon`·`netWon`에 더하지 않는다. 취소된 결제는 제외한다. 기존 구성원 필터와 cursor 일별 조회, mutation 무효화·focus 재조회 경로를 유지한다.
+
+### 사용자 수동 카드 정산
+
+`CardStatementService.payManually`는 `POST /api/card-statements/{statementId}/payments`의 단일 명령이다. 상세 조회로 확인한 expectedVersion·expectedAmountWon·settlementAssetId가 현재 값과 같을 때 활성 카드·결제 계좌를 검증하고 남은 전액을 서울 실행일에 MANUAL 결제로 기록한다. 가계부 경계, 명세 행 잠금, idempotency를 재사용한다. 자동 worker도 명세→schedule 순으로 잠가 수동 정산·선결제와 교착하지 않게 한다. 동일 요청 replay는 기존 결제만 반환하며 금액·명의자·작성자·posting을 다시 만들지 않는다.
+
+### 결제 완료 뒤 추가 사용
+
+신규 구매는 명세 행을 잠근 뒤 청구 합계와 남은 금액을 재계산한다. 구매 정정도 같은 기준으로 PAID→OPEN/FINALIZED를 판단하며 결제일 당일 이후 다시 열면 `additional_usage_after_payment`를 영속화한다. 이후 구매 추가·카드 설정 변경에서 해당 명세의 자동 예약을 만들지 않는다. worker는 과거 REGULAR 존재 자체를 완료 근거로 쓰지 않고, 잔액 0원만 완료 처리한다. 추가 사용 표시 또는 과거 정규 결제가 있는데 잔액이 남으면 FINALIZED로 유지하고 예약을 취소한다. 기존 결제는 변경하지 않고 차액은 MANUAL 결제로 기록한다.

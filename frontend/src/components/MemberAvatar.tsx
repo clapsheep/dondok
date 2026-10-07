@@ -1,4 +1,3 @@
-import { UsersRound } from 'lucide-react'
 import { cn } from '../lib/cn'
 import { memberAvatarTone, memberInitial } from './avatarIdentity'
 
@@ -35,19 +34,6 @@ export function MemberAvatar({ displayName, memberId, size = 'sm', className }: 
       aria-hidden="true"
     >
       {initial}
-    </span>
-  )
-}
-
-export function JointAvatar({ size = 'sm', className }: { size?: AvatarSize; className?: string }) {
-  const iconSize = size === 'xs' ? 11 : size === 'sm' ? 14 : 16
-  return (
-    <span
-      className={cn('inline-grid shrink-0 place-items-center rounded-full bg-[var(--member-avatar-4-bg)] text-[var(--member-avatar-4-fg)]', sizeClasses[size], className)}
-      data-joint-avatar
-      aria-hidden="true"
-    >
-      <UsersRound size={iconSize} strokeWidth={2.2} />
     </span>
   )
 }

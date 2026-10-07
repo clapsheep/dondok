@@ -77,7 +77,7 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
       void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType: 'none' })
       void queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType: 'none' })
       void queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType: 'none' })
-      navigate(returnTo, { replace: true, state: transaction.cardPayment?.paymentType === 'REGULAR' ? { automaticSettlementCancelled: true } : { prepaymentCancelled: true } })
+      navigate(returnTo, { replace: true, state: transaction.cardPayment?.paymentType === 'REGULAR' ? { automaticSettlementCancelled: true } : transaction.cardPayment?.paymentType === 'MANUAL' ? { manualPaymentCancelled: true } : { prepaymentCancelled: true } })
     },
     onError: async (error) => {
       if (!(error instanceof ApiError)) return
@@ -123,7 +123,8 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
   const editable = transaction.managementType === 'GENERAL'
   const cancellableCardPayment = transaction.managementType === 'SYSTEM'
     && transaction.cardPayment
-    && ['PREPAYMENT', 'REGULAR'].includes(transaction.cardPayment.paymentType)
+    && ['PREPAYMENT', 'REGULAR', 'MANUAL'].includes(transaction.cardPayment.paymentType)
+  const manualPayment = transaction.cardPayment?.paymentType === 'MANUAL'
   const automaticSettlement = cancellableCardPayment && transaction.cardPayment?.paymentType === 'REGULAR'
   const type = transactionTypeLabel(transaction)
   const amountTone = transaction.managementType === 'CARD_REFUND' || transaction.type === 'INCOME'
@@ -152,7 +153,7 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
           <DetailRow label="날짜" value={formatDate(transaction.occurredOn)} />
           {transaction.category ? <DetailRow label="분류" value={transaction.category.name} /> : null}
           <DetailRow label="자산 흐름" value={postingFlow(transaction)} />
-          <DetailRow label={performerPersonLabel(transaction.type)} value={<MemberValue transaction={transaction} />} />
+          <DetailRow label={transaction.transferSubtype === 'CARD_SETTLEMENT' || transaction.transferSubtype === 'CARD_PREPAYMENT' ? '카드 명의자' : performerPersonLabel(transaction.type)} value={<MemberValue transaction={transaction} />} />
           {transaction.createdBy && transaction.createdBy.memberId !== transaction.performedBy?.memberId ? <DetailRow label="기록한 사람" value={<span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={transaction.createdBy.displayName} memberId={transaction.createdBy.memberId} size="xs" />{transaction.createdBy.displayName}</span>} /> : null}
           {transaction.installmentCount && transaction.installmentCount > 1 ? <DetailRow label="할부" value={`${transaction.installmentCount}개월`} /> : null}
           {transaction.type !== 'TRANSFER' ? <DetailRow label="달력·통계" value={transaction.excludedFromStatistics ? '집계 제외' : '집계 포함'} /> : null}
@@ -163,8 +164,8 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
         {transaction.managementType === 'CARD_REFUND' && transaction.relatedPurchaseTransactionId ? <section className="border-b border-[var(--line)] py-5"><p className="text-sm leading-6 text-[var(--muted)]">카드 환불은 원 구매와 결제 계좌 반환 내역을 함께 관리해요.</p><Button asChild className="mt-3" variant="secondary"><Link to={`/transactions/${transaction.relatedPurchaseTransactionId}/card-purchase`} state={{ returnTo }}>원 카드 구매 보기</Link></Button></section> : null}
         {cancellableCardPayment ? (
           <section className="border-b border-[var(--line)] py-5" aria-label="카드 결제 관리">
-            <p className="text-sm leading-6 text-[var(--muted)]">{automaticSettlement ? '자동 정산 기록이에요. 삭제하면 이 명세는 자동으로 다시 정산되지 않아요.' : '직접 기록한 카드 선결제예요.'} 취소하면 결제 계좌 잔액이 복원되고 카드 미결제 금액이 다시 늘어납니다.</p>
-            {transaction.cardPayment!.returnedAmountWon > 0 ? <p className="mt-3 text-sm text-amber-900 dark:text-[#ffe3a3]">이 결제로 반환된 환불 금액이 있어 바로 취소할 수 없어요.</p> : <Button className="mt-4" type="button" variant="destructive" disabled={!online} onClick={() => { setConfirmCancelPayment(true); setPaymentConflict(false); cancelPayment.reset() }}><Trash2 size={17} />{automaticSettlement ? '자동 정산 삭제' : '선결제 취소'}</Button>}
+            <p className="text-sm leading-6 text-[var(--muted)]">{automaticSettlement ? '자동 정산 기록이에요. 삭제하면 이 명세는 자동으로 다시 정산되지 않아요.' : manualPayment ? '직접 기록한 카드 전액 결제예요. 취소하면 자동 정산도 중단돼요.' : '직접 기록한 카드 선결제예요.'} 취소하면 결제 계좌 잔액이 복원되고 카드 미결제 금액이 다시 늘어납니다.</p>
+            {transaction.cardPayment!.returnedAmountWon > 0 ? <p className="mt-3 text-sm text-amber-900 dark:text-[#ffe3a3]">이 결제로 반환된 환불 금액이 있어 바로 취소할 수 없어요.</p> : <Button className="mt-4" type="button" variant="destructive" disabled={!online} onClick={() => { setConfirmCancelPayment(true); setPaymentConflict(false); cancelPayment.reset() }}><Trash2 size={17} />{automaticSettlement ? '자동 정산 삭제' : manualPayment ? '수동 결제 취소' : '선결제 취소'}</Button>}
           </section>
         ) : transaction.managementType === 'SYSTEM' ? <p className="border-b border-[var(--line)] py-5 text-sm leading-6 text-[var(--muted)]">카드 자동 정산처럼 시스템이 생성한 기록은 연결된 카드 명세에서 관리하므로 직접 편집하거나 삭제할 수 없어요.</p> : null}
 
@@ -180,10 +181,10 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
       </section>
       <Dialog open={confirmCancelPayment} onOpenChange={(open) => { if (!open && !cancelPayment.isPending) setConfirmCancelPayment(false) }}>
         <DialogContent className="max-w-md">
-          <DialogTitle>{automaticSettlement ? '자동 정산을 삭제할까요?' : '선결제를 취소할까요?'}</DialogTitle>
-          <DialogDescription className="mt-2">{formatDate(transaction.occurredOn)}에 기록한 {formatWon(transaction.amountWon)} {automaticSettlement ? '자동 정산을 삭제' : '선결제를 취소'}합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.{automaticSettlement ? ' 이 명세는 자동으로 다시 정산되지 않습니다.' : ''}</DialogDescription>
+          <DialogTitle>{automaticSettlement ? '자동 정산을 삭제할까요?' : manualPayment ? '수동 결제를 취소할까요?' : '선결제를 취소할까요?'}</DialogTitle>
+          <DialogDescription className="mt-2">{formatDate(transaction.occurredOn)}에 기록한 {formatWon(transaction.amountWon)} {automaticSettlement ? '자동 정산을 삭제' : manualPayment ? '수동 결제를 취소' : '선결제를 취소'}합니다. 결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.{automaticSettlement || manualPayment ? ' 이 명세는 자동으로 다시 정산되지 않습니다.' : ''}</DialogDescription>
           {paymentConflict ? <p className="mt-4 border-l-4 border-amber-500 px-3 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="alert">다른 변경이 먼저 저장되어 최신 결제 상태를 불러왔어요. 내용을 확인하고 다시 취소해 주세요.</p> : cancelPayment.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{cancelPayment.error.message}</p> : null}
-          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPayment.isPending} onClick={() => setConfirmCancelPayment(false)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPayment.isPending || !transaction.cardPayment} onClick={() => { setPaymentConflict(false); cancelPayment.mutate() }}>{cancelPayment.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}{automaticSettlement ? '자동 정산 삭제' : '선결제 취소'}</Button></div>
+          <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPayment.isPending} onClick={() => setConfirmCancelPayment(false)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPayment.isPending || !transaction.cardPayment} onClick={() => { setPaymentConflict(false); cancelPayment.mutate() }}>{cancelPayment.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}{automaticSettlement ? '자동 정산 삭제' : manualPayment ? '수동 결제 취소' : '선결제 취소'}</Button></div>
         </DialogContent>
       </Dialog>
     </AppShell>

@@ -169,7 +169,7 @@ public class CardStatementService {
                 new ManagedTransferPort.CreateCommand(
                         transactionId, member.getBookId(), TransferSubtype.CARD_PREPAYMENT,
                         today, command.amountWon(), "카드 선결제", "CARD_PREPAYMENT",
-                        paymentId, member.getId(), now,
+                        paymentId, statement.cardOwnerMemberId(), member.getId(), now,
                         List.of(
                                 new ManagedTransferPort.Posting(
                                         statement.settlementAssetId(), -command.amountWon()),
@@ -179,7 +179,7 @@ public class CardStatementService {
                 paymentId, member.getBookId(), statementId, "PREPAYMENT",
                 statement.settlementAssetId(), command.amountWon(), today,
                 transactionId, member.getId(), now));
-        repository.recordPrepayment(
+        repository.recordUserPayment(
                 statementId, decision.fullyPaid(), now);
         idempotency.complete(userId, PREPAYMENT_SCOPE, idempotencyKey, paymentId, now);
 
@@ -187,6 +187,58 @@ public class CardStatementService {
         PaymentRow payment = requiredPayment(member.getBookId(), paymentId);
         return new CardStatementPaymentResult(
                 detail(current), payment(payment), transaction(transfer));
+    }
+
+    @Transactional
+    public CardStatementPaymentResult payManually(
+            UUID userId, UUID statementId, String idempotencyKey, ManualPaymentCommand command
+    ) {
+        LedgerMemberEntity member = mutationGuard.lockCurrentMember(userId);
+        Instant now = clock.instant();
+        String scope = "POST:/api/card-statements/payments";
+        String requestHash = hash(statementId + "|" + command);
+        SettlementIdempotencyRepository.Claim claim = idempotency.claim(
+                userId, member.getBookId(), scope, idempotencyKey, requestHash, now);
+        if (!claim.fresh()) {
+            if (!requestHash.equals(claim.requestHash())) {
+                throw error(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_REUSED", "같은 중복 방지 키를 다른 요청에 사용할 수 없습니다.");
+            }
+            if ("COMPLETED".equals(claim.status()) && claim.resourceId() != null) {
+                return replay(member.getBookId(), claim.resourceId());
+            }
+            throw error(HttpStatus.CONFLICT, "IDEMPOTENCY_REQUEST_IN_PROGRESS", "동일한 결제 요청이 처리 중입니다.");
+        }
+        StatementRow statement = repository.lockStatement(member.getBookId(), statementId);
+        if (statement == null) throw statementNotFound();
+        requireActiveCard(statement);
+        if (statement.version() != command.expectedVersion()
+                || statement.remainingAmountWon() != command.expectedAmountWon()
+                || !java.util.Objects.equals(statement.settlementAssetId(), command.settlementAssetId())) {
+            throw versionConflict(statement);
+        }
+        if (!List.of("OPEN", "FINALIZED").contains(statement.status()) || statement.remainingAmountWon() <= 0) {
+            throw error(HttpStatus.CONFLICT, "CARD_STATEMENT_NOT_PAYABLE", "현재 결제할 카드 명세가 아닙니다.");
+        }
+        settlementAsset(statement);
+        if (!repository.isActivePaymentSource(member.getBookId(), statement.settlementAssetId())) {
+            throw error(HttpStatus.CONFLICT, "CARD_SETTLEMENT_ASSET_INVALID", "사용 가능한 결제 계좌를 설정해 주세요.");
+        }
+        UUID paymentId = UuidV7.next();
+        UUID transactionId = UuidV7.next();
+        long amount = statement.remainingAmountWon();
+        LocalDate paidOn = today();
+        ManagedTransferPort.ManagedTransfer transfer = managedTransfers.create(new ManagedTransferPort.CreateCommand(
+                transactionId, member.getBookId(), TransferSubtype.CARD_SETTLEMENT, paidOn, amount,
+                "카드 대금 수동 결제", "SYSTEM", paymentId, statement.cardOwnerMemberId(), member.getId(), now,
+                List.of(new ManagedTransferPort.Posting(statement.settlementAssetId(), -amount),
+                        new ManagedTransferPort.Posting(statement.cardAssetId(), amount))));
+        repository.insertPayment(new CardSettlementRepository.PaymentWrite(
+                paymentId, member.getBookId(), statementId, "MANUAL", statement.settlementAssetId(),
+                amount, paidOn, transactionId, member.getId(), now));
+        repository.recordUserPayment(statementId, true, now);
+        idempotency.complete(userId, scope, idempotencyKey, paymentId, now);
+        return new CardStatementPaymentResult(detail(requiredStatement(member.getBookId(), statementId)),
+                payment(requiredPayment(member.getBookId(), paymentId)), transaction(transfer));
     }
 
     @Transactional
@@ -282,8 +334,9 @@ public class CardStatementService {
     private CardStatementPaymentResult replay(UUID bookId, UUID paymentId) {
         PaymentRow payment = requiredPayment(bookId, paymentId);
         if (payment.cancelledAt() != null) {
-            throw error(HttpStatus.CONFLICT, "CARD_PREPAYMENT_ALREADY_CANCELLED",
-                    "이미 취소된 선결제입니다.");
+            throw error(HttpStatus.CONFLICT, "PREPAYMENT".equals(payment.paymentType())
+                    ? "CARD_PREPAYMENT_ALREADY_CANCELLED" : "CARD_PAYMENT_ALREADY_CANCELLED",
+                    "이미 취소된 카드 결제입니다.");
         }
         ManagedTransferPort.ManagedTransfer transfer = managedTransfers.find(
                 bookId, payment.settlementTransactionId());
@@ -301,7 +354,7 @@ public class CardStatementService {
         return new CardStatementDetail(
                 summary.statementId(), summary.cardAsset(), summary.dueOn(), summary.status(),
                 summary.grossAmountWon(), summary.paidAmountWon(), summary.remainingAmountWon(),
-                summary.version(), summary.automaticSettlement(), prepayable,
+                summary.additionalUsageAfterPayment(), summary.version(), summary.automaticSettlement(), prepayable,
                 row.settlementAssetId() == null ? null : settlementAsset(row),
                 row.autoSettlementEnabled(),
                 repository.payments(row.bookId(), row.statementId()).stream()
@@ -316,7 +369,7 @@ public class CardStatementService {
         return new CardStatementSummary(
                 row.statementId(), new AssetReference(row.cardAssetId(), row.cardAssetName()),
                 row.dueOn(), row.status(), row.grossAmountWon(), row.paidAmountWon(),
-                row.remainingAmountWon(), row.version(), automaticSettlement);
+                row.remainingAmountWon(), row.additionalUsageAfterPayment(), row.version(), automaticSettlement);
     }
 
     private CardStatementPayment payment(PaymentRow payment) {
@@ -338,13 +391,15 @@ public class CardStatementService {
     }
 
     private SettlementTransaction transaction(ManagedTransferPort.ManagedTransfer transfer) {
+        TransactionMember performer = transfer.performedBy() == null ? null
+                : new TransactionMember(transfer.performedBy().memberId(), transfer.performedBy().displayName());
         TransactionMember creator = transfer.createdBy() == null ? null
                 : new TransactionMember(
                         transfer.createdBy().memberId(), transfer.createdBy().displayName());
         return new SettlementTransaction(
                 transfer.transactionId(), TransactionType.TRANSFER, transfer.transferSubtype(),
                 "SYSTEM", null, transfer.occurredOn(), transfer.amountWon(), null,
-                null, creator, null, transfer.description(),
+                performer, creator, null, transfer.description(),
                 transfer.postings().stream().map(posting -> new TransactionPosting(
                         posting.assetId(), posting.assetName(), posting.deltaWon())).toList(),
                 null, transfer.version(), transfer.createdAt(), transfer.updatedAt());
@@ -484,6 +539,8 @@ public class CardStatementService {
         return new ApiException(status, code, message);
     }
 
+    public record ManualPaymentCommand(long expectedVersion, long expectedAmountWon, UUID settlementAssetId) {}
+
     public record PrepaymentCommand(long amountWon, long expectedVersion) {
     }
 
@@ -513,6 +570,7 @@ public class CardStatementService {
             long grossAmountWon,
             long paidAmountWon,
             long remainingAmountWon,
+            boolean additionalUsageAfterPayment,
             long version,
             AutomaticSettlement automaticSettlement
     ) {
@@ -526,6 +584,7 @@ public class CardStatementService {
             long grossAmountWon,
             long paidAmountWon,
             long remainingAmountWon,
+            boolean additionalUsageAfterPayment,
             long version,
             AutomaticSettlement automaticSettlement,
             long prepayableAmountWon,
