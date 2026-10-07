@@ -21,8 +21,10 @@ class CardPaymentOwnerMigrationIntegrationTest {
     private DataSource dataSource;
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void backfillsActiveAndCancelledPaymentsWithoutChangingMoneyOrWriter(boolean cancelled) throws Exception {
+    @ValueSource(strings = {"ACTIVE", "CANCELLED", "CANCELLED_WITHOUT_PAYMENT"})
+    void backfillsActiveAndCancelledPaymentsWithoutChangingMoneyOrWriter(String legacyState) throws Exception {
+        boolean cancelled = !legacyState.equals("ACTIVE");
+        boolean unlinked = legacyState.equals("CANCELLED_WITHOUT_PAYMENT");
         String schema = "payment_owner_" + UUID.randomUUID().toString().replace("-", "");
         try (Connection connection = dataSource.getConnection(); Statement sql = connection.createStatement()) {
             String originalSchema = connection.getSchema();
@@ -36,8 +38,9 @@ class CardPaymentOwnerMigrationIntegrationTest {
                     sql.execute("update card_statement_payment set cancelled_at = now(), cancelled_by_member_id = " + id(3));
                 }
 
-                // One missing payment link must roll back even the otherwise resolvable row.
+                // Missing attribution must roll back even the otherwise resolvable row.
                 sql.execute("delete from card_statement_payment where id = " + id(12));
+                if (cancelled) sql.execute("delete from transaction_posting where transaction_id = " + id(10) + " and line_no = 2");
                 Flyway latest = Flyway.configure().dataSource(dataSource).schemas(schema).defaultSchema(schema).load();
                 assertThatThrownBy(latest::migrate).isInstanceOf(FlywayException.class)
                         .hasStackTraceContaining("ck_ledger_transaction_performer");
@@ -45,10 +48,13 @@ class CardPaymentOwnerMigrationIntegrationTest {
                     rows.next();
                     assertThat(rows.getInt(1)).isEqualTo(2);
                 }
-                insertPayment(sql, 12, 10, "PREPAYMENT", id(3));
+                if (!unlinked) insertPayment(sql, 12, 10, "PREPAYMENT", id(3));
                 if (cancelled) {
+                    sql.execute("insert into transaction_posting (transaction_id, line_no, book_id, asset_id, delta_won) values ("
+                            + id(10) + ", 2, " + id(2) + ", " + id(7) + ", 30000)");
                     sql.execute("update card_statement_payment set cancelled_at = now(), cancelled_by_member_id = " + id(3));
                 }
+                if (unlinked) sql.execute("delete from card_statement_payment");
                 latest.migrate();
                 try (var rows = sql.executeQuery("select performed_by_member_id, created_by_member_id, amount_won, occurred_on, version, deleted_at from ledger_transaction order by id")) {
                     for (int index = 0; index < 2; index++) {
@@ -132,6 +138,7 @@ class CardPaymentOwnerMigrationIntegrationTest {
         sql.execute("insert into asset_type (id, book_id, name, system_code, created_by_member_id) values ("
                 + id(5) + ", " + id(2) + ", 'Bank', 'BANK', " + id(3) + "), ("
                 + id(14) + ", " + id(2) + ", 'Card', 'CREDIT_CARD', " + id(3) + ")");
+        sql.execute("update asset_type set behavior = 'CREDIT_CARD' where id = " + id(14));
         sql.execute("""
                 insert into asset (id, book_id, asset_type_id, ownership_scope, owner_member_id,
                                    name, opened_on, balance_anchor_won, created_by_member_id, updated_by_member_id)
