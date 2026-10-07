@@ -4,6 +4,14 @@
 
 돈독은 public GitHub 저장소에서 프론트엔드와 백엔드를 분리해 관리하고, 개인 Mac mini에서 공개 도메인+HTTPS를 제공하는 Docker Compose 서비스로 운영한다. Mac mini에서 이미 운영 중인 Nginx Proxy Manager가 80/443과 인증서를 소유하고 돈독 Compose의 loopback frontend upstream으로 전달한다. 2026-07-11에 애플리케이션 scaffold와 인증 첫 수직 기능을 시작했으며 아래 구조를 실행 기준으로 사용한다.
 
+## 공개 문서와 비공개 운영 정보
+
+이 문서는 공개 가능한 구성 원칙과 예시만 담는다. 실제 내부 IP·관리 포트 조합, DB 이름·접속 계정, 서버 사용자명·절대 경로, 운영 도메인, 비공개 저장소·runner 식별자는 기록하지 않는다. 실제 값은 접근이 제한된 비공개 운영 문서와 호스트 환경파일에서 관리한다. 비밀번호·토큰은 호스트 secret store에만 보관한다.
+
+아래 `<...>` 표기는 실행 전 비공개 운영값으로 치환해야 하는 자리표시자다. 코드에 있는 loopback 주소·표준 포트·개발 기본값·테스트 fixture는 실제 운영값을 증명하지 않는다. 공개 issue·PR·로그·테스트 예시에도 실제 운영값을 복사하지 않는다.
+
+이미 공개된 값은 문서 수정 후에도 Git 이력·기존 clone·외부 사본에 남을 수 있다. 현재 파일의 정리와 과거 이력 처리는 별개이며, 비밀번호·토큰이 노출되었다면 삭제만으로 끝내지 않고 폐기·재발급한다.
+
 ## 저장소 구조
 
 ```text
@@ -81,13 +89,13 @@ base image는 프로젝트 생성 시 공식 지원 버전과 보안 패치를 �
 ```text
 Nginx Proxy Manager :80/:443
           │
-          └── host.docker.internal:18080
+          └── host.docker.internal:<frontend-host-port>
                          │
                     frontend nginx
                          ├── /api ─── backend ─── PostgreSQL
                          └── 정적 frontend
 
-DBeaver ── trusted LAN ── 192.168.100.7:15432 ── PostgreSQL
+DBeaver ── trusted LAN ── <db-lan-address>:<db-host-port> ── PostgreSQL
 ```
 
 - WAN에는 Nginx Proxy Manager의 80/443만 공개한다. 관리 포트 81, 돈독 frontend upstream, backend와 PostgreSQL은 인터넷에 공개하지 않는다.
@@ -110,16 +118,16 @@ Redis는 단일 backend 인스턴스에서는 넣지 않는다. reverse proxy �
 
 ### DuckDNS와 Nginx Proxy Manager
 
-운영 origin은 `https://dondok.duckdns.org`를 사용한다. DuckDNS A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream 18080, backend 8080과 PostgreSQL 5432·15432는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
+운영 origin은 비공개 운영 설정의 `DONDOK_PUBLIC_URL`을 사용한다. DuckDNS A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream, backend와 PostgreSQL 관리 포트는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
 
 Nginx Proxy Manager의 Proxy Host는 다음 값으로 관리한다.
 
 | 항목 | 값 |
 | --- | --- |
-| Domain Names | `dondok.duckdns.org` |
+| Domain Names | `<public-domain>` |
 | Scheme | `http` |
 | Forward Hostname / IP | `host.docker.internal` |
-| Forward Port | `18080` |
+| Forward Port | 비공개 운영 설정의 `DONDOK_FRONTEND_PORT` |
 | Websockets Support | 켬 |
 | Block Common Exploits | 켬 |
 | Cache Assets | 끔 |
@@ -132,7 +140,7 @@ HTTP-01 인증서 발급과 HTTP→HTTPS redirect를 위해 외부 TCP 80과 443
 
 ```bash
 cd /absolute/repository/dondok
-./infra/install-duckdns-updater.sh --domain dondok
+./infra/install-duckdns-updater.sh --domain "<duckdns-subdomain>"
 ```
 
 기존 secret 또는 LaunchAgent를 의도적으로 교체할 때만 `--replace`를 추가한다. 설치 뒤 `launchctl print gui/$(id -u)/com.dondok.duckdns-update`와 `~/Library/Logs/dondok/duckdns-update.log`에서 최근 성공 시각을 확인한다. log에는 domain과 성공 시각만 남고 token은 남지 않는다.
@@ -144,11 +152,11 @@ MVP의 낮은 인증·비밀번호 재설정 메일량에는 개인 Gmail SMTP�
 Mac mini의 저장소 밖 `production.env`에 다음 값을 넣고 파일 권한을 0600으로 유지한다.
 
 ```dotenv
-DONDOK_PUBLIC_URL=https://dondok.duckdns.org
+DONDOK_PUBLIC_URL=https://<public-domain>
 DONDOK_COOKIE_SECURE=true
-DONDOK_FRONTEND_PORT=18080
-DONDOK_DB_BIND_HOST=192.168.100.7
-DONDOK_DB_HOST_PORT=15432
+DONDOK_FRONTEND_PORT=<frontend-host-port>
+DONDOK_DB_BIND_HOST=<db-lan-address>
+DONDOK_DB_HOST_PORT=<db-host-port>
 
 DONDOK_MAIL_ENABLED=true
 DONDOK_MAIL_FROM=<발송에 사용할 Gmail 주소>
@@ -164,23 +172,23 @@ DONDOK_SMTP_STARTTLS=true
 
 ### 같은 LAN의 DBeaver 연결
 
-운영 PostgreSQL은 공유기 포트포워딩 없이 Mac mini의 사설 IPv4에만 노출한다. DBeaver의 연결값은 다음과 같다.
+운영 PostgreSQL은 공유기 포트포워딩 없이 Mac mini의 사설 IPv4에만 노출한다. DBeaver 연결값은 비공개 운영 문서에서 확인하며 공개 문서에는 다음 자리표시자만 둔다.
 
 | 항목 | 값 |
 | --- | --- |
-| Host | `192.168.100.7` |
-| Port | `15432` |
-| Database | `dondok` |
-| Username | `dondok_reader` |
+| Host | `<db-lan-address>` |
+| Port | `<db-host-port>` |
+| Database | `<database-name>` |
+| Username | `<readonly-db-user>` |
 | SSL | 비활성화(신뢰 LAN 직접 연결) |
 
-비밀번호는 저장소 밖의 사용자 전용 0600 파일로 전달하고 채팅·Git·운영 로그에 남기지 않는다. `dondok_reader`는 접속 수를 제한하고 `public` schema의 기존·향후 table과 sequence 조회만 허용한다. 애플리케이션 DB owner나 `POSTGRES_PASSWORD`를 DBeaver에 저장하지 않는다. LAN 주소가 바뀌면 `DONDOK_DB_BIND_HOST`도 같이 바꾸며 `0.0.0.0`, `::` 또는 host IP가 생략된 port mapping은 사용하지 않는다.
+비밀번호는 저장소 밖의 사용자 전용 0600 파일로 전달하고 채팅·Git·운영 로그에 남기지 않는다. 읽기 전용 DB 계정은 접속 수를 제한하고 `public` schema의 기존·향후 table과 sequence 조회만 허용한다. 애플리케이션 DB owner나 `POSTGRES_PASSWORD`를 DBeaver에 저장하지 않는다. LAN 주소가 바뀌면 `DONDOK_DB_BIND_HOST`도 같이 바꾸며 `0.0.0.0`, `::` 또는 host IP가 생략된 port mapping은 사용하지 않는다.
 
-동일 Wi-Fi/LAN의 클라이언트에서 `192.168.100.7:15432`가 열리고 다른 네트워크에서는 닫혀 있어야 한다. 공유기 관리 화면에는 5432·15432 전달 규칙을 만들지 않는다. 게스트 Wi-Fi처럼 LAN 기기 간 통신을 차단하는 SSID에서는 직접 연결되지 않는 것이 정상이다.
+동일 Wi-Fi/LAN의 클라이언트에서 `<db-lan-address>:<db-host-port>`가 열리고 다른 네트워크에서는 닫혀 있어야 한다. 공유기 관리 화면에는 PostgreSQL과 DB 관리 포트의 전달 규칙을 만들지 않는다. 게스트 Wi-Fi처럼 LAN 기기 간 통신을 차단하는 SSID에서는 직접 연결되지 않는 것이 정상이다.
 
 ## GitHub Actions 배포 경계
 
-[GitHub의 self-hosted runner 보안 지침](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners)에 따라 public 애플리케이션 저장소에는 Mac mini self-hosted runner를 등록하지 않는다. public fork와 PR이 수정한 workflow가 운영 호스트에서 실행될 수 있기 때문이다. 배포 전용 private 저장소 `clapsheep/dondok-deploy`에만 runner `clapsheep-server-dondok`을 등록하고 다음 순서를 실행한다.
+[GitHub의 self-hosted runner 보안 지침](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners)에 따라 public 애플리케이션 저장소에는 Mac mini self-hosted runner를 등록하지 않는다. public fork와 PR이 수정한 workflow가 운영 호스트에서 실행될 수 있기 때문이다. 배포 전용 private 저장소에만 전용 runner를 등록하고 다음 순서를 실행한다.
 
 1. GitHub-hosted runner가 public `dondok` 저장소의 현재 `main` SHA를 읽는다.
 2. 같은 SHA의 `CI` push run이 성공했는지 확인하고, 다르면 배포하지 않는다.
@@ -196,14 +204,14 @@ DONDOK_SMTP_STARTTLS=true
 
 private 저장소의 repository variable `DEPLOYMENT_ENABLED`는 정상 운영 중 `true`로 유지하고, 예약·수동 배포를 모두 멈춰야 할 때만 emergency kill switch로 `false`를 사용한다. `concurrency: dondok-production`은 예약과 긴급 실행이 겹쳐도 한 번에 하나만 진행하게 한다.
 
-private 배포 저장소 workflow만 GitHub environment의 다음 비민감 변수를 사용한다. 실제 비밀번호나 SMTP credential은 GitHub에 복제하지 않는다.
+private 배포 저장소 workflow만 GitHub environment의 다음 설정 변수를 사용한다. 이 값도 비공개 운영 정보이며 공개 문서에는 용도만 적는다. 실제 비밀번호나 SMTP credential은 GitHub에 복제하지 않는다.
 
-| 변수 | Mac mini 값 |
+| 변수 | 용도 |
 | --- | --- |
-| `DONDOK_DEPLOY_DIR` | `/Users/clapsheep-server/services/dondok` |
-| `DONDOK_ENV_FILE` | `/Users/clapsheep-server/.config/dondok/production.env` |
-| `DONDOK_BACKUP_DIR` | `/Users/clapsheep-server/Backups/dondok-postgres` |
-| `DONDOK_STATE_DIR` | `/Users/clapsheep-server/.local/state/dondok` |
+| `DONDOK_DEPLOY_DIR` | 운영 checkout의 절대 경로 |
+| `DONDOK_ENV_FILE` | 저장소 밖 운영 환경파일의 절대 경로 |
+| `DONDOK_BACKUP_DIR` | 권한이 제한된 백업 디렉터리의 절대 경로 |
+| `DONDOK_STATE_DIR` | 배포 상태 디렉터리의 절대 경로 |
 | `DONDOK_PUBLIC_URL` | 실제 `https://` origin |
 
 운영 환경파일과 상태·백업 디렉터리는 각각 0600·0700이어야 한다. 배포 lock은 동시에 두 release가 Compose와 DB에 접근하는 것을 막는다. production 로그와 DB dump는 public Actions log·artifact로 올리지 않고 Mac mini의 제한된 경로에서만 조사한다. Docker Desktop과 runner는 사용자 LaunchAgent이므로 재부팅 뒤 해당 macOS 사용자의 GUI session이 시작되어야 한다.
@@ -299,7 +307,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 - 백엔드 health: `http://localhost:8080/actuator/health/readiness`
 - 개발 메일함: `http://localhost:8025`
 
-운영은 저장소 밖의 0600 `production.env`에 실제 origin·PostgreSQL·SMTP 값을 넣고 private 배포 저장소 workflow로 기동한다. 긴급 수동 배포도 임의 branch가 아니라 CI를 통과한 `main`의 전체 Git SHA를 [`infra/deploy-production.sh`](../../infra/deploy-production.sh)에 전달한다. 운영 Compose는 frontend를 `127.0.0.1:18080`, PostgreSQL 관리 포트를 고정 LAN 주소의 `15432`에만 bind한다. 기존 Nginx Proxy Manager만 WAN 80/443을 공개하며 backend는 호스트 포트를 열지 않는다.
+운영은 저장소 밖의 0600 `production.env`에 실제 origin·PostgreSQL·SMTP 값을 넣고 private 배포 저장소 workflow로 기동한다. 긴급 수동 배포도 임의 branch가 아니라 CI를 통과한 `main`의 전체 Git SHA를 [`infra/deploy-production.sh`](../../infra/deploy-production.sh)에 전달한다. 운영 Compose는 frontend를 loopback 주소의 `DONDOK_FRONTEND_PORT`, PostgreSQL 관리 포트를 `DONDOK_DB_BIND_HOST:DONDOK_DB_HOST_PORT`에만 bind한다. 기존 Nginx Proxy Manager만 WAN 80/443을 공개하며 backend는 호스트 포트를 열지 않는다.
 
 ## 프로젝트 생성 완료 조건
 

@@ -50,15 +50,16 @@ jq -e '
   ([.services[] | .cpus] | all(. > 0))
 ' >/dev/null <<<"$CONFIG_JSON"
 
+# Documentation-only address: config rendering does not bind or connect to a host.
 LAN_CONFIG_JSON="$({
-  DONDOK_DB_BIND_HOST=192.168.100.7 \
+  DONDOK_DB_BIND_HOST=192.0.2.10 \
   DONDOK_DB_HOST_PORT=15432 \
     "${COMPOSE[@]}" config --format json
 })"
 
 jq -e '
   ((.services.db.ports // []) | length == 1) and
-  (.services.db.ports[0].host_ip == "192.168.100.7") and
+  (.services.db.ports[0].host_ip == "192.0.2.10") and
   (.services.db.ports[0].published == "15432") and
   (.services.db.ports[0].target == 5432) and
   (.services.db.ports[0].protocol == "tcp") and

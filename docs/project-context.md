@@ -126,9 +126,9 @@ PR은 build·unit·PostgreSQL integration·OpenAPI drift·핵심 Chromium E2E를
 
 ### D-017 저장소·환경변수·Mac mini 배포
 
-한 public GitHub 저장소 안에서 `backend/`, `frontend/`, `e2e/`, `infra/` 경계를 분리한다. 실제 환경파일과 secret은 전 계층에서 Git과 Docker build context에서 제외하고 안전한 `.env.example`만 추적하며 secret scanning·push protection·CI Gitleaks를 사용한다. 프론트엔드·Playwright의 개발, CI와 Docker build는 루트 `.nvmrc`, npm engine, Actions와 Dockerfile에 고정한 Node.js `24.18.0`을 단일 기준으로 사용한다. 공개 저장소의 PR 코드가 Mac mini에서 실행되지 않도록 repository-level self-hosted runner를 public 애플리케이션 저장소에 연결하지 않는다. 배포 runner와 workflow는 소유자만 접근하는 별도 private `dondok-deploy` 저장소에 두고, public `main`의 현재 SHA와 그 SHA의 성공한 CI를 대조한 뒤에만 같은 revision을 checkout해 실행한다. 백엔드와 프론트엔드는 각각 multi-stage·non-root Dockerfile을 가지며 Mac mini에서는 공개 도메인과 HTTPS를 제공하는 reverse proxy만 WAN에 공개하고 backend와 PostgreSQL은 내부 network에서 운영한다. PostgreSQL의 운영자용 LAN 접근은 D-044의 사설 주소 bind만 예외로 허용한다. 애플리케이션 이미지는 Git SHA로 식별하고 배포 전 백업·격리 복원 drill, Compose health, 실패 시 직전 SHA 이미지 rollback을 수행한다. healthcheck, 재시작 정책, PostgreSQL 영속 volume, 매일 1회 30일 백업·주 1회 암호화 off-device 복제와 복원 검증을 배포 완료 조건으로 둔다. 운영 PostgreSQL의 삭제는 즉시 반영하고 암호화 백업의 삭제 전 데이터는 rotation 전까지 최대 30일 보존한 뒤 자동 만료한다.
+한 public GitHub 저장소 안에서 `backend/`, `frontend/`, `e2e/`, `infra/` 경계를 분리한다. 실제 환경파일과 secret은 전 계층에서 Git과 Docker build context에서 제외하고 안전한 `.env.example`만 추적하며 secret scanning·push protection·CI Gitleaks를 사용한다. 프론트엔드·Playwright의 개발, CI와 Docker build는 루트 `.nvmrc`, npm engine, Actions와 Dockerfile에 고정한 Node.js `24.18.0`을 단일 기준으로 사용한다. 공개 저장소의 PR 코드가 Mac mini에서 실행되지 않도록 repository-level self-hosted runner를 public 애플리케이션 저장소에 연결하지 않는다. 배포 runner와 workflow는 소유자만 접근하는 별도 private 배포 저장소에 두고, public `main`의 현재 SHA와 그 SHA의 성공한 CI를 대조한 뒤에만 같은 revision을 checkout해 실행한다. 백엔드와 프론트엔드는 각각 multi-stage·non-root Dockerfile을 가지며 Mac mini에서는 공개 도메인과 HTTPS를 제공하는 reverse proxy만 WAN에 공개하고 backend와 PostgreSQL은 내부 network에서 운영한다. PostgreSQL의 운영자용 LAN 접근은 D-044의 사설 주소 bind만 예외로 허용한다. 애플리케이션 이미지는 Git SHA로 식별하고 배포 전 백업·격리 복원 drill, Compose health, 실패 시 직전 SHA 이미지 rollback을 수행한다. healthcheck, 재시작 정책, PostgreSQL 영속 volume, 매일 1회 30일 백업·주 1회 암호화 off-device 복제와 복원 검증을 배포 완료 조건으로 둔다. 운영 PostgreSQL의 삭제는 즉시 반영하고 암호화 백업의 삭제 전 데이터는 rotation 전까지 최대 30일 보존한 뒤 자동 만료한다.
 
-운영 origin은 `https://dondok.duckdns.org`다. DuckDNS A record는 Mac mini의 현재 공인 IPv4를 가리키고, 사용자 LaunchAgent가 5분마다 HTTPS update API로 IP를 갱신한다. DuckDNS token은 저장소·대화·process argument에 넣지 않고 Mac mini의 사용자 전용 0600 secret 파일에만 보관한다. 기존 Nginx Proxy Manager가 HTTP-01로 Let's Encrypt 인증서를 발급·갱신하고 `host.docker.internal:18080`으로 전달한다.
+운영 origin은 비공개 운영 설정의 `DONDOK_PUBLIC_URL`로 관리한다. DuckDNS A record는 Mac mini의 현재 공인 IPv4를 가리키고, 사용자 LaunchAgent가 5분마다 HTTPS update API로 IP를 갱신한다. DuckDNS token은 저장소·대화·process argument에 넣지 않고 Mac mini의 사용자 전용 0600 secret 파일에만 보관한다. 기존 Nginx Proxy Manager가 HTTP-01로 Let's Encrypt 인증서를 발급·갱신하고 `host.docker.internal`의 `DONDOK_FRONTEND_PORT` 포트로 전달하며 실제 포트는 비공개 운영 설정에서 관리한다.
 
 ### D-018 AI 개발 하네스
 
@@ -304,11 +304,11 @@ Mac mini의 사용자 launchd가 매일 운영 Compose의 정확한 working dire
 
 ### D-044 운영 PostgreSQL의 LAN 전용 관리자 접근
 
-DBeaver 같은 운영자 도구는 같은 신뢰 LAN에서만 운영 PostgreSQL에 직접 연결할 수 있다. Compose의 안전한 기본 bind는 `127.0.0.1:15432`이며 Mac mini 운영 환경에서만 고정 사설 주소 `192.168.100.7:15432`로 명시적으로 덮어쓴다. `0.0.0.0`, IPv6 wildcard와 bare host port bind를 금지하고 공유기에는 15432 또는 5432 포트포워딩을 만들지 않는다. DBeaver는 애플리케이션 DB owner가 아니라 강한 별도 비밀번호, 접속 수 제한과 public schema 조회 권한만 가진 `dondok_reader`를 사용한다. 이 예외는 WAN 공개를 허용하지 않으며 Mac mini의 LAN 주소가 바뀌면 운영 환경값과 접속 설정을 함께 갱신한다.
+DBeaver 같은 운영자 도구는 같은 신뢰 LAN에서만 운영 PostgreSQL에 직접 연결할 수 있다. Compose의 안전한 기본 bind는 `127.0.0.1:15432`이며 Mac mini 운영 환경에서만 비공개 운영값 `DONDOK_DB_BIND_HOST:DONDOK_DB_HOST_PORT`로 명시적으로 덮어쓴다. `0.0.0.0`, IPv6 wildcard와 bare host port bind를 금지하고 공유기에는 DB 관리 포트나 PostgreSQL 포트포워딩을 만들지 않는다. DBeaver는 애플리케이션 DB owner가 아니라 강한 별도 비밀번호, 접속 수 제한과 public schema 조회 권한만 가진 별도 읽기 전용 계정을 사용하며 실제 계정명·DB 이름·접속 정보는 비공개 운영 문서에서만 관리한다. 이 예외는 WAN 공개를 허용하지 않으며 Mac mini의 LAN 주소가 바뀌면 운영 환경값과 접속 설정을 함께 갱신한다.
 
 ### D-045 일일 변경 기반 운영 배포
 
-private `dondok-deploy` workflow는 매일 `03:00 Asia/Seoul`에 한 번 실행해 CI가 성공한 최신 public `main` SHA를 확인한다. Mac mini의 `$DONDOK_STATE_DIR/current-revision`과 같으면 checkout·백업·빌드·Compose·외부 smoke를 모두 건너뛰고, 다른 경우에만 기존 백업·복원 drill·health·rollback 계약으로 배포한다. 사용자가 긴급 즉시 배포를 명시적으로 요청한 경우에만 `workflow_dispatch`로 같은 절차를 바로 실행하며 임의 branch·임의 SHA·CI 미통과 revision은 허용하지 않는다. `DEPLOYMENT_ENABLED=true`가 정상 자동 운영 상태이고 `false`는 예약과 수동 배포를 함께 막는 emergency kill switch다. 예약과 수동 실행이 겹치면 단일 production concurrency group으로 직렬화한다.
+private 배포 workflow는 매일 `03:00 Asia/Seoul`에 한 번 실행해 CI가 성공한 최신 public `main` SHA를 확인한다. Mac mini의 `$DONDOK_STATE_DIR/current-revision`과 같으면 checkout·백업·빌드·Compose·외부 smoke를 모두 건너뛰고, 다른 경우에만 기존 백업·복원 drill·health·rollback 계약으로 배포한다. 사용자가 긴급 즉시 배포를 명시적으로 요청한 경우에만 `workflow_dispatch`로 같은 절차를 바로 실행하며 임의 branch·임의 SHA·CI 미통과 revision은 허용하지 않는다. `DEPLOYMENT_ENABLED=true`가 정상 자동 운영 상태이고 `false`는 예약과 수동 배포를 함께 막는 emergency kill switch다. 예약과 수동 실행이 겹치면 단일 production concurrency group으로 직렬화한다.
 
 ### D-046 6자리 직접 초대 코드와 첫 진입 선택
 
@@ -413,6 +413,10 @@ picker를 열 때마다 로그인한 현재 구성원이 개인 소유자로 표
 계산은 정수 원 단위만 지원한다. 0으로 나누기, 원 단위로 나누어떨어지지 않는 나눗셈, 안전한 정수 범위 초과와 필드가 허용하지 않는 음수 결과는 실제 폼 금액을 바꾸지 않고 인라인으로 설명한다. 두 번째 피연산자는 `=` 또는 다음 연산자로 계산이 확정될 때만 폼 draft에 반영한다.
 
 계산기 버튼은 Vibration API를 제공하는 기기에서 사용자 상호작용마다 10ms의 짧은 촉각 피드백을 요청한다. 브라우저·OS·사용자 설정이 진동을 차단하거나 API를 제공하지 않으면 오류·권한 요청·대체 효과 없이 건너뛴다. 웹은 시스템 키보드의 햅틱 설정값을 읽을 수 없고 WebKit은 해당 API를 지원하지 않으므로 iPhone·iPad에서는 무진동이 정상 동작이다.
+
+### D-063 실제 운영 식별정보의 비공개 관리
+
+공개 저장소에는 구성 원칙, 환경변수 이름과 가상 예시만 기록한다. 실제 내부 IP·관리 포트 조합, DB 이름·계정, 서버 사용자명·절대 경로, 운영 도메인과 private 배포 저장소·runner 식별자는 비공개 운영 문서 또는 호스트 설정으로 분리한다. 테스트 fixture에도 실제 운영값을 재사용하지 않는다. 이 원칙은 비밀번호·토큰의 기존 secret 관리 규칙에 더해 적용한다. 코드의 안전한 기본값과 표준 프로토콜·포트는 공개할 수 있으나 실제 운영에서 사용하는 값으로 명시하지 않는다. 과거 Git 이력과 외부 사본은 현재 문서 수정만으로 제거되지 않으며, 원격 반영과 이력 재작성은 각각 별도로 승인받는다.
 
 ## 현재 단계
 

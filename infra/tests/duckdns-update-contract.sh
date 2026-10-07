@@ -29,7 +29,7 @@ printf '%s\n' \
 chmod 700 "$TEST_ROOT/bin/curl"
 
 SECRET_FILE="$TEST_ROOT/duckdns.env"
-printf 'DUCKDNS_DOMAIN=dondok\nDUCKDNS_TOKEN=%s\n' "$TEST_TOKEN" > "$SECRET_FILE"
+printf 'DUCKDNS_DOMAIN=example-test\nDUCKDNS_TOKEN=%s\n' "$TEST_TOKEN" > "$SECRET_FILE"
 chmod 600 "$SECRET_FILE"
 
 export PATH="$TEST_ROOT/bin:/usr/bin:/bin"
@@ -37,9 +37,9 @@ export DUCKDNS_TEST_REQUEST="$TEST_ROOT/request.txt"
 export DONDOK_DUCKDNS_CURL_BIN="$TEST_ROOT/bin/curl"
 
 SUCCESS_OUTPUT="$("$REPOSITORY_DIR/infra/duckdns-update.sh" --secret-file "$SECRET_FILE")"
-[[ "$SUCCESS_OUTPUT" == *'domain=dondok.duckdns.org'* ]]
+[[ "$SUCCESS_OUTPUT" == *'domain=example-test.duckdns.org'* ]]
 [[ "$SUCCESS_OUTPUT" != *"$TEST_TOKEN"* ]]
-grep -Fq 'domains=dondok' "$DUCKDNS_TEST_REQUEST"
+grep -Fq 'domains=example-test' "$DUCKDNS_TEST_REQUEST"
 grep -Fq "token=$TEST_TOKEN" "$DUCKDNS_TEST_REQUEST"
 
 export DUCKDNS_TEST_RESPONSE=KO

@@ -94,6 +94,6 @@
 - 실패 시 trace, screenshot, video와 최초 단절 지점을 `FRONTEND`, `BACKEND`, `CONTRACT`, `TEST`, `INFRA` 중 하나로 분류한다.
 
 ```bash
-cd /Users/clapsheep/Documents/dondok/e2e
+cd /absolute/repository/dondok/e2e
 npx playwright test tests/statistics.spec.ts --project=desktop-chrome --workers=1
 ```

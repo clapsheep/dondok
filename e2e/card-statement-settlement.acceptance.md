@@ -159,6 +159,6 @@ worker concurrency·재기동·idempotency·0원 remaining은 브라우저에 �
 - 실패 보고에는 최초 단절 지점과 단일 재현 명령을 포함한다.
 
 ```bash
-cd /Users/clapsheep/Documents/dondok/e2e
+cd /absolute/repository/dondok/e2e
 npx playwright test tests/card-statement-settlement.spec.ts --project=desktop-chrome
 ```
