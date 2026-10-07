@@ -114,6 +114,68 @@ class CardStatementSettlementIntegrationTest {
     }
 
     @Test
+    void manualPaymentUsesSelectedDateForPaymentPostingsAndCalendar() {
+        Fixture fixture = fixture(false, 200_000);
+        UUID statementId = statementId(purchase(fixture, 80_000, "dated-purchase").transactionId());
+        var initial = statements.statement(fixture.userId(), statementId);
+        LocalDate paidOn = LocalDate.of(2026, 8, 25);
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        var command = new CardStatementService.ManualPaymentCommand(initial.version(), 80_000, fixture.bank().assetId(), paidOn);
+        var paid = statements.payManually(fixture.userId(), statementId, "dated-payment", command);
+        assertThat(paid.payment().paidOn()).isEqualTo(paidOn);
+        assertThat(paid.settlementTransaction().occurredOn()).isEqualTo(paidOn);
+        assertThat(jdbcTemplate.queryForObject("select occurred_on from ledger_transaction where id = ?",
+                LocalDate.class, paid.settlementTransaction().transactionId())).isEqualTo(paidOn);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(120_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+        var calendar = transactionService.calendar(fixture.userId(), java.time.YearMonth.from(paidOn), fixture.memberId());
+        assertThat(calendar.totalExpenseWon()).isZero();
+        assertThat(calendar.totalIncomeWon()).isZero();
+        assertThat(calendar.days()).anySatisfy(day -> {
+            assertThat(day.date()).isEqualTo(paidOn);
+            assertThat(day.cardPaymentWon()).isEqualTo(80_000);
+        });
+        assertThat(transactionService.calendar(fixture.userId(), java.time.YearMonth.of(2026, 10), fixture.memberId()).days())
+                .allSatisfy(day -> assertThat(day.cardPaymentWon()).isZero());
+        mutableClock.set(Instant.parse("2026-10-02T00:00:00Z"));
+        assertThat(statements.payManually(fixture.userId(), statementId, "dated-payment", command).payment())
+                .isEqualTo(paid.payment());
+        assertThatThrownBy(() -> statements.payManually(fixture.userId(), statementId, "dated-payment",
+                new CardStatementService.ManualPaymentCommand(initial.version(), 80_000, fixture.bank().assetId(), paidOn.plusDays(1))))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.getErrorCode()).isEqualTo("IDEMPOTENCY_KEY_REUSED"));
+        statements.cancelPayment(fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CancelPaymentCommand(paid.statement().version()));
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(200_000);
+        assertThat(balance(fixture.card().assetId())).isEqualTo(-80_000);
+        assertThat(transactionService.calendar(fixture.userId(), java.time.YearMonth.from(paidOn), fixture.memberId()).days())
+                .allSatisfy(day -> assertThat(day.cardPaymentWon()).isZero());
+    }
+
+    @Test
+    void backdatedManualPaymentBeforeAccountAnchorDoesNotDebitBalanceAgain() {
+        Fixture fixture = fixture(false, 200_000);
+        UUID statementId = statementId(purchase(fixture, 80_000, "anchor-dated-purchase").transactionId());
+        jdbcTemplate.update("update asset set opened_on = ? where id = ?",
+                LocalDate.of(2026, 9, 1), fixture.bank().assetId());
+        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
+        var initial = statements.statement(fixture.userId(), statementId);
+        var paid = statements.payManually(fixture.userId(), statementId, "anchor-dated-payment",
+                new CardStatementService.ManualPaymentCommand(initial.version(), 80_000,
+                        fixture.bank().assetId(), LocalDate.of(2026, 8, 25)));
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(200_000);
+        assertThat(balance(fixture.card().assetId())).isZero();
+        assertThat(paid.statement().remainingAmountWon()).isZero();
+        assertThat(paid.settlementTransaction().postings()).anySatisfy(posting -> {
+            assertThat(posting.assetId()).isEqualTo(fixture.bank().assetId());
+            assertThat(posting.deltaWon()).isEqualTo(-80_000);
+        });
+        statements.cancelPayment(fixture.userId(), statementId, paid.payment().paymentId(),
+                new CardStatementService.CancelPaymentCommand(paid.statement().version()));
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(200_000);
+        assertThat(balance(fixture.card().assetId())).isEqualTo(-80_000);
+    }
+
+    @Test
     void manualPaymentRejectsChangedAccountAndAnotherLedger() {
         Fixture fixture = fixture(false, 0);
         UUID statementId = statementId(purchase(fixture, 40_000, "manual-stale").transactionId());
@@ -137,7 +199,7 @@ class CardStatementSettlementIntegrationTest {
         var initial = statements.statement(fixture.userId(), statementId);
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
         var command = new CardStatementService.ManualPaymentCommand(initial.version(), 80_000, fixture.bank().assetId());
-        UUID schedule = scheduleId(statementId);
+        UUID schedule = UUID.randomUUID();
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -170,7 +232,7 @@ class CardStatementSettlementIntegrationTest {
         if (paid.payments().get(0).paymentType().equals("MANUAL")) {
             statements.cancelPayment(fixture.userId(), statementId, paid.payments().get(0).paymentId(),
                     new CardStatementService.CancelPaymentCommand(paid.version()));
-            assertThat(scheduleStatus(statementId)).isEqualTo("CANCELLED");
+            assertThat(scheduleIdOrNull(statementId)).isNull();
             assertThat(settlementService.settle(schedule)).isEqualTo(CardSettlementService.SettlementOutcome.SKIPPED);
         }
     }
@@ -182,7 +244,7 @@ class CardStatementSettlementIntegrationTest {
         UUID statementId = statementId(purchase(fixture, 100_000, "late-original").transactionId());
         if (paymentType.equals("PREPAYMENT")) prepay(fixture, statementId, 100_000, "late-prepay");
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-        if (paymentType.equals("REGULAR")) settlementService.settle(scheduleId(statementId));
+        if (paymentType.equals("REGULAR")) recordHistoricalRegular(fixture, statementId);
         if (paymentType.equals("MANUAL")) {
             var initial = statements.statement(fixture.userId(), statementId);
             statements.payManually(fixture.userId(), statementId, "late-manual-original",
@@ -212,28 +274,8 @@ class CardStatementSettlementIntegrationTest {
         assertThat(balance(fixture.card().assetId())).isZero();
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"PAID", "FINALIZED"})
-    void workerNeverHidesResidualWhenAnOldRegularPaymentExists(String staleStatus) {
-        Fixture fixture = fixture(true, 0);
-        UUID statementId = statementId(purchase(fixture, 100_000, "stale-original").transactionId());
-        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-        settlementService.settle(scheduleId(statementId));
-        purchase(fixture, 20_000, "stale-added");
-        // Simulate schedules and status left by the earlier application version.
-        jdbcTemplate.update("update card_statement set status = ?, settled_at = case when ? = 'PAID' then now() else null end, additional_usage_after_payment = false where id = ?", staleStatus, staleStatus, statementId);
-        jdbcTemplate.update("update card_payment_schedule set status = 'SCHEDULED' where statement_id = ?", statementId);
-        assertThat(settlementService.settle(scheduleId(statementId))).isEqualTo(CardSettlementService.SettlementOutcome.CANCELLED);
-        var current = statements.statement(fixture.userId(), statementId);
-        assertThat(current.status()).isEqualTo("FINALIZED");
-        assertThat(current.remainingAmountWon()).isEqualTo(20_000);
-        assertThat(current.additionalUsageAfterPayment()).isTrue();
-        assertThat(current.payments()).hasSize(1);
-        assertThat(balance(fixture.bank().assetId())).isEqualTo(-100_000);
-    }
-
     @Test
-    void newUsageBeforeDueDateStillSchedulesTheResidualAfterFullPrepayment() {
+    void newUsageBeforeDueDateRemainsUnpaidWithoutScheduling() {
         Fixture fixture = fixture(true, 0);
         UUID statementId = statementId(purchase(fixture, 100_000, "early-original").transactionId());
         prepay(fixture, statementId, 100_000, "early-prepay");
@@ -242,11 +284,11 @@ class CardStatementSettlementIntegrationTest {
         assertThat(reopened.status()).isEqualTo("OPEN");
         assertThat(reopened.additionalUsageAfterPayment()).isFalse();
         assertThat(reopened.remainingAmountWon()).isEqualTo(20_000);
-        assertThat(scheduleStatus(statementId)).isEqualTo("SCHEDULED");
+        assertThat(scheduleIdOrNull(statementId)).isNull();
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
         worker.runDueSettlements();
-        assertThat(statements.statement(fixture.userId(), statementId).remainingAmountWon()).isZero();
-        assertThat(balance(fixture.bank().assetId())).isEqualTo(-120_000);
+        assertThat(statements.statement(fixture.userId(), statementId).remainingAmountWon()).isEqualTo(20_000);
+        assertThat(balance(fixture.bank().assetId())).isEqualTo(-100_000);
     }
 
     @Test
@@ -278,7 +320,7 @@ class CardStatementSettlementIntegrationTest {
                 .days()).allMatch(day -> day.cardPaymentWon() == 0);
 
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-        assertThat(settlementService.settle(scheduleId(statementId))).isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+        recordHistoricalRegular(fixture, statementId);
         var regular = statements.statement(fixture.userId(), statementId).payments().stream()
                 .filter(payment -> payment.paymentType().equals("REGULAR")).findFirst().orElseThrow();
         var transaction = transactionService.transaction(fixture.userId(), regular.settlementTransactionId());
@@ -307,7 +349,7 @@ class CardStatementSettlementIntegrationTest {
         assertThat(page.items()).singleElement().satisfies(item -> {
             assertThat(item.statementId()).isEqualTo(statementId);
             assertThat(item.remainingAmountWon()).isEqualTo(120_000);
-            assertThat(item.automaticSettlement().status()).isEqualTo("SCHEDULED");
+            assertThat(item.automaticSettlement()).isNull();
         });
 
         CardStatementService.CardStatementDetail beforeFirst = statements.statement(
@@ -369,7 +411,7 @@ class CardStatementSettlementIntegrationTest {
         assertThat(paid.statement().status()).isEqualTo("PAID");
         assertThat(balance(fixture.bank().assetId())).isEqualTo(100_000);
         assertThat(balance(fixture.card().assetId())).isZero();
-        assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
+        assertThat(scheduleIdOrNull(statementId)).isNull();
 
         TransactionService.TransactionView transactionDetail = transactionService.transaction(
                 fixture.userId(), paid.settlementTransaction().transactionId());
@@ -394,7 +436,7 @@ class CardStatementSettlementIntegrationTest {
         assertThat(cancelled.cancelledPaymentId()).isEqualTo(paid.payment().paymentId());
         assertThat(balance(fixture.bank().assetId())).isEqualTo(200_000);
         assertThat(balance(fixture.card().assetId())).isEqualTo(-100_000);
-        assertThat(scheduleStatus(statementId)).isEqualTo("SCHEDULED");
+        assertThat(scheduleIdOrNull(statementId)).isNull();
         assertThat(queryLong("""
                 select count(*) from ledger_transaction
                  where id = ? and deleted_at is not null
@@ -435,7 +477,7 @@ class CardStatementSettlementIntegrationTest {
         UUID statementId = statementId(purchase(
                 fixture, 100_000, "cancel-automatic-settlement-purchase").transactionId());
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-        assertThat(worker.runDueSettlements().paid()).isOne();
+        recordHistoricalRegular(fixture, statementId);
 
         CardStatementService.CardStatementDetail paid = statements.statement(
                 fixture.userId(), statementId);
@@ -494,11 +536,11 @@ class CardStatementSettlementIntegrationTest {
                 select statement_id from card_charge
                  where card_asset_id = ? and charge_origin = 'OPENING_BALANCE'
                 """, UUID.class, fixture.card().assetId());
-        UUID scheduleId = scheduleId(statementId);
+
 
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-        assertThat(settlementService.settle(scheduleId))
-                .isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+        recordHistoricalRegular(fixture, statementId);
+        UUID scheduleId = scheduleId(statementId);
         assertThat(balance(fixture.bank().assetId())).isEqualTo(100_000);
         assertThat(balance(fixture.card().assetId())).isZero();
 
@@ -585,10 +627,10 @@ class CardStatementSettlementIntegrationTest {
         TransactionService.TransactionView purchase = purchase(
                 fixture, 80_000, "regular-payment-account-correction-purchase");
         UUID statementId = statementId(purchase.transactionId());
-        UUID scheduleId = scheduleId(statementId);
+
         mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-        assertThat(settlementService.settle(scheduleId))
-                .isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+        recordHistoricalRegular(fixture, statementId);
+        UUID scheduleId = scheduleId(statementId);
         CardStatementService.CardStatementDetail paid = statements.statement(
                 fixture.userId(), statementId);
         CardStatementService.CardStatementPayment regular = paid.payments().stream()
@@ -648,99 +690,16 @@ class CardStatementSettlementIntegrationTest {
                 .isEqualTo(30_000);
     }
 
-    @Test
-    void dueWorkerSettlesRemainingAmountOnceOnScheduledDateAndCatchesUp() throws Exception {
-        Fixture fixture = fixture(true, 0);
-        TransactionService.TransactionView purchase = purchase(fixture, 120_000, "worker-purchase");
-        UUID statementId = statementId(purchase.transactionId());
-        prepay(fixture, statementId, 30_000, "worker-prepay-30");
-        prepay(fixture, statementId, 40_000, "worker-prepay-40");
-        UUID scheduleId = scheduleId(statementId);
-        LocalDate scheduledOn = jdbcTemplate.queryForObject(
-                "select scheduled_on from card_payment_schedule where id = ?",
-                LocalDate.class, scheduleId);
-        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-
-        CountDownLatch start = new CountDownLatch(1);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        try {
-            Future<CardSettlementService.SettlementOutcome> first = executor.submit(() -> {
-                start.await();
-                return settlementService.settle(scheduleId);
-            });
-            Future<CardSettlementService.SettlementOutcome> second = executor.submit(() -> {
-                start.await();
-                return settlementService.settle(scheduleId);
-            });
-            start.countDown();
-            assertThat(List.of(first.get(), second.get()))
-                    .contains(CardSettlementService.SettlementOutcome.PAID,
-                            CardSettlementService.SettlementOutcome.SKIPPED);
-        } finally {
-            executor.shutdownNow();
-        }
-
-        CardStatementService.CardStatementDetail paid = statements.statement(
-                fixture.userId(), statementId);
-        assertThat(paid.status()).isEqualTo("PAID");
-        assertThat(paid.remainingAmountWon()).isZero();
-        assertThat(paid.payments()).extracting(CardStatementService.CardStatementPayment::paymentType)
-                .containsExactlyInAnyOrder("PREPAYMENT", "PREPAYMENT", "REGULAR");
-        assertThat(queryLong("""
-                select count(*) from card_statement_payment
-                 where statement_id = ? and payment_type = 'REGULAR'
-                """, statementId)).isOne();
-        assertThat(jdbcTemplate.queryForObject("""
-                select transaction.occurred_on
-                  from card_statement_payment payment
-                  join ledger_transaction transaction
-                    on transaction.id = payment.settlement_transaction_id
-                 where payment.statement_id = ? and payment.payment_type = 'REGULAR'
-                """, LocalDate.class, statementId)).isEqualTo(scheduledOn);
-        assertThat(balance(fixture.bank().assetId())).isEqualTo(-120_000);
-        assertThat(balance(fixture.card().assetId())).isZero();
-        assertThat(settlementService.settle(scheduleId))
-                .isEqualTo(CardSettlementService.SettlementOutcome.SKIPPED);
-        assertThat(queryLong("""
-                select count(*) from ledger_transaction
-                 where book_id = ? and source_type = 'CARD_AUTOPAY'
-                """, fixture.bookId())).isOne();
-    }
-
-    @Test
-    void workerEntryPointCatchesUpPastDueScheduleAndRestartDoesNotDuplicateIt() {
-        Fixture fixture = fixture(true, 0);
-        TransactionService.TransactionView purchase = purchase(
-                fixture, 35_000, "worker-entry-purchase");
-        UUID statementId = statementId(purchase.transactionId());
-        UUID scheduleId = scheduleId(statementId);
-        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-
-        worker.runDueSettlements();
-
-        assertThat(statements.statement(fixture.userId(), statementId).status()).isEqualTo("PAID");
-        assertThat(queryLong("""
-                select count(*) from card_statement_payment
-                 where statement_id = ? and payment_type = 'REGULAR'
-                """, statementId)).isOne();
-        assertThat(settlementService.settle(scheduleId))
-                .isEqualTo(CardSettlementService.SettlementOutcome.SKIPPED);
-        assertThat(queryLong("""
-                select count(*) from ledger_transaction
-                 where book_id = ? and source_type = 'CARD_AUTOPAY'
-                """, fixture.bookId())).isOne();
-    }
-
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void fullPrepaymentCorrectionIncreaseReschedulesOnlyBeforeDueDate(boolean pastDue) {
+    void fullPrepaymentCorrectionIncreaseNeverSchedules(boolean pastDue) {
         Fixture fixture = fixture(true, 100_000);
         TransactionService.TransactionView purchase = purchase(fixture, 100_000, "full-purchase");
         UUID statementId = statementId(purchase.transactionId());
         CardStatementService.CardStatementPaymentResult fullyPaid = prepay(
                 fixture, statementId, 100_000, "full-prepayment");
         assertThat(fullyPaid.statement().status()).isEqualTo("PAID");
-        assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
+        assertThat(scheduleIdOrNull(statementId)).isNull();
         if (pastDue) mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
 
         CardPurchaseManagementService.CorrectionCommand correction =
@@ -764,113 +723,11 @@ class CardStatementSettlementIntegrationTest {
         assertThat(reopened.status()).isEqualTo(pastDue ? "FINALIZED" : "OPEN");
         assertThat(reopened.remainingAmountWon()).isEqualTo(50_000);
         assertThat(reopened.additionalUsageAfterPayment()).isEqualTo(pastDue);
-        assertThat(reopened.automaticSettlement().status()).isEqualTo(pastDue ? "COMPLETED" : "SCHEDULED");
+        assertThat(reopened.automaticSettlement()).isNull();
         if (pastDue) {
             worker.runDueSettlements();
             assertThat(balance(fixture.bank().assetId())).isZero();
         }
-    }
-
-    @Test
-    void dueWorkerClosesZeroRemainingStatementWithoutCreatingRegularPayment() {
-        Fixture fixture = fixture(true, 0);
-        TransactionService.TransactionView purchase = purchase(fixture, 20_000, "zero-due-purchase");
-        UUID statementId = statementId(purchase.transactionId());
-        prepay(fixture, statementId, 20_000, "zero-due-prepayment");
-        jdbcTemplate.update("""
-                update card_statement
-                   set status = 'OPEN', finalized_at = null, settled_at = null,
-                       version = version + 1
-                 where id = ?
-                """, statementId);
-        jdbcTemplate.update("""
-                update card_payment_schedule
-                   set status = 'SCHEDULED', scheduled_on = date '2026-08-25'
-                 where statement_id = ?
-                """, statementId);
-        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-
-        CardSettlementWorker.SettlementRunResult result = worker.runDueSettlements();
-
-        assertThat(result.completedWithoutPayment()).isOne();
-        assertThat(statements.statement(fixture.userId(), statementId).status()).isEqualTo("PAID");
-        assertThat(queryLong("""
-                select count(*) from card_statement_payment
-                 where statement_id = ? and payment_type = 'REGULAR'
-                """, statementId)).isZero();
-        assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
-    }
-
-    @Test
-    void cardSettingToggleAndAccountChangeSynchronizeOnlyPendingSchedules() {
-        Fixture fixture = fixture(false, 200_000);
-        TransactionService.TransactionView purchase = purchase(fixture, 80_000, "toggle-purchase");
-        UUID statementId = statementId(purchase.transactionId());
-        assertThat(scheduleIdOrNull(statementId)).isNull();
-        CardStatementService.CardStatementPaymentResult prepayment = prepay(
-                fixture, statementId, 10_000, "toggle-prepay");
-        assertThat(prepayment.payment().settlementAssetId()).isEqualTo(fixture.bank().assetId());
-
-        AssetService.AssetView enabled = updateCard(
-                fixture, fixture.card(), fixture.bank().assetId(), true);
-        assertThat(scheduleStatus(statementId)).isEqualTo("SCHEDULED");
-        AssetService.AssetView secondBank = createBank(
-                fixture, "두 번째 결제 계좌", 50_000, "second-settlement-bank");
-        AssetService.AssetView moved = updateCard(
-                fixture, enabled, secondBank.assetId(), true);
-        assertThat(jdbcTemplate.queryForObject("""
-                select settlement_asset_id from card_payment_schedule where statement_id = ?
-                """, UUID.class, statementId)).isEqualTo(secondBank.assetId());
-        assertThat(jdbcTemplate.queryForObject("""
-                select settlement_asset_id from card_statement_payment where id = ?
-                """, UUID.class, prepayment.payment().paymentId())).isEqualTo(fixture.bank().assetId());
-
-        updateCard(fixture, moved, secondBank.assetId(), false);
-        assertThat(scheduleStatus(statementId)).isEqualTo("CANCELLED");
-    }
-
-    @Test
-    void workerRecordsTechnicalFailureAndRetriesWithoutDuplicateRegularPayment() {
-        Fixture fixture = fixture(true, 0);
-        TransactionService.TransactionView purchase = purchase(fixture, 45_000, "retry-purchase");
-        UUID statementId = statementId(purchase.transactionId());
-        UUID scheduleId = scheduleId(statementId);
-        mutableClock.set(Instant.parse("2026-10-01T00:00:00Z"));
-        jdbcTemplate.execute("""
-                create function dondok_test_fail_autopay() returns trigger as $$
-                begin
-                    if new.source_type = 'CARD_AUTOPAY' then
-                        raise exception 'forced autopay failure';
-                    end if;
-                    return new;
-                end;
-                $$ language plpgsql
-                """);
-        jdbcTemplate.execute("""
-                create trigger dondok_test_fail_autopay_trigger
-                before insert on ledger_transaction
-                for each row execute function dondok_test_fail_autopay()
-                """);
-
-        CardSettlementWorker.SettlementRunResult failed = worker.runDueSettlements();
-        assertThat(failed.failed()).isOne();
-        assertThat(scheduleStatus(statementId)).isEqualTo("FAILED");
-        assertThat(jdbcTemplate.queryForObject("""
-                select attempt_count from card_payment_schedule where id = ?
-                """, Integer.class, scheduleId)).isOne();
-        assertThat(queryLong("select count(*) from card_statement_payment where statement_id = ?", statementId))
-                .isZero();
-
-        jdbcTemplate.execute("drop trigger dondok_test_fail_autopay_trigger on ledger_transaction");
-        jdbcTemplate.execute("drop function dondok_test_fail_autopay()");
-        mutableClock.set(Instant.parse("2026-10-01T00:06:00Z"));
-        CardSettlementWorker.SettlementRunResult retried = worker.runDueSettlements();
-        assertThat(retried.paid()).isOne();
-        assertThat(scheduleStatus(statementId)).isEqualTo("COMPLETED");
-        assertThat(queryLong("""
-                select count(*) from card_statement_payment
-                 where statement_id = ? and payment_type = 'REGULAR'
-                """, statementId)).isOne();
     }
 
     @Test
@@ -879,7 +736,7 @@ class CardStatementSettlementIntegrationTest {
         TransactionService.TransactionView purchase = purchase(
                 fixture, 75_000, "archived-card-purchase");
         UUID statementId = statementId(purchase.transactionId());
-        UUID scheduleId = scheduleId(statementId);
+        UUID scheduleId = UUID.randomUUID();
         AssetService.AssetRemovalPreview removalPreview = assetService.removalPreview(
                 fixture.userId(), fixture.card().assetId());
 
@@ -896,7 +753,7 @@ class CardStatementSettlementIntegrationTest {
         assertThat(endedCard.status()).isEqualTo(AssetService.AssetStatus.ARCHIVED);
         assertThat(endedCard.currentMonthCardPaymentDueWon()
                 + endedCard.nextMonthCardPaymentDueWon()).isZero();
-        assertThat(scheduleStatus(statementId)).isEqualTo("CANCELLED");
+        assertThat(scheduleIdOrNull(statementId)).isNull();
 
         CardStatementService.CardStatementDetail archivedStatement = statements.statement(
                 fixture.userId(), statementId);
@@ -922,13 +779,25 @@ class CardStatementSettlementIntegrationTest {
         AssetService.AssetView archivedCard = assetService.asset(
                 fixture.userId(), fixture.card().assetId());
         assetService.restore(fixture.userId(), fixture.card().assetId(), archivedCard.version());
-        assertThat(scheduleStatus(statementId)).isEqualTo("SCHEDULED");
-        assertThat(settlementService.settle(scheduleId))
-                .isEqualTo(CardSettlementService.SettlementOutcome.PAID);
+        assertThat(scheduleIdOrNull(statementId)).isNull();
+        var current = statements.statement(fixture.userId(), statementId);
+        statements.payManually(fixture.userId(), statementId, "restored-manual", new CardStatementService.ManualPaymentCommand(current.version(), current.remainingAmountWon(), fixture.bank().assetId()));
 
         assertThat(statements.statement(fixture.userId(), statementId).status()).isEqualTo("PAID");
         assertThat(balance(fixture.card().assetId())).isZero();
         assertThat(balance(fixture.bank().assetId())).isEqualTo(-75_000);
+    }
+
+    /** Seed a payment made by the retired version, without re-enabling execution. */
+    private void recordHistoricalRegular(Fixture fixture, UUID statementId) {
+        var current = statements.statement(fixture.userId(), statementId);
+        var paid = statements.payManually(fixture.userId(), statementId, "historical-" + statementId,
+                new CardStatementService.ManualPaymentCommand(current.version(), current.remainingAmountWon(), fixture.bank().assetId(), current.dueOn()));
+        UUID schedule = UUID.randomUUID();
+        jdbcTemplate.update("insert into card_payment_schedule(id, book_id, statement_id, settlement_asset_id, scheduled_on, status) values (?, ?, ?, ?, ?, 'COMPLETED')",
+                schedule, fixture.bookId(), statementId, fixture.bank().assetId(), java.sql.Date.valueOf(current.dueOn()));
+        jdbcTemplate.update("update card_statement_payment set payment_type = 'REGULAR', created_by_member_id = null where id = ?", paid.payment().paymentId());
+        jdbcTemplate.update("update ledger_transaction set source_type = 'CARD_AUTOPAY', source_id = ?, created_by_member_id = null, updated_by_member_id = null where id = ?", schedule, paid.settlementTransaction().transactionId());
     }
 
     private Object concurrentPrepay(

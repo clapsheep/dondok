@@ -31,7 +31,7 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[min(36rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-[var(--line)] bg-cream-100 text-ink-900 shadow-lg outline-none dark:bg-[#101714] dark:text-white',
+          'fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[min(36rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-[var(--line)] bg-cream-100 p-5 text-ink-900 shadow-lg sm:p-6 outline-none dark:bg-[#101714] dark:text-white',
           className,
         )}
         {...props}

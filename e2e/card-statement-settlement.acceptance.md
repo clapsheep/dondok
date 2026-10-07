@@ -1,6 +1,28 @@
-# 카드 명세 선결제·자동 정산 QC 인수 계획
+# 카드 내역 선택·부분 금액 결제 QC 인수 계획
 
-이 문서는 카드 명세 선결제·자동 정산의 계층별 인수 기준이다. 대표 사용자 흐름은 `tests/card-statement-settlement.spec.ts`에 구현하며, worker 전용 시간·재시작·중복 실행 규칙은 백엔드 통합 테스트를 source of truth로 둔다. 실패 placeholder나 `test.skip`은 만들지 않는다.
+D-069 이후 현재 진입점은 신용카드 자산 상세의 `내역 선택 결제`와 `부분 금액 결제`다. 아래 기존 명세 API 시나리오는 과거 결제 이력·정정·취소 호환 검증으로 유지한다. B4~B6의 자동 실행·예약 생성 기대값과 이에 대응하는 옛 E2E 흐름은 폐기한다.
+
+## D-069 현재 인수 기준
+
+- 최근 정산일은 서울 오늘 이하의 가장 최근 달력 정산일이며 29~31일이 없는 달은 말일로 보정한다. 정산일 당일을 포함하고 결제일 전후로 체크 범위를 바꾸지 않는다.
+- 미결제 구매·할부 회차만 조회하고 기본 선택은 최근 정산일까지 마감된 명세다. 미래 회차는 직접 선택할 수 있다. 이전에 결제한 회차·기준일에 흡수된 구매는 다시 청구하지 않는다.
+- cursor로 펼치지 않은 내역도 기본 선택·전체 선택 합계와 결제 대상에 포함한다. 사용자가 해제한 내역은 제외한다.
+- 부분 금액은 전체 미결제 이내이며 결제 예정일, 사용일 순으로 배분한다. 결제일이 지나도 허용한다.
+- 선택 계좌·실제 결제일·카드 명의자를 기록하고 계좌 음수를 허용한다. 통계에는 원 구매만 반영한다.
+- 선택 배분은 구매 정정으로 청구 ID가 재생성돼도 유지한다. 환불은 기존 명세 미결제 감소 우선·실제 계좌 반환 정책을 따른다.
+- 두 구성원이 같은 snapshot으로 결제하면 한 요청만 성공하며 다른 요청은 412로 전부 거부한다. 같은 요청 키 재시도는 동일 결과를 반환한다.
+- 320/390px·iPad 세로/가로·desktop 회전, 탭 전환과 412 후 계좌·날짜·금액 draft를 보존한다.
+- V34는 미처리 자동 예약만 취소하고 완료 결제·posting을 보존한다. 구버전 클라이언트의 auto=true도 false로 정규화하고 worker는 실행하지 않는다.
+- 결제 취소 후 내역이 다시 기본 선택되고 완료 뒤 추가된 과거 구매도 미결제로 조회된다.
+- 검증 위치: `CardPaymentItemIntegrationTest`, `CardClosingSelectionTest`, `CardPaymentOwnerMigrationIntegrationTest`, `cardItemSelection.test.mjs`, `card-statement-settlement.spec.ts`.
+
+## 현재 API
+
+- `GET /api/assets/{cardAssetId}/card-payment-items`: 미결제 항목 cursor, 최근 정산일, 전체/기본 선택 합계, snapshot token.
+- `POST /api/assets/{cardAssetId}/card-payments`: SELECTED/AMOUNT 모드, 기본 선택·예외 항목 또는 금액, 출금 계좌, 실제 결제일과 idempotency key. stale snapshot은 `412 CARD_PAYMENT_SELECTION_STALE`.
+- 기존 명세 상세·결제 계좌 정정·취소 API를 이어 사용한다.
+
+## 기존 명세 API 호환 시나리오
 
 ## 영향 범위와 source of truth
 
@@ -164,6 +186,9 @@ npx playwright test tests/card-statement-settlement.spec.ts --project=desktop-ch
 ```
 
 ### 수동 전액 결제와 미결제 섹션
+
+- 결제일 기본값은 서울 기준 오늘이며 과거 출금일을 선택하면 결제 이력·계좌 원장·달력 모두 해당 날짜로 기록된다.
+- 회전과 충돌 후 최신 내용 확인에도 선택 날짜를 보존하고 같은 요청 재시도는 중복 출금을 만들지 않는다.
 
 - 자동 정산을 끈 카드에 과거 구매를 기록하고, 자산 거래 내역 위 미결제 섹션에서 과거 결제일·남은 금액과 결제 버튼을 확인한다.
 - 확인 dialog의 전액 결제 기록으로 오늘 날짜 MANUAL 결제와 이체가 생기며 미결제 섹션에서는 사라진다. 잔액과 달력 카드결제는 갱신하되 수입·지출에는 더하지 않는다.

@@ -21,7 +21,15 @@ export type StatisticsCategoryAmount = {
   amountWon: number
 }
 
+export type AssetFormation = {
+  savingsDepositWon: number
+  savingsWithdrawalWon: number
+  investmentDepositWon: number
+  investmentWithdrawalWon: number
+}
+
 export type MonthlyStatistics = {
+  assetFormation: AssetFormation
   month: string
   periodStart: string
   periodEndExclusive: string
@@ -36,6 +44,7 @@ export type MonthlyStatistics = {
 }
 
 export type StatisticsMonthAmount = {
+  assetFormation: AssetFormation
   month: string
   incomeWon: number
   expenseWon: number

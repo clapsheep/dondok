@@ -4,6 +4,7 @@ import com.dondok.auth.application.DondokPrincipal;
 import com.dondok.common.error.ApiException;
 import com.dondok.transaction.application.TransactionService;
 import com.dondok.transaction.domain.TransactionType;
+import com.dondok.transaction.domain.TransferPurpose;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -107,10 +108,12 @@ public class TransactionController {
             @Size(max = 500) String description,
             Integer installmentCount,
             Boolean excludedFromStatistics,
-            Long statisticsAmountWon
+            Long statisticsAmountWon,
+            TransferPurpose transferPurpose
     ) {
         TransactionService.CreateCommand toCommand() {
             boolean statisticsExcluded = Boolean.TRUE.equals(excludedFromStatistics);
+            require(type == TransactionType.TRANSFER || transferPurpose == null);
             return switch (type) {
                 case INCOME -> {
                     require(categoryId != null && assetId != null
@@ -135,7 +138,7 @@ public class TransactionController {
                             && !statisticsExcluded && statisticsAmountWon == null);
                     yield new TransactionService.CreateTransfer(
                             occurredOn, amountWon, sourceAssetId, destinationAssetId,
-                            performedByMemberId, description);
+                            performedByMemberId, description, transferPurpose);
                 }
             };
         }
@@ -161,7 +164,8 @@ public class TransactionController {
             Integer installmentCount,
             @NotNull @Min(0) Long expectedVersion,
             Boolean excludedFromStatistics,
-            Long statisticsAmountWon
+            Long statisticsAmountWon,
+            TransferPurpose transferPurpose
     ) {
         TransactionService.UpdateCommand toCommand() {
             if (type != TransactionType.EXPENSE
@@ -174,7 +178,7 @@ public class TransactionController {
                     destinationAssetId, performedByMemberId, description, expectedVersion,
                     Boolean.TRUE.equals(excludedFromStatistics),
                     installmentCount == null ? 1 : installmentCount,
-                    statisticsAmountWon == null ? amountWon : statisticsAmountWon);
+                    statisticsAmountWon == null ? amountWon : statisticsAmountWon, transferPurpose);
         }
     }
 }

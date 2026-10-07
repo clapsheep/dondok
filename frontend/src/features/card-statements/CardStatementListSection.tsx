@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button'
 import type { Asset } from '../assets/api'
 import { formatDate, formatWon } from '../assets/format'
 import { cardStatementApi, cardStatementKeys } from './api'
-import { cardPaymentScheduleStatusLabel, cardStatementStatusLabel, sortCardStatementsForDisplay } from './presentation'
+import { cardStatementStatusLabel, sortCardStatementsForDisplay } from './presentation'
 
 export function CardStatementListSection({ cardAsset, assets }: { cardAsset: Asset; assets: Asset[] }) {
   const [includePaid, setIncludePaid] = useState(false)
@@ -27,7 +27,7 @@ export function CardStatementListSection({ cardAsset, assets }: { cardAsset: Ass
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="card-statements-title" className="text-lg font-semibold">카드 결제 내역</h2>
-          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">명세별 결제 예정 금액과 선결제·정기 결제 기록을 확인해요.</p>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">명세별 결제 예정 금액과 결제 기록을 확인해요.</p>
         </div>
         <Button type="button" variant="secondary" aria-pressed={includePaid} onClick={() => setIncludePaid((current) => !current)}>
           {includePaid ? '미결제만 보기' : '완료 내역도 보기'}
@@ -36,7 +36,6 @@ export function CardStatementListSection({ cardAsset, assets }: { cardAsset: Ass
 
       <dl className="mt-4 grid gap-x-5 gap-y-2 border-y border-[var(--line)] py-3 text-sm @min-[34rem]:grid-cols-2">
         <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">결제 계좌</dt><dd className="font-semibold">{settlementAsset?.name ?? '설정되지 않음'}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">자동 정산</dt><dd className="font-semibold">{cardAsset.cardSettings?.autoSettlementEnabled ? '사용' : '사용 안 함'}</dd></div>
       </dl>
 
       {statements.isPending ? (
@@ -63,7 +62,6 @@ export function CardStatementListSection({ cardAsset, assets }: { cardAsset: Ass
                   <span><span className="block text-xs text-[var(--muted)]">청구 원금</span><strong className="mt-0.5 block">{formatWon(statement.grossAmountWon)}</strong></span>
                   <span className="text-center"><span className="block text-xs text-[var(--muted)]">결제 완료</span><strong className="mt-0.5 block">{formatWon(statement.paidAmountWon)}</strong></span>
                   <span className="text-right"><span className="block text-xs text-[var(--muted)]">남은 결제</span><strong className="mt-0.5 block">{formatWon(statement.remainingAmountWon)}</strong></span>
-                  {statement.automaticSettlement ? <span className="col-span-3 text-xs text-[var(--muted)]">{cardPaymentScheduleStatusLabel(statement.automaticSettlement.status)} · {formatDate(statement.automaticSettlement.scheduledOn)}</span> : null}
                 </span>
                 <span className="flex items-center justify-end gap-1 font-semibold text-forest-700 dark:text-forest-100 @min-[34rem]:col-start-2 @min-[34rem]:row-start-1 @min-[44rem]:col-start-3">명세 보기<ChevronRight className="transition-transform group-hover:translate-x-0.5" size={17} /></span>
               </Link>

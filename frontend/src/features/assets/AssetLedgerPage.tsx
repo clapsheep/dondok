@@ -11,7 +11,7 @@ import type { LedgerBook } from '../membership/api'
 import { transactionApi, transactionKeys, type Transaction } from '../transactions/api'
 import { AssetTransactionEditor } from '../transactions/TransactionFormPage'
 import { transactionRowDestination, transactionTypeLabel } from '../transactions/transactionRow'
-import { UnpaidCardStatementsSection } from '../card-statements/UnpaidCardStatementsSection'
+import { CardPaymentSection } from '../card-statements/CardPaymentSection'
 import { assetApi, assetKeys, type Asset } from './api'
 import { buildAssetLedgerTimeline, type AssetLedgerEntry } from './assetLedgerTimeline'
 import { formatDate, formatPaymentDueDate, formatWon } from './format'
@@ -132,7 +132,7 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
           </div>
           <div className="flex items-end justify-between gap-4 md:mt-5">
             <div className="flex min-w-0 items-center gap-2 md:hidden">{brandAvatar('sm')}<p className="text-xs text-[var(--muted)]">{brandName ? `${brandName} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p></div>
-            <dl className="ml-auto text-right"><dt className="text-xs text-[var(--muted)]">현재 잔액</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.035em] tabular-nums md:text-3xl ${currentAsset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`}>{formatWon(currentAsset.currentBalanceWon)}</dd></dl>
+            <dl className="ml-auto text-right"><dt className="text-xs text-[var(--muted)]">{currentAsset.behavior === 'CREDIT_CARD' ? '카드 잔액' : '현재 잔액'}</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.035em] tabular-nums md:text-3xl ${currentAsset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`}>{formatWon(currentAsset.currentBalanceWon)}</dd></dl>
           </div>
           <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted)]">{owner.avatar}<span>{owner.label}</span><span aria-hidden="true">·</span><span>잔액 기준일 {formatDate(currentAsset.openedOn)}</span></div>
           {currentAsset.behavior === 'CREDIT_CARD' ? currentAsset.nearestCardPaymentDueOn ? <dl className="mt-4 grid grid-cols-2 divide-x divide-[var(--line-subtle)] border-t border-[var(--line-subtle)] pt-3 text-sm"><div className="pr-4"><dt className="text-xs text-[var(--muted)]">{formatPaymentDueDate(currentAsset.nearestCardPaymentDueOn)} 결제 예정</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(currentAsset.nearestCardPaymentDueWon)}</dd></div><div className="pl-4 text-right"><dt className="text-xs text-[var(--muted)]">{currentAsset.followingCardPaymentDueOn ? `${formatPaymentDueDate(currentAsset.followingCardPaymentDueOn)} 결제 예정` : '그다음 결제'}</dt><dd className="mt-1 font-semibold tabular-nums">{currentAsset.followingCardPaymentDueOn ? formatWon(currentAsset.followingCardPaymentDueWon) : '없음'}</dd></div></dl> : <p className="mt-4 border-t border-[var(--line-subtle)] pt-3 text-right text-xs text-[var(--muted)]">결제 예정 없음</p> : null}
@@ -146,7 +146,7 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
         {restored ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산을 다시 사용할 수 있게 복원했어요.</p> : null}
         {recordSaved ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 기록했어요. 현재 잔액과 거래 내역을 새로 반영했습니다.</p> : null}
 
-        {currentAsset.behavior === 'CREDIT_CARD' ? <UnpaidCardStatementsSection asset={currentAsset} /> : null}
+        {currentAsset.behavior === 'CREDIT_CARD' ? <CardPaymentSection key={currentAsset.assetId} asset={currentAsset} members={ledger.members} /> : null}
 
         <div className="mt-5">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] pb-2"><div className="flex min-w-0 items-baseline gap-2"><h2 className="text-lg font-semibold">거래 내역</h2>{items.length ? <span className="text-xs text-[var(--muted)]">최신순</span> : null}</div>{currentAsset.status === 'ACTIVE' ? <Button type="button" onClick={openRecord}><Plus size={16} />기록 추가</Button> : null}</div>
@@ -163,7 +163,7 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
       </section>
       {recordOpen ? (
         <Dialog open onOpenChange={(open) => { if (!open) requestRecordClose() }}>
-          <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(48rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(46rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg" data-asset-transaction-dialog>
+          <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(48rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(46rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg sm:p-0" data-asset-transaction-dialog>
             <DialogHeader className="shrink-0 border-b border-[var(--line)] px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 md:pt-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0"><DialogTitle>거래 기록</DialogTitle><DialogDescription className="mt-1"><strong className="font-semibold text-current">{currentAsset.name}</strong>을 기본 자산으로 선택했어요.</DialogDescription></div>

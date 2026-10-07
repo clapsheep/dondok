@@ -536,7 +536,6 @@ function ArchivedAssetSettings({ asset, assets }: { asset: Asset; assets: Asset[
         <ReadOnlyAssetValue label="정산일" value={`${asset.cardSettings.statementClosingDay}일`} />
         <ReadOnlyAssetValue label="결제일" value={`${paymentMonthLabel(asset.cardSettings.paymentMonthOffset)} ${asset.cardSettings.paymentDay}일`} />
         <ReadOnlyAssetValue label="결제 계좌" value={assetNameForSetting(asset.cardSettings.settlementAssetId, assets)} />
-        <ReadOnlyAssetValue label="자동 정산" value={asset.cardSettings.autoSettlementEnabled ? '사용' : '사용 안 함'} />
       </dl>
     </section>
   )
@@ -678,7 +677,7 @@ function AssetRemovalDialog({ assetId, onRequestClose, onApplied, onNavigateToAs
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !removeAsset.isPending) requestClose() }}>
     <DialogContent
-      className="left-1/2 top-auto bottom-[max(.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-[calc(100vw-2rem)] -translate-x-1/2 translate-y-0 md:top-1/2 md:bottom-auto md:w-[min(38rem,calc(100vw-3rem))] md:-translate-y-1/2"
+      className="left-1/2 top-auto bottom-[max(.5rem,env(safe-area-inset-bottom))] max-h-[calc(100dvh-1.5rem-env(safe-area-inset-bottom))] w-[calc(100vw-2rem)] -translate-x-1/2 translate-y-0 md:top-1/2 md:bottom-auto md:w-[min(38rem,calc(100vw-3rem))] md:-translate-y-1/2 p-0 sm:p-0"
       aria-labelledby="asset-removal-dialog-title"
       aria-describedby="asset-removal-dialog-description"
     >
@@ -716,7 +715,7 @@ function AssetRemovalDialog({ assetId, onRequestClose, onApplied, onNavigateToAs
   )
 }
 
-function CardSettingsFields({ editing, draft, update, errors, candidates, members, onCreatePaymentSource }: {
+function CardSettingsFields({ draft, update, errors, candidates, members, onCreatePaymentSource }: {
   editing: boolean
   draft: AssetDraft
   update: <K extends keyof AssetDraft>(key: K, value: AssetDraft[K]) => void
@@ -736,10 +735,7 @@ function CardSettingsFields({ editing, draft, update, errors, candidates, member
         </div>
       </div>
       <div className="mt-4"><AssetPicker id="settlementAsset" label="결제 계좌" assets={candidates} members={members} value={draft.settlementAssetId} onChange={(value) => { update('settlementAssetId', value); if (!value) update('autoSettlementEnabled', false) }} error={errors.settlementAssetId} placeholder="결제 계좌를 선택해 주세요" required /><PaymentSourceAction hasCandidates={candidates.length > 0} emptyMessage="결제 계좌가 없어 신용카드를 저장할 수 없어요. 계좌를 추가해 계속할 수 있어요." triggerLabel="신용카드 결제 계좌 만들기" onCreate={onCreatePaymentSource} /></div>
-      {editing ? <label className={`mt-4 flex min-h-11 items-start gap-3 border-y border-[var(--line)] px-1 py-3 ${draft.settlementAssetId ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} htmlFor="autoSettlementEnabled">
-          <Switch id="autoSettlementEnabled" className="mt-0.5" checked={draft.autoSettlementEnabled} onCheckedChange={(checked) => update('autoSettlementEnabled', checked)} disabled={!draft.settlementAssetId} />
-          <span><span className="block text-sm font-semibold">결제일에 자동 정산</span><span className="mt-1 block text-xs leading-5 text-[var(--muted)]">선택한 계좌 잔액이 부족해도 전액 기록하며 음수 잔액을 허용해요.</span></span>
-        </label> : null}
+
     </fieldset>
   )
 }
@@ -909,7 +905,7 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !createAccount.isPending) requestClose() }}>
     <DialogContent
-      className="w-[min(36rem,calc(100vw-2rem))]"
+      className="w-[min(36rem,calc(100vw-2rem))] p-0 sm:p-0"
       aria-labelledby="payment-source-dialog-title"
       aria-describedby="payment-source-dialog-description"
     >
@@ -984,7 +980,6 @@ function ConflictPanel({ latest, loading, loadError, draft, draftName, draftType
       { id: 'card-payment-day', label: '결제일', latest: latestIsCreditCard && latest.cardSettings ? `${latest.cardSettings.paymentDay}일` : '해당 없음', draft: draftIsCreditCard ? `${draft.paymentDay}일` : '해당 없음' },
       { id: 'card-payment-month', label: '결제 월', latest: latestIsCreditCard && latest.cardSettings ? paymentMonthLabel(latest.cardSettings.paymentMonthOffset) : '해당 없음', draft: draftIsCreditCard ? paymentMonthLabel(Number(draft.paymentMonthOffset)) : '해당 없음' },
       { id: 'card-settlement-asset', label: '신용카드 결제 계좌', latest: latestIsCreditCard ? latestSettlement : '해당 없음', draft: draftIsCreditCard ? draftSettlement : '해당 없음' },
-      { id: 'card-auto-settlement', label: '자동 정산', latest: latestIsCreditCard && latest.cardSettings ? (latest.cardSettings.autoSettlementEnabled ? '사용' : '사용 안 함') : '해당 없음', draft: draftIsCreditCard ? (draft.autoSettlementEnabled ? '사용' : '사용 안 함') : '해당 없음' },
     ] : []),
     ...(latestIsDebitCard || draftIsDebitCard ? [
       { id: 'debit-payment-asset', label: '체크카드 결제 계좌', latest: latestIsDebitCard ? latestDebitPaymentAsset : '해당 없음', draft: draftIsDebitCard ? draftDebitPaymentAsset : '해당 없음' },
@@ -1104,7 +1099,7 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
     if (!Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31) errors.paymentDay = '1일부터 31일 사이로 입력해 주세요.'
     if (![0, 1, 2].includes(paymentMonthOffset)) errors.paymentMonthOffset = '결제 월을 선택해 주세요.'
     if (!draft.settlementAssetId) errors.settlementAssetId = '결제 계좌를 선택해 주세요.'
-    cardSettings = { statementClosingDay, paymentDay, paymentMonthOffset, settlementAssetId: draft.settlementAssetId, autoSettlementEnabled: editing ? draft.autoSettlementEnabled : false }
+    cardSettings = { statementClosingDay, paymentDay, paymentMonthOffset, settlementAssetId: draft.settlementAssetId, autoSettlementEnabled: false }
   }
   if (selectedType?.behavior === 'DEBIT_CARD') {
     if (!draft.debitCardPaymentAssetId) errors.debitCardPaymentAssetId = '결제 계좌를 선택해 주세요.'

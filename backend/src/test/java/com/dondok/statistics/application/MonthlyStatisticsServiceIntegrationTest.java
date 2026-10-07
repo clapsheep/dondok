@@ -14,6 +14,9 @@ import com.dondok.transaction.application.CardPurchaseManagementService;
 import com.dondok.transaction.application.ManagedTransferPort;
 import com.dondok.transaction.application.TransactionService;
 import com.dondok.transaction.domain.TransferSubtype;
+import com.dondok.transaction.domain.TransferPurpose;
+import com.dondok.transaction.domain.TransactionType;
+import com.dondok.statistics.domain.AssetFormation;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -140,13 +143,13 @@ class MonthlyStatisticsServiceIntegrationTest {
                                 .toList());
         assertThat(yearSummary(statistics, 6)).isEqualTo(
                 new MonthlyStatisticsService.MonthSummary(
-                        YearMonth.of(2026, 6), 777_777, 0, 777_777));
+                        YearMonth.of(2026, 6), 777_777, 0, 777_777, AssetFormation.ZERO));
         assertThat(yearSummary(statistics, 7)).isEqualTo(
                 new MonthlyStatisticsService.MonthSummary(
-                        YearMonth.of(2026, 7), 500_000, 260_000, 240_000));
+                        YearMonth.of(2026, 7), 500_000, 260_000, 240_000, AssetFormation.ZERO));
         assertThat(yearSummary(statistics, 8)).isEqualTo(
                 new MonthlyStatisticsService.MonthSummary(
-                        YearMonth.of(2026, 8), 0, 888_888, -888_888));
+                        YearMonth.of(2026, 8), 0, 888_888, -888_888, AssetFormation.ZERO));
         assertThat(statistics.yearlyTrend())
                 .noneMatch(summary -> summary.incomeWon() == 999_999);
         assertThat(statistics.dailyTrend())
@@ -410,6 +413,120 @@ class MonthlyStatisticsServiceIntegrationTest {
                 destination.ownerMemberId(), fixture.memberId(), Instant.now(), List.of(
                         new ManagedTransferPort.Posting(source.assetId(), -amountWon),
                         new ManagedTransferPort.Posting(destination.assetId(), amountWon))));
+    }
+
+    @Test
+    void transferPurposesTrackGrossDepositsAndDatedWithdrawalsWithoutChangingConsumption() {
+        Fixture f = fixture("납입 통계");
+        var bank = asset(f.userId(), "BANK");
+        var savings = formationAsset(f, "SAVINGS", f.memberId());
+        var investment = formationAsset(f, "INVESTMENT", f.memberId());
+        var deposit = purposeTransfer(f, "savings", "2026-07-01", bank.assetId(), savings.assetId(),
+                500_000, TransferPurpose.SAVINGS_DEPOSIT, f.memberId());
+        purposeTransfer(f, "investment", "2026-07-02", bank.assetId(), investment.assetId(),
+                300_000, TransferPurpose.INVESTMENT_DEPOSIT, f.memberId());
+        purposeTransfer(f, "withdraw", "2026-07-03", savings.assetId(), bank.assetId(),
+                200_000, TransferPurpose.SAVINGS_WITHDRAWAL, f.memberId());
+        purposeTransfer(f, "later-withdraw", "2026-08-01", investment.assetId(), bank.assetId(),
+                400_000, TransferPurpose.INVESTMENT_WITHDRAWAL, f.memberId());
+        purposeTransfer(f, "rebalance", "2026-07-04", savings.assetId(), investment.assetId(),
+                50_000, TransferPurpose.GENERAL, f.memberId());
+        var july = monthly(f.userId(), null, AssetOwnerFilter.Type.ALL, null, null);
+        assertThat(july.assetFormation()).isEqualTo(new AssetFormation(500_000, 200_000, 300_000, 0));
+        assertThat(july.totals().expenseWon()).isZero();
+        assertThat(july.totals().incomeWon()).isZero();
+        assertThat(july.yearlyTrend()).hasSize(12);
+        assertThat(july.yearlyTrend().get(6).assetFormation()).isEqualTo(july.assetFormation());
+        assertThat(july.yearlyTrend().get(7).assetFormation()).isEqualTo(new AssetFormation(0, 0, 0, 400_000));
+        assertThat(july.yearlyTrend().get(0).assetFormation()).isEqualTo(AssetFormation.ZERO);
+        assertThat(deposit.postings()).hasSize(2);
+        assertThat(deposit.postings().stream().mapToLong(TransactionService.PostingView::deltaWon).sum()).isZero();
+        assertThat(assetService.asset(f.userId(), savings.assetId()).currentBalanceWon()).isEqualTo(250_000);
+        assertThat(assetService.asset(f.userId(), investment.assetId()).currentBalanceWon()).isEqualTo(-50_000);
+        assertThat(transactionService.calendar(f.userId(), YearMonth.of(2026, 7)).totalExpenseWon()).isZero();
+
+        var replay = purposeTransfer(f, "savings", "2026-07-01", bank.assetId(), savings.assetId(),
+                500_000, TransferPurpose.SAVINGS_DEPOSIT, f.memberId());
+        assertThat(replay.transactionId()).isEqualTo(deposit.transactionId());
+        assertThatThrownBy(() -> purposeTransfer(f, "savings", "2026-07-01", bank.assetId(), savings.assetId(),
+                500_000, TransferPurpose.GENERAL, f.memberId())).isInstanceOf(ApiException.class)
+                .hasMessageContaining("중복 방지 키");
+
+        var changed = transactionService.update(f.userId(), deposit.transactionId(), new TransactionService.UpdateCommand(
+                TransactionType.TRANSFER, deposit.occurredOn(), deposit.amountWon(), null, null,
+                bank.assetId(), savings.assetId(), f.memberId(), null, deposit.version(), false, 1,
+                deposit.amountWon(), TransferPurpose.GENERAL));
+        assertThat(changed.transferPurpose()).isEqualTo(TransferPurpose.GENERAL);
+        assertThat(assetService.asset(f.userId(), savings.assetId()).currentBalanceWon()).isEqualTo(250_000);
+        assertThat(monthly(f.userId(), null, AssetOwnerFilter.Type.ALL, null, null).assetFormation().savingsDepositWon()).isZero();
+        assertThatThrownBy(() -> transactionService.update(f.userId(), deposit.transactionId(), new TransactionService.UpdateCommand(
+                TransactionType.TRANSFER, deposit.occurredOn(), deposit.amountWon(), null, null,
+                bank.assetId(), savings.assetId(), f.memberId(), null, deposit.version(), false, 1,
+                deposit.amountWon(), TransferPurpose.INVESTMENT_DEPOSIT))).isInstanceOf(ApiException.class)
+                .hasMessageContaining("편집하는 동안");
+    }
+
+    @Test
+    void transferPurposeFiltersUsePerformerAndFormationSideOwnerAndExcludeOtherLedgers() {
+        Fixture f = fixture("목적 필터");
+        UUID other = addMember(f.bookId(), "적금 명의자");
+        var bank = asset(f.userId(), "BANK");
+        var savings = formationAsset(f, "SAVINGS", other);
+        var deposit = purposeTransfer(f, "owned-deposit", "2026-07-01", bank.assetId(), savings.assetId(),
+                700_000, TransferPurpose.SAVINGS_DEPOSIT, f.memberId());
+        purposeTransfer(f, "owned-withdraw", "2026-07-02", savings.assetId(), bank.assetId(),
+                100_000, TransferPurpose.SAVINGS_WITHDRAWAL, f.memberId());
+        assertThat(monthly(f.userId(), f.memberId(), AssetOwnerFilter.Type.MEMBER, other, null).assetFormation())
+                .isEqualTo(new AssetFormation(700_000, 100_000, 0, 0));
+        assertThat(monthly(f.userId(), other, AssetOwnerFilter.Type.ALL, null, null).assetFormation()).isEqualTo(AssetFormation.ZERO);
+        assertThat(monthly(f.userId(), null, AssetOwnerFilter.Type.MEMBER, f.memberId(), null).assetFormation()).isEqualTo(AssetFormation.ZERO);
+        assertThat(monthly(f.userId(), null, AssetOwnerFilter.Type.ALL, null,
+                category(f.userId(), CategoryKind.EXPENSE, "FOOD")).assetFormation()).isEqualTo(AssetFormation.ZERO);
+        Fixture stranger = fixture("다른 가계부");
+        assertThat(monthly(stranger.userId(), null, AssetOwnerFilter.Type.ALL, null, null).assetFormation()).isEqualTo(AssetFormation.ZERO);
+        assertThatThrownBy(() -> purposeTransfer(stranger, "cross-book", "2026-07-01",
+                asset(stranger.userId(), "BANK").assetId(), savings.assetId(), 10_000,
+                TransferPurpose.SAVINGS_DEPOSIT, stranger.memberId())).isInstanceOf(ApiException.class);
+        var legacyEdit = transactionService.update(f.userId(), deposit.transactionId(), new TransactionService.UpdateCommand(
+                TransactionType.TRANSFER, deposit.occurredOn(), deposit.amountWon(), null, null,
+                bank.assetId(), savings.assetId(), f.memberId(), "이전 앱 수정", deposit.version()));
+        assertThat(legacyEdit.transferPurpose()).isEqualTo(TransferPurpose.SAVINGS_DEPOSIT);
+        transactionService.delete(f.userId(), deposit.transactionId(), legacyEdit.version());
+        assertThat(monthly(f.userId(), null, AssetOwnerFilter.Type.ALL, null, null).assetFormation())
+                .isEqualTo(new AssetFormation(0, 100_000, 0, 0));
+        assertThatThrownBy(() -> new TransactionService.UpdateCommand(TransactionType.INCOME,
+                LocalDate.of(2026, 7, 1), 100, null, bank.assetId(), null, null, f.memberId(),
+                null, 0, false, 1, 100, TransferPurpose.SAVINGS_DEPOSIT)).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void anchoredTransfersRemainInStatisticsAndLegacyCreatesDefaultToGeneral() {
+        Fixture f = fixture("기준일 납입");
+        var bank = asset(f.userId(), "BANK");
+        var savings = assetService.create(f.userId(), "anchored-savings", new AssetService.AssetCommand(
+                assetType(f.userId(), "SAVINGS"), AssetOwnershipScope.PERSONAL, f.memberId(),
+                "기준일 적금", LocalDate.of(2026, 7, 15), null, 900_000, null));
+        purposeTransfer(f, "before-anchor", "2026-07-01", bank.assetId(), savings.assetId(),
+                500_000, TransferPurpose.SAVINGS_DEPOSIT, f.memberId());
+        purposeTransfer(f, "on-anchor", "2026-07-15", bank.assetId(), savings.assetId(),
+                200_000, TransferPurpose.SAVINGS_DEPOSIT, f.memberId());
+        var general = transactionService.create(f.userId(), "legacy", new TransactionService.CreateTransfer(
+                LocalDate.of(2026, 7, 16), 10_000, bank.assetId(), savings.assetId(), f.memberId(), null));
+        assertThat(general.transferPurpose()).isEqualTo(TransferPurpose.GENERAL);
+        assertThat(assetService.asset(f.userId(), savings.assetId()).currentBalanceWon()).isEqualTo(1_110_000);
+        assertThat(monthly(f.userId(), null, AssetOwnerFilter.Type.ALL, null, null).assetFormation().savingsDepositWon()).isEqualTo(700_000);
+    }
+
+    private AssetService.AssetView formationAsset(Fixture f, String code, UUID owner) {
+        return assetService.create(f.userId(), "formation-" + code, new AssetService.AssetCommand(
+                assetType(f.userId(), code), AssetOwnershipScope.PERSONAL, owner,
+                "목적 " + code, LocalDate.of(2026, 1, 1), null, 0, null));
+    }
+
+    private TransactionService.TransactionView purposeTransfer(Fixture f, String key, String date,
+            UUID source, UUID destination, long amount, TransferPurpose purpose, UUID performer) {
+        return transactionService.create(f.userId(), key, new TransactionService.CreateTransfer(
+                LocalDate.parse(date), amount, source, destination, performer, null, purpose));
     }
 
     private Fixture fixture(String displayName) {

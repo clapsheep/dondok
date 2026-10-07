@@ -1,3 +1,4 @@
+import { transferPurposeLabels } from './transferPurpose'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, LoaderCircle, Pencil, Trash2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -156,6 +157,7 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
           <DetailRow label={transaction.transferSubtype === 'CARD_SETTLEMENT' || transaction.transferSubtype === 'CARD_PREPAYMENT' ? '카드 명의자' : performerPersonLabel(transaction.type)} value={<MemberValue transaction={transaction} />} />
           {transaction.createdBy && transaction.createdBy.memberId !== transaction.performedBy?.memberId ? <DetailRow label="기록한 사람" value={<span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={transaction.createdBy.displayName} memberId={transaction.createdBy.memberId} size="xs" />{transaction.createdBy.displayName}</span>} /> : null}
           {transaction.installmentCount && transaction.installmentCount > 1 ? <DetailRow label="할부" value={`${transaction.installmentCount}개월`} /> : null}
+          {transaction.transferPurpose ? <DetailRow label="이체 목적" value={transferPurposeLabels[transaction.transferPurpose]} /> : null}
           {transaction.type !== 'TRANSFER' ? <DetailRow label="달력·통계" value={transaction.excludedFromStatistics ? '집계 제외' : '집계 포함'} /> : null}
           {transaction.type === 'EXPENSE' && transaction.statisticsAmountWon !== transaction.amountWon ? <DetailRow label="대표 결제" value={`지출에는 ${formatWon(transaction.statisticsAmountWon)} 반영`} /> : null}
           {transaction.description ? <DetailRow label="내용" value={transaction.description} /> : null}

@@ -56,3 +56,6 @@ infra/backups/
 *.backup
 *deleted-ledger-denylist*
 *.log
+
+# Python CI tooling bytecode
+__pycache__/

@@ -99,9 +99,9 @@ BACKUP_ARGS[3]="$WORK_ROOT"
 "$REPOSITORY_DIR/infra/postgres-backup.sh" "${BACKUP_ARGS[@]}" > "$WORK_ROOT/backup.log" 2>&1
 BUNDLE="$(find "$WORK_ROOT" -maxdepth 1 -type d -name 'dondok-postgres-*' -print -quit)"
 [[ -n "$BUNDLE" ]] || fail 'backup smoke did not create a completed bundle'
-[[ "$(stat -f '%Lp' "$BUNDLE" 2>/dev/null || stat -c '%a' "$BUNDLE")" == 700 ]] || fail 'backup bundle mode is not 0700'
+[[ "$(stat -c '%a' "$BUNDLE" 2>/dev/null || stat -f '%Lp' "$BUNDLE")" == 700 ]] || fail 'backup bundle mode is not 0700'
 for private_file in database.dump database.dump.sha256 manifest.txt manifest.txt.sha256; do
-  mode="$(stat -f '%Lp' "$BUNDLE/$private_file" 2>/dev/null || stat -c '%a' "$BUNDLE/$private_file")"
+  mode="$(stat -c '%a' "$BUNDLE/$private_file" 2>/dev/null || stat -f '%Lp' "$BUNDLE/$private_file")"
   [[ "$mode" == 600 ]] || fail "$private_file mode is not 0600"
 done
 

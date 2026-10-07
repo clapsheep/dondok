@@ -10,6 +10,53 @@ servers:
   - url: /
 security: []
 paths:
+  /api/assets/{cardAssetId}/card-payment-items:
+    parameters:
+      - { name: cardAssetId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listCardPaymentItems
+      summary: 카드 회차별 미결제 내역과 최근 정산일 기본 선택 합계
+      tags: [CardStatement]
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 30 } }
+      responses:
+        "200":
+          description: 아직 조회하지 않은 페이지도 포함한 합계와 선택 snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CardPaymentItemPage' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /api/assets/{cardAssetId}/card-payments:
+    parameters:
+      - { name: cardAssetId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: recordCardItemPayment
+      summary: 선택 내역 또는 부분 금액을 선택 계좌와 실제 날짜로 원자적 결제 기록
+      tags: [CardStatement]
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/CsrfHeader' }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 100 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CardItemPaymentRequest' }
+      responses:
+        "201":
+          description: 명세별 결제 기록; 같은 요청 재시도는 같은 batch 반환
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CardItemPaymentResult' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { $ref: '#/components/responses/Conflict' }
+        "412": { $ref: '#/components/responses/PreconditionFailed' }
   /api/auth/csrf:
     get:
       summary: CSRF token 조회
@@ -592,7 +639,7 @@ paths:
         schema: { type: string, format: uuid }
     post:
       summary: 미결제 카드 명세 수동 전액 결제
-      description: 자동 정산 여부·결제일과 관계없이 남은 전액을 오늘(서울) 계좌에서 카드로 이체 기록한다. version·금액·결제 계좌가 달라지면 412로 거부한다. 실제 은행 결제 요청은 수행하지 않는다.
+      description: 자동 정산 여부·결제 예정일과 관계없이 남은 전액을 입력한 paidOn에 계좌에서 카드로 이체 기록한다. 이전 클라이언트가 paidOn을 생략하면 오늘(서울)을 사용한다. version·금액·결제 계좌가 달라지면 412로 거부한다. 같은 요청 키로 날짜를 바꾸면 409로 거부한다. 실제 은행 결제 요청은 수행하지 않는다.
       operationId: payCardStatementManually
       tags: [CardStatement]
       security: [{ cookieAuth: [] }]
@@ -607,6 +654,10 @@ paths:
               type: object
               required: [expectedVersion, expectedAmountWon, settlementAssetId]
               properties:
+                paidOn:
+                  type: string
+                  format: date
+                  description: 실제 결제일. 결제 이력과 출금·카드 이체의 경제활동일에 함께 사용한다. 생략 시 서울 실행일로 처리한다.
                 expectedVersion: { type: integer, format: int64, minimum: 0 }
                 expectedAmountWon: { type: integer, format: int64, minimum: 1 }
                 settlementAssetId: { type: string, format: uuid }
@@ -854,7 +905,7 @@ paths:
         "412": { $ref: "#/components/responses/PreconditionFailed" }
   /api/statistics/monthly:
     get:
-      summary: 공동 가계부의 월간 수입·지출 통계
+      summary: 공동 가계부의 월간 수입·소비·적금·투자 통계
       operationId: getMonthlyStatistics
       tags: [Statistics]
       security: [{ cookieAuth: [] }]
@@ -1247,6 +1298,65 @@ components:
       description: 같은 사용자의 동일 키·동일 payload 재시도는 기존 리소스의 동일 명령 결과를 반환한다.
       schema: { type: string, minLength: 1, maxLength: 100 }
   schemas:
+    CardPaymentItem:
+      type: object
+      required: [chargeId, statementId, sourceTransactionId, installmentNo, installmentCount, occurredOn, description, cycleEnd, dueOn, remainingAmountWon, origin]
+      properties:
+        chargeId: { type: string, format: uuid }
+        statementId: { type: string, format: uuid }
+        sourceTransactionId: { type: string, format: uuid }
+        installmentNo: { type: integer }
+        installmentCount: { type: integer }
+        occurredOn: { type: string, format: date }
+        description: { type: string }
+        cycleEnd: { type: string, format: date }
+        dueOn: { type: string, format: date }
+        remainingAmountWon: { type: integer, format: int64, minimum: 0 }
+        origin: { type: string, enum: [PURCHASE, OPENING_BALANCE] }
+    CardPaymentItemPage:
+      type: object
+      required: [items, nextCursor, recentClosingOn, snapshotToken, totals]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CardPaymentItem' } }
+        nextCursor: { type: [string, 'null'] }
+        recentClosingOn: { type: string, format: date }
+        snapshotToken: { type: string }
+        totals:
+          type: object
+          required: [amountWon, count, closedAmountWon, closedCount]
+          properties:
+            amountWon: { type: integer, format: int64 }
+            count: { type: integer, format: int64 }
+            closedAmountWon: { type: integer, format: int64 }
+            closedCount: { type: integer, format: int64 }
+    CardItemPaymentRequest:
+      type: object
+      required: [snapshotToken, mode, baseSelection, includedChargeIds, excludedChargeIds, settlementAssetId, paidOn]
+      properties:
+        snapshotToken: { type: string, minLength: 1, maxLength: 100 }
+        mode: { type: string, enum: [SELECTED, AMOUNT] }
+        baseSelection: { type: string, enum: [CLOSED, ALL, NONE] }
+        includedChargeIds: { type: array, maxItems: 5000, items: { type: string, format: uuid } }
+        excludedChargeIds: { type: array, maxItems: 5000, items: { type: string, format: uuid } }
+        amountWon: { type: [integer, 'null'], format: int64, minimum: 1 }
+        settlementAssetId: { type: string, format: uuid }
+        paidOn: { type: string, format: date }
+    CardItemPaymentResult:
+      type: object
+      required: [batchId, amountWon, payments]
+      properties:
+        batchId: { type: string, format: uuid }
+        amountWon: { type: integer, format: int64 }
+        payments:
+          type: array
+          items:
+            type: object
+            required: [paymentId, statementId, amountWon, cancelled]
+            properties:
+              paymentId: { type: string, format: uuid }
+              statementId: { type: string, format: uuid }
+              amountWon: { type: integer, format: int64 }
+              cancelled: { type: boolean }
     CsrfToken:
       type: object
       required: [headerName, parameterName, token]
@@ -1438,7 +1548,7 @@ components:
         paymentDay: { type: integer, minimum: 1, maximum: 31 }
         paymentMonthOffset: { type: integer, minimum: 0, maximum: 2 }
         settlementAssetId: { type: string, format: uuid }
-        autoSettlementEnabled: { type: boolean }
+        autoSettlementEnabled: { type: boolean, deprecated: true, description: "자동 정산은 제거됨. 요청 값은 false로 정규화하고 응답은 항상 false." }
     DebitCardSettingsInput:
       type: object
       description: 체크카드 생성·수정에서 필수이며 지출 posting이 차감될 결제 계좌를 지정한다.
@@ -1518,7 +1628,7 @@ components:
           oneOf:
             - { type: string, format: uuid }
             - { type: "null" }
-        autoSettlementEnabled: { type: boolean }
+        autoSettlementEnabled: { type: boolean, deprecated: true, description: "자동 정산은 제거됨. 요청 값은 false로 정규화하고 응답은 항상 false." }
     DebitCardSettings:
       allOf:
         - { $ref: "#/components/schemas/DebitCardSettingsInput" }
@@ -1795,6 +1905,10 @@ components:
               type: boolean
               default: false
               description: true면 posting과 자산 잔액은 반영하되 달력·통계 집계에서 제외한다.
+    TransferPurpose:
+      type: string
+      enum: [GENERAL, SAVINGS_DEPOSIT, INVESTMENT_DEPOSIT, SAVINGS_WITHDRAWAL, INVESTMENT_WITHDRAWAL]
+      description: 일반 이체 목적. 자산 종류와 독립된 저장 값이며 생성 생략은 GENERAL, 수정 생략은 기존값 보존이다.
     CreateTransferRequest:
       allOf:
         - { $ref: "#/components/schemas/TransactionInput" }
@@ -1802,6 +1916,7 @@ components:
           required: [sourceAssetId, destinationAssetId]
           properties:
             type: { type: string, const: TRANSFER }
+            transferPurpose: { $ref: "#/components/schemas/TransferPurpose" }
             sourceAssetId: { type: string, format: uuid, description: "같은 가계부의 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
             destinationAssetId: { type: string, format: uuid, description: "출발 자산과 다른 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
     UpdateTransactionRequest:
@@ -1809,6 +1924,7 @@ components:
       required: [type, occurredOn, amountWon, performedByMemberId, expectedVersion]
       properties:
         type: { $ref: "#/components/schemas/TransactionType" }
+        transferPurpose: { $ref: "#/components/schemas/TransferPurpose" }
         occurredOn: { type: string, format: date }
         amountWon: { type: integer, format: int64, minimum: 1 }
         categoryId: { type: string, format: uuid }
@@ -1875,6 +1991,7 @@ components:
         - transactionId
         - type
         - transferSubtype
+        - transferPurpose
         - managementType
         - relatedPurchaseTransactionId
         - cardPayment
@@ -1895,6 +2012,10 @@ components:
       properties:
         transactionId: { type: string, format: uuid }
         type: { $ref: "#/components/schemas/TransactionType" }
+        transferPurpose:
+          oneOf:
+            - { $ref: "#/components/schemas/TransferPurpose" }
+            - { type: "null" }
         transferSubtype:
           oneOf:
             - { $ref: "#/components/schemas/TransferSubtype" }
@@ -2036,7 +2157,7 @@ components:
               oneOf:
                 - { $ref: "#/components/schemas/CardSettlementAsset" }
                 - { type: "null" }
-            autoSettlementEnabled: { type: boolean }
+            autoSettlementEnabled: { type: boolean, deprecated: true, description: "자동 정산은 제거됨. 요청 값은 false로 정규화하고 응답은 항상 false." }
             payments:
               type: array
               items: { $ref: "#/components/schemas/CardStatementPayment" }
@@ -2277,13 +2398,14 @@ components:
           items: { $ref: "#/components/schemas/TransactionDaySummary" }
     MonthlyStatistics:
       type: object
-      required: [month, periodStart, periodEndExclusive, appliedFilters, totals, categoryBreakdown, yearlyTrend]
+      required: [month, periodStart, periodEndExclusive, appliedFilters, totals, categoryBreakdown, yearlyTrend, assetFormation]
       properties:
         month: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
         periodStart: { type: string, format: date }
         periodEndExclusive: { type: string, format: date }
         appliedFilters: { $ref: "#/components/schemas/StatisticsAppliedFilters" }
         totals: { $ref: "#/components/schemas/StatisticsTotals" }
+        assetFormation: { $ref: "#/components/schemas/AssetFormation" }
         categoryBreakdown:
           type: array
           description: 방향별 순금액 내림차순이며 환불 때문에 지출 금액이 음수일 수 있다.
@@ -2324,10 +2446,20 @@ components:
         incomeWon: { type: integer, format: int64 }
         expenseWon: { type: integer, format: int64 }
         netWon: { type: integer, format: int64 }
+    AssetFormation:
+      type: object
+      required: [savingsDepositWon, savingsWithdrawalWon, investmentDepositWon, investmentWithdrawalWon]
+      description: 총 사용액은 소비+두 납입액이며 회수는 별도다. 각 순납입은 납입−회수. 목적별 주체 필터와 납입 도착/인출 출발 자산 소유자 필터를 적용하며 categoryId 지정 시 모두 0이다.
+      properties:
+        savingsDepositWon: { type: integer, format: int64, minimum: 0 }
+        savingsWithdrawalWon: { type: integer, format: int64, minimum: 0 }
+        investmentDepositWon: { type: integer, format: int64, minimum: 0 }
+        investmentWithdrawalWon: { type: integer, format: int64, minimum: 0 }
     StatisticsMonthSummary:
       type: object
-      required: [month, incomeWon, expenseWon, netWon]
+      required: [month, incomeWon, expenseWon, netWon, assetFormation]
       properties:
+        assetFormation: { $ref: "#/components/schemas/AssetFormation" }
         month: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
         incomeWon: { type: integer, format: int64 }
         expenseWon: { type: integer, format: int64 }

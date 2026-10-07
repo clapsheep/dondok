@@ -33,7 +33,7 @@ export function CategoryTransactionDialog({ category, filters, returnTo, onOpenC
 
   return (
     <Dialog open={Boolean(category)} onOpenChange={onOpenChange}>
-      <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(44rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(40rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg">
+      <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(44rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(40rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg sm:p-0">
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-4 xs:px-6">
           <div className="min-w-0"><DialogTitle>{category ? `${category.categoryName} 거래 내역` : '분류 거래 내역'}</DialogTitle><DialogDescription className="mt-1">{monthTitle(filters.month)} 통계에 포함된 거래만 보여드려요.</DialogDescription></div>
           <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label="거래 내역 닫기" onClick={() => onOpenChange(false)}><X size={18} /></Button>

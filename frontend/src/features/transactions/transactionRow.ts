@@ -1,3 +1,4 @@
+import { transferPurposeLabels } from './transferPurpose.ts'
 import type { Transaction } from './api'
 
 export function transactionRowDestination(transaction: Transaction) {
@@ -29,5 +30,6 @@ export function transactionTypeLabel(transaction: Transaction) {
   if (transaction.managementType === 'CARD_REFUND') return '환불'
   if (transaction.transferSubtype === 'CARD_SETTLEMENT') return '카드 정산'
   if (transaction.transferSubtype === 'CARD_PREPAYMENT') return '카드 선결제'
+  if (transaction.type === 'TRANSFER' && transaction.transferPurpose && transaction.transferPurpose !== 'GENERAL') return transferPurposeLabels[transaction.transferPurpose]
   return transaction.type === 'INCOME' ? '수입' : transaction.type === 'EXPENSE' ? '지출' : '이체'
 }

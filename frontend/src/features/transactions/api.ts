@@ -1,3 +1,4 @@
+import type { TransferPurpose } from './transferPurpose'
 import { api, jsonBody } from '../../lib/api'
 
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER'
@@ -23,6 +24,7 @@ export type Transaction = {
   transactionId: string
   type: TransactionType
   transferSubtype: 'NORMAL' | 'CARD_SETTLEMENT' | 'CARD_PREPAYMENT' | null
+  transferPurpose: TransferPurpose | null
   managementType: TransactionManagementType
   relatedPurchaseTransactionId: string | null
   cardPayment: {
@@ -60,12 +62,12 @@ export type CommonTransactionInput = {
 export type CreateTransactionInput =
   | CommonTransactionInput & { type: 'INCOME'; categoryId: string; assetId: string; excludedFromStatistics: boolean }
   | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string; installmentCount?: number; excludedFromStatistics: boolean; statisticsAmountWon: number }
-  | CommonTransactionInput & { type: 'TRANSFER'; sourceAssetId: string; destinationAssetId: string }
+  | CommonTransactionInput & { type: 'TRANSFER'; sourceAssetId: string; destinationAssetId: string; transferPurpose?: TransferPurpose }
 
 export type UpdateTransactionInput = (
   | CommonTransactionInput & { type: 'INCOME'; categoryId: string; assetId: string; excludedFromStatistics: boolean }
   | CommonTransactionInput & { type: 'EXPENSE'; categoryId: string; assetId: string; installmentCount?: number; excludedFromStatistics: boolean; statisticsAmountWon: number }
-  | CommonTransactionInput & { type: 'TRANSFER'; sourceAssetId: string; destinationAssetId: string }
+  | CommonTransactionInput & { type: 'TRANSFER'; sourceAssetId: string; destinationAssetId: string; transferPurpose?: TransferPurpose }
 ) & { expectedVersion: number }
 
 export type DeleteTransactionResult = { transactionId: string; deletedVersion: number }

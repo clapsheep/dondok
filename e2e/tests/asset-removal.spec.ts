@@ -133,7 +133,7 @@ test('무이력 자산은 삭제하고 이력 자산은 사용 종료해 순자�
   expect(hardDeleteState).toEqual({ detailStatus: 404, active: false, archived: false, all: false })
   await attachStateEvidence(testInfo, 'hard-delete-state', hardDeleteState)
 
-  await page.goto(`/statistics?month=${seed.currentMonth}`)
+  await page.goto(`/statistics?view=consumption&month=${seed.currentMonth}`)
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expectStatisticsValue(page, '수입', `+${formatWon(seed.incomeWon)}`)
   await expectStatisticsValue(page, '순액', `+${formatWon(seed.incomeWon)}`)
@@ -183,7 +183,7 @@ test('무이력 자산은 삭제하고 이력 자산은 사용 종료해 순자�
   await page.getByRole('button', { name: '수입', exact: true }).click()
   await expect(page.getByLabel('입금 자산')).not.toContainText(seed.archiveAssetName)
 
-  await page.goto(`/statistics?month=${seed.currentMonth}`)
+  await page.goto(`/statistics?view=consumption&month=${seed.currentMonth}`)
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expectStatisticsValue(page, '수입', `+${formatWon(seed.incomeWon)}`)
   await expectStatisticsValue(page, '순액', `+${formatWon(seed.incomeWon)}`)

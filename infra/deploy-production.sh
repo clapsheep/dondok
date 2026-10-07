@@ -13,6 +13,7 @@ STATE_DIR=""
 REVISION=""
 LOCK_DIR=""
 LOCK_ACQUIRED=false
+RELEASE_MANIFEST=""
 REPOSITORY_URL="https://github.com/clapsheep/dondok.git"
 
 usage() {
@@ -27,6 +28,7 @@ fail() {
 }
 
 cleanup() {
+  if [[ -n "$RELEASE_MANIFEST" ]]; then rm -f -- "$RELEASE_MANIFEST"; fi
   if [[ "$LOCK_ACQUIRED" == true && -d "$LOCK_DIR" ]]; then
     rm -f -- "$LOCK_DIR/owner.txt"
     rmdir -- "$LOCK_DIR" 2>/dev/null || true
@@ -92,7 +94,7 @@ SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd -P)"
   || fail 'source checkout HEAD does not match the requested revision'
 
 file_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
 require_private_file() {
@@ -141,8 +143,21 @@ done
 [[ "$DOCKER_READY" == true ]] || fail 'Docker daemon did not become ready within 60 seconds'
 "$DOCKER_BIN" compose version >/dev/null
 
-export DONDOK_BACKEND_IMAGE="dondok-backend:$REVISION"
-export DONDOK_FRONTEND_IMAGE="dondok-frontend:$REVISION"
+# The existing private workflow may keep passing only --revision. Resolve the
+# manifest from that exact successful main CI run; missing approval fails closed.
+command -v python3 >/dev/null || fail 'python3 is required'
+command -v gh >/dev/null || fail 'gh with Actions artifact read access is required'
+RELEASE_MANIFEST="$(mktemp "$STATE_DIR/.release.XXXXXX")"
+python3 "$SOURCE_DIR/infra/release_manifest.py" fetch --revision "$REVISION" --output "$RELEASE_MANIFEST"
+export DONDOK_BACKEND_IMAGE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["backend"])' "$RELEASE_MANIFEST")"
+export DONDOK_FRONTEND_IMAGE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["frontend"])' "$RELEASE_MANIFEST")"
+for image in "$DONDOK_BACKEND_IMAGE" "$DONDOK_FRONTEND_IMAGE"; do
+  "$DOCKER_BIN" pull --platform linux/arm64 "$image"
+  [[ "$("$DOCKER_BIN" image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" == linux/arm64 ]] \
+    || fail 'release image platform mismatch'
+  [[ "$("$DOCKER_BIN" image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]] \
+    || fail 'release image revision mismatch'
+done
 
 REVISION_FILE="$STATE_DIR/current-revision"
 if [[ -e "$REVISION_FILE" ]]; then
@@ -174,7 +189,7 @@ SOURCE_COMPOSE=(
   -f "$SOURCE_DIR/compose.prod.yaml"
 )
 "${SOURCE_COMPOSE[@]}" config --quiet
-"${SOURCE_COMPOSE[@]}" build --pull backend frontend
+# Images have already been tested and pulled by digest. Never rebuild here.
 
 if [[ ! -e "$DEPLOY_DIR" ]]; then
   git clone --filter=blob:none "$REPOSITORY_URL" "$DEPLOY_DIR"
@@ -192,6 +207,8 @@ git -C "$DEPLOY_DIR" merge-base --is-ancestor "$REVISION" origin/main \
 
 PREVIOUS_REVISION="$(git -C "$DEPLOY_DIR" rev-parse HEAD)"
 RUNNING_DB=""
+PREVIOUS_BACKEND_IMAGE=""
+PREVIOUS_FRONTEND_IMAGE=""
 if [[ -f "$DEPLOY_DIR/compose.yaml" && -f "$DEPLOY_DIR/compose.prod.yaml" ]]; then
   PREVIOUS_COMPOSE=(
     "$DOCKER_BIN" compose
@@ -200,6 +217,14 @@ if [[ -f "$DEPLOY_DIR/compose.yaml" && -f "$DEPLOY_DIR/compose.prod.yaml" ]]; th
     -f "$DEPLOY_DIR/compose.prod.yaml"
   )
   RUNNING_DB="$("${PREVIOUS_COMPOSE[@]}" ps -q db 2>/dev/null || true)"
+  for service in backend frontend; do
+    container="$("${PREVIOUS_COMPOSE[@]}" ps -q "$service" 2>/dev/null || true)"
+    if [[ -n "$container" ]]; then
+      # Capture the actual prior container image, including legacy SHA tags.
+      previous_image="$("$DOCKER_BIN" inspect "$container" --format '{{.Image}}')"
+      if [[ "$service" == backend ]]; then PREVIOUS_BACKEND_IMAGE="$previous_image"; else PREVIOUS_FRONTEND_IMAGE="$previous_image"; fi
+    fi
+  done
 fi
 
 if [[ -n "$RUNNING_DB" ]] && [[ "$("$DOCKER_BIN" inspect -f '{{.State.Running}}' "$RUNNING_DB" 2>/dev/null || true)" == true ]]; then
@@ -218,6 +243,9 @@ if [[ -n "$RUNNING_DB" ]] && [[ "$("$DOCKER_BIN" inspect -f '{{.State.Running}}'
   "$DEPLOY_DIR/infra/postgres-restore-drill.sh" --backup "$BACKUP_BUNDLE"
 fi
 
+git -C "$DEPLOY_DIR" fetch --quiet origin main
+[[ "$(git -C "$DEPLOY_DIR" rev-parse origin/main)" == "$REVISION" ]] \
+  || fail 'main changed during release preparation; leave the running version untouched'
 git -C "$DEPLOY_DIR" checkout --detach "$REVISION"
 [[ -z "$(git -C "$DEPLOY_DIR" status --porcelain)" ]] || fail 'deployment checkout became dirty after selecting the target revision'
 
@@ -237,11 +265,11 @@ set -e
 if (( DEPLOY_STATUS != 0 )); then
   printf 'ERROR: deployment failed; attempting application rollback to %s\n' "$PREVIOUS_REVISION" >&2
   if git -C "$DEPLOY_DIR" cat-file -e "$PREVIOUS_REVISION^{commit}" 2>/dev/null \
-     && "$DOCKER_BIN" image inspect "dondok-backend:$PREVIOUS_REVISION" >/dev/null 2>&1 \
-     && "$DOCKER_BIN" image inspect "dondok-frontend:$PREVIOUS_REVISION" >/dev/null 2>&1; then
+     && "$DOCKER_BIN" image inspect "$PREVIOUS_BACKEND_IMAGE" >/dev/null 2>&1 \
+     && "$DOCKER_BIN" image inspect "$PREVIOUS_FRONTEND_IMAGE" >/dev/null 2>&1; then
     git -C "$DEPLOY_DIR" checkout --detach "$PREVIOUS_REVISION"
-    export DONDOK_BACKEND_IMAGE="dondok-backend:$PREVIOUS_REVISION"
-    export DONDOK_FRONTEND_IMAGE="dondok-frontend:$PREVIOUS_REVISION"
+    export DONDOK_BACKEND_IMAGE="$PREVIOUS_BACKEND_IMAGE"
+    export DONDOK_FRONTEND_IMAGE="$PREVIOUS_FRONTEND_IMAGE"
     ROLLBACK_COMPOSE=(
       "$DOCKER_BIN" compose
       --env-file "$ENV_FILE"
@@ -251,11 +279,15 @@ if (( DEPLOY_STATUS != 0 )); then
     "${ROLLBACK_COMPOSE[@]}" up -d --no-build --wait --remove-orphans \
       || printf 'ERROR: application rollback also failed; inspect Compose logs and the pre-deployment backup\n' >&2
   else
-    printf 'ERROR: no previous SHA-tagged application images are available for automatic rollback\n' >&2
+    printf 'ERROR: no previous running application images are available for automatic rollback\n' >&2
   fi
   exit "$DEPLOY_STATUS"
 fi
 
+# Keep the immutable image references with the successfully installed revision.
+cp "$RELEASE_MANIFEST" "$STATE_DIR/.current-release.$$"
+chmod 600 "$STATE_DIR/.current-release.$$"
+mv "$STATE_DIR/.current-release.$$" "$STATE_DIR/current-release.json"
 REVISION_PARTIAL="$STATE_DIR/.current-revision.$$"
 printf '%s\n' "$REVISION" > "$REVISION_PARTIAL"
 chmod 600 "$REVISION_PARTIAL"

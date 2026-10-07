@@ -34,7 +34,7 @@ public class CardSettingEntity {
         this.paymentDay = paymentDay;
         this.paymentMonthOffset = paymentMonthOffset;
         this.settlementAssetId = settlementAssetId;
-        this.autoSettlementEnabled = autoSettlementEnabled;
+        this.autoSettlementEnabled = false;
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -45,7 +45,7 @@ public class CardSettingEntity {
         this.paymentDay = paymentDay;
         this.paymentMonthOffset = paymentMonthOffset;
         this.settlementAssetId = settlementAssetId;
-        this.autoSettlementEnabled = autoSettlementEnabled;
+        this.autoSettlementEnabled = false;
         this.updatedAt = now;
     }
 
