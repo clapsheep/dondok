@@ -11,7 +11,6 @@ export type StatisticsUrlState = {
   owner: StatisticsOwnerFilter
   categoryId: string | null
   direction: StatisticsDirection
-  view?: 'consumption' | 'formation'
 }
 
 type ParseOptions = {
@@ -34,8 +33,7 @@ export function parseStatisticsUrl(params: URLSearchParams, options: ParseOption
   const categoryCandidate = params.get('category')
   const categoryId = categoryCandidate && UUID_PATTERN.test(categoryCandidate) ? categoryCandidate : null
   const direction = params.get('direction') === 'income' ? 'income' : 'expense'
-  const view = params.get('view')
-  return { month, memberId, owner, categoryId, direction, ...(view === 'consumption' || view === 'formation' ? { view } : {}) }
+  return { month, memberId, owner, categoryId, direction }
 }
 
 export function statisticsFiltersFromUrl(state: StatisticsUrlState): StatisticsFilters {
@@ -63,7 +61,6 @@ export function statisticsSearchParams(state: StatisticsUrlState, currentMemberI
   else if (state.memberId !== currentMemberId) params.set('member', state.memberId)
   if (state.owner !== 'all') params.set('owner', state.owner)
   if (state.categoryId) params.set('category', state.categoryId)
-  if (state.view) params.set('view', state.view)
   if (state.direction !== 'expense') params.set('direction', state.direction)
   return params
 }

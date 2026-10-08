@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { categoryChartTone, categoryChartTones, categoryDonutSlices, categoryShares, formatFlowWon, yearlyBarSeries } from '../src/features/statistics/presentation.ts'
+import { categoryShares, formatFlowWon, usageRanking, yearlyBarSeries } from '../src/features/statistics/presentation.ts'
 
 const categories = [
   { categoryId: 'food', categoryName: '식비', kind: 'EXPENSE', amountWon: 120_000 },
@@ -25,58 +25,46 @@ test('방향 합계가 0 이하이면 모든 비율과 막대를 숨긴다', () 
   assert.ok(categoryShares(categories, 'expense', -1).every((item) => item.ratioPercent === null && item.barPercent === null))
 })
 
-test('원형 차트 조각은 양수 분류를 전체 원에 맞춰 정규화하고 시작 위치를 이어 계산한다', () => {
+test('가로 막대는 큰 금액 순서와 같은 기준선을 사용하고 분류를 기타로 합치지 않는다', () => {
   const shares = categoryShares([
-    { categoryId: 'food', categoryName: '식비', kind: 'EXPENSE', amountWon: 50_000 },
-    { categoryId: 'transport', categoryName: '교통비', kind: 'EXPENSE', amountWon: 30_000 },
-    { categoryId: 'living', categoryName: '주거비', kind: 'EXPENSE', amountWon: 20_000 },
-  ], 'expense', 100_000)
-  const slices = categoryDonutSlices(shares)
-
-  assert.deepEqual(slices.map((slice) => slice.normalizedPercent), [50, 30, 20])
-  assert.deepEqual(slices.map((slice) => slice.offsetPercent), [0, 50, 80])
-  assert.equal(slices.reduce((sum, slice) => sum + slice.normalizedPercent, 0), 100)
+    { categoryId: 'small', categoryName: '교통', kind: 'EXPENSE', amountWon: 20000 },
+    { categoryId: 'large', categoryName: '식비', kind: 'EXPENSE', amountWon: 50000 },
+    { categoryId: 'medium', categoryName: '주거', kind: 'EXPENSE', amountWon: 30000 },
+  ], 'expense', 100000)
+  assert.deepEqual(shares.map((item) => item.categoryId), ['large', 'medium', 'small'])
+  assert.deepEqual(shares.map((item) => item.barPercent), [100, 60, 40])
+  assert.deepEqual(shares.map((item) => item.ratioPercent), [50, 30, 20])
 })
 
-test('원형 차트는 수입·지출 의미색 대신 톤이 맞는 여섯 가지 분류색을 순서대로 사용한다', () => {
-  assert.equal(new Set(categoryChartTones).size, 6)
-  assert.deepEqual(Array.from({ length: 6 }, (_, index) => categoryChartTone(index)), categoryChartTones)
-  assert.equal(categoryChartTone(6), categoryChartTones[0])
-  assert.ok(categoryChartTones.every((tone) => !['var(--income)', 'var(--expense)'].includes(tone)))
+const usage = (categories, savingsDepositWon = 700000, investmentDepositWon = 400000) => ({
+  totals: { incomeWon: 3000000, expenseWon: categories.reduce((sum, item) => sum + (item.kind === 'EXPENSE' ? item.amountWon : 0), 0) },
+  categoryBreakdown: categories,
+  assetFormation: { savingsDepositWon, investmentDepositWon, savingsWithdrawalWon: 200000, investmentWithdrawalWon: 100000 },
+})
+const expense = (categoryName, amountWon) => ({ categoryId: categoryName, categoryName, amountWon, kind: 'EXPENSE' })
+
+test('생활 지출 분류와 적금·투자 납입은 동일 순위와 총 사용액 비중으로 비교한다', () => {
+  const bars = usageRanking(usage([expense('식비', 500000), expense('주거비', 300000), expense('교통비', 100000), { categoryId: 'salary', categoryName: '급여', kind: 'INCOME', amountWon: 3000000 }]))
+  assert.deepEqual(bars.map((bar) => bar.label), ['적금', '식비', '투자', '주거비', '교통비'])
+  assert.deepEqual(bars.map((bar) => bar.ratioPercent), [35, 25, 20, 15, 5])
+  assert.equal(bars.reduce((sum, bar) => sum + bar.amountWon, 0), 2000000)
+  assert.equal(bars[0].barPercent, 100)
+  assert.equal(bars[0].category, null)
+  assert.equal(bars[1].category.categoryId, '식비')
 })
 
-test('원형 차트는 상위 5개 뒤의 분류를 기타 한 조각으로 합친다', () => {
-  const items = Array.from({ length: 8 }, (_, index) => ({
-    categoryId: `category-${index + 1}`,
-    categoryName: `분류 ${index + 1}`,
-    kind: 'INCOME',
-    amountWon: (8 - index) * 10_000,
-  }))
-  const shares = categoryShares(items, 'income', items.reduce((sum, item) => sum + item.amountWon, 0))
-  const slices = categoryDonutSlices(shares)
-
-  assert.equal(slices.length, 6)
-  assert.equal(slices.at(-1).label, '기타 3개')
-  assert.deepEqual(slices.at(-1).categoryIds, ['category-6', 'category-7', 'category-8'])
-  assert.equal(slices.at(-1).amountWon, 60_000)
+test('양수 합계에도 순환불 분류가 있으면 비율을 숨기고 환불 음수를 보존한다', () => {
+  const bars = usageRanking(usage([expense('환불', -100000)], 200000, 0))
+  assert.deepEqual(bars.map((bar) => bar.amountWon), [200000, -100000])
+  assert.ok(bars.every((bar) => bar.ratioPercent === null && bar.barPercent === null))
+  assert.deepEqual(usageRanking(usage([], 0, 0)), [])
 })
 
-test('분류가 정확히 6개면 이름을 잃는 기타 조각 없이 모두 유지한다', () => {
-  const items = Array.from({ length: 6 }, (_, index) => ({
-    categoryId: `category-${index + 1}`,
-    categoryName: `분류 ${index + 1}`,
-    kind: 'EXPENSE',
-    amountWon: (6 - index) * 10_000,
-  }))
-  const shares = categoryShares(items, 'expense', items.reduce((sum, item) => sum + item.amountWon, 0))
-  const slices = categoryDonutSlices(shares)
-
-  assert.equal(slices.length, 6)
-  assert.deepEqual(slices.map((slice) => slice.label), items.map((item) => item.categoryName))
-})
-
-test('환불로 비율이 숨겨진 방향에는 원형 차트 조각을 만들지 않는다', () => {
-  assert.deepEqual(categoryDonutSlices(categoryShares(categories, 'expense', 100_000)), [])
+test('동일한 분류명과 납입명은 합치지 않고 회수만 있는 달의 사용액은 0원이다', () => {
+  const bars = usageRanking(usage([expense('적금', 700000)], 700000, 0))
+  assert.equal(new Set(bars.map((bar) => bar.id)).size, 2)
+  assert.deepEqual(bars.map((bar) => bar.ratioPercent), [50, 50])
+  assert.deepEqual(usageRanking(usage([], 0, 0)), [])
 })
 
 test('지출 환불은 signed 순효과로 표시한다', () => {

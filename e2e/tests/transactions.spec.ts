@@ -92,7 +92,7 @@ test('대표 결제는 실제 자산 금액과 월 지출 반영액을 분리한
   await expect(page.getByText('지출에는 40,000원 반영', { exact: true })).toBeVisible()
 
   await page.goto(`/statistics?view=consumption&month=${todayInSeoul().slice(0, 7)}`)
-  const monthlySummary = page.getByLabel('월간 수입 지출 순액 요약')
+  const monthlySummary = page.getByLabel('월간 자금 사용 요약')
   await expect(monthlySummary.getByText('지출', { exact: true }).locator('..').getByText('-40,000원', { exact: true })).toBeVisible()
 })
 
