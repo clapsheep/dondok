@@ -136,7 +136,7 @@ test('무이력 자산은 삭제하고 이력 자산은 사용 종료해 순자�
   await page.goto(`/statistics?view=consumption&month=${seed.currentMonth}`)
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expectStatisticsValue(page, '수입', `+${formatWon(seed.incomeWon)}`)
-  await expectStatisticsValue(page, '순액', `+${formatWon(seed.incomeWon)}`)
+  await expectStatisticsValue(page, '총계', `+${formatWon(seed.incomeWon)}`)
 
   await page.goto(`/assets/${seed.archiveAssetId}/edit`)
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
@@ -186,7 +186,7 @@ test('무이력 자산은 삭제하고 이력 자산은 사용 종료해 순자�
   await page.goto(`/statistics?view=consumption&month=${seed.currentMonth}`)
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expectStatisticsValue(page, '수입', `+${formatWon(seed.incomeWon)}`)
-  await expectStatisticsValue(page, '순액', `+${formatWon(seed.incomeWon)}`)
+  await expectStatisticsValue(page, '총계', `+${formatWon(seed.incomeWon)}`)
 
   await page.goto(`/assets/${seed.archiveAssetId}`)
   await page.getByRole('link', { name: '사용 종료 자산 관리' }).click()
@@ -504,7 +504,7 @@ async function expectAssetSummary(page: Page, label: string, value: string) {
 }
 
 async function expectStatisticsValue(page: Page, label: string, value: string) {
-  const summary = page.getByLabel('월간 수입 지출 순액 요약')
+  const summary = page.getByLabel('월간 자금 사용 요약')
   await expect(summary.getByText(label, { exact: true }).locator('..').getByText(value, { exact: true })).toBeVisible()
 }
 
