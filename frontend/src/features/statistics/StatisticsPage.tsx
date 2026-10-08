@@ -1,4 +1,4 @@
-import { UsageStatistics } from './UsageStatistics'
+import { FormationDetails, UsageStatistics } from './UsageStatistics'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, UsersRound } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -24,7 +24,7 @@ import {
   type StatisticsDirection,
   type StatisticsUrlState,
 } from './filters'
-import { categoryChartTone, categoryDonutSlices, categoryShares, formatFlowWon, formatRatio, formatSignedWon, yearlyBarSeries } from './presentation'
+import { categoryShares, formatFlowWon, formatRatio, statisticsAccent, usageRanking, yearlyBarSeries } from './presentation'
 
 export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
   const queryClient = useQueryClient()
@@ -125,8 +125,6 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
         ) : (
           <StatisticsContent
             statistics={statistics.data}
-            view={urlState.view}
-            onViewChange={(view) => replaceState({ ...urlState, view })}
             direction={urlState.direction}
             onDirectionChange={changeDirection}
             backgroundError={statistics.isError}
@@ -215,10 +213,8 @@ function StatisticsMemberOption({ value, selected, label, accessibleLabel, avata
   )
 }
 
-function StatisticsContent({ statistics, view, onViewChange, direction, onDirectionChange, backgroundError, onRetry, filtered, onClearFilters, onSelectCategory }: {
+function StatisticsContent({ statistics, direction, onDirectionChange, backgroundError, onRetry, filtered, onClearFilters, onSelectCategory }: {
   statistics: MonthlyStatistics
-  view?: 'consumption' | 'formation'
-  onViewChange: (view: 'consumption' | 'formation' | undefined) => void
   direction: StatisticsDirection
   onDirectionChange: (direction: StatisticsDirection) => void
   backgroundError: boolean
@@ -229,117 +225,61 @@ function StatisticsContent({ statistics, view, onViewChange, direction, onDirect
 }) {
   const directionTotal = direction === 'expense' ? statistics.totals.expenseWon : statistics.totals.incomeWon
   const shares = categoryShares(statistics.categoryBreakdown, direction, directionTotal)
-  const noActivity = statistics.totals.incomeWon === 0 && statistics.totals.expenseWon === 0
+  const noActivity = statistics.totals.incomeWon === 0 && statistics.categoryBreakdown.length === 0 && Object.values(statistics.assetFormation).every((value) => value === 0)
 
   return (
     <>
       {backgroundError ? <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-amber-500 px-4 py-2 text-sm" role="status"><span>최신 통계를 확인하지 못했어요. 지금 보이는 결과는 유지했어요.</span><Button type="button" variant="ghost" onClick={onRetry}>다시 확인</Button></div> : null}
-      <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="통계 보기">
-        <DirectionButton active={!view} onClick={() => onViewChange(undefined)}>전체 사용</DirectionButton>
-        <DirectionButton active={view === 'consumption'} onClick={() => onViewChange('consumption')}>소비</DirectionButton>
-        <DirectionButton active={view === 'formation'} onClick={() => onViewChange('formation')}>적금·투자</DirectionButton>
-      </div>
-      {view !== 'consumption' ? <UsageStatistics statistics={statistics} formationOnly={view === 'formation'} onSelectCategory={onSelectCategory} /> : <>
-      <StatisticsSummary statistics={statistics} />
+      <UsageStatistics statistics={statistics} />
       {noActivity ? (
         <div className="mt-7 border-y border-[var(--line)] py-8 text-center" role="status">
-          <p className="font-semibold">{filtered ? '선택한 조건에 맞는 기록이 없습니다' : '이번 달 수입·지출 기록이 없습니다'}</p>
+          <p className="font-semibold">{filtered ? '선택한 조건에 맞는 기록이 없습니다' : '이번 달 수입·소비·적금·투자 기록이 없습니다'}</p>
           {filtered
             ? <Button className="mt-4" type="button" variant="secondary" onClick={onClearFilters}>필터 초기화</Button>
             : <Button className="mt-4" asChild variant="secondary"><Link to="/transactions/new">기록하기</Link></Button>}
         </div>
       ) : null}
-      <div className="mt-8 grid gap-10 @min-[54rem]:grid-cols-[minmax(18rem,2fr)_minmax(0,3fr)] @min-[54rem]:items-start @min-[54rem]:gap-8">
+      <div className="mt-8 min-w-0 space-y-10">
         <CategoryBreakdown statistics={statistics} direction={direction} shares={shares} onDirectionChange={onDirectionChange} onSelectCategory={onSelectCategory} />
         <YearlyTrend statistics={statistics} />
       </div>
-      </>}
+      <FormationDetails statistics={statistics} />
     </>
   )
 }
 
-function StatisticsSummary({ statistics }: { statistics: MonthlyStatistics }) {
-  const values = [
-    { label: '수입', value: formatFlowWon(statistics.totals.incomeWon, 'income'), tone: statistics.totals.incomeWon === 0 ? '' : 'text-[var(--income)]' },
-    { label: '지출', value: formatFlowWon(statistics.totals.expenseWon, 'expense'), tone: statistics.totals.expenseWon === 0 ? '' : 'text-[var(--expense)]' },
-    { label: '순액', value: formatSignedWon(statistics.totals.netWon), tone: '' },
-  ]
-  return <dl className="mt-6 grid grid-cols-2 border-y border-[var(--line)] @min-[40rem]:grid-cols-3" aria-label="월간 수입 지출 순액 요약">{values.map((item, index) => <div className={`min-w-0 px-1 py-4 text-right xs:px-3 @min-[40rem]:px-5 ${index === 1 ? 'border-l border-[var(--line)]' : ''} ${index === 2 ? 'col-span-2 border-t border-[var(--line)] @min-[40rem]:col-span-1 @min-[40rem]:border-t-0 @min-[40rem]:border-l' : ''}`} key={item.label}><dt className="text-sm text-[var(--muted)]">{item.label}</dt><dd className={`mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-semibold tabular-nums ${index === 2 ? 'text-xl xs:text-2xl' : 'text-lg xs:text-xl'} ${item.tone}`} title={item.value}>{item.value}</dd></div>)}</dl>
-}
-
 function CategoryBreakdown({ statistics, direction, shares, onDirectionChange, onSelectCategory }: { statistics: MonthlyStatistics; direction: StatisticsDirection; shares: ReturnType<typeof categoryShares>; onDirectionChange: (direction: StatisticsDirection) => void; onSelectCategory: (category: StatisticsCategoryAmount, trigger: HTMLButtonElement) => void }) {
   const [expanded, setExpanded] = useState(false)
-  const directionTotal = direction === 'expense' ? statistics.totals.expenseWon : statistics.totals.incomeWon
-  const label = direction === 'expense' ? '지출' : '수입'
-  const ratiosHidden = shares.length > 0 && shares.some((item) => item.ratioPercent === null)
-  const donutSlices = categoryDonutSlices(shares)
-  const visibleShares = expanded ? shares : shares.slice(0, 6)
-  return (
-    <section aria-labelledby="category-breakdown-title">
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--line)] pb-3">
-        <div><h2 id="category-breakdown-title" className="text-xl font-semibold">분류 비중</h2><p className="mt-1 text-sm text-[var(--muted)]">환불을 반영한 순금액 기준이에요.</p></div>
-        <div className="flex" role="group" aria-label="분류 비중 방향">
-          <DirectionButton active={direction === 'expense'} onClick={() => onDirectionChange('expense')}>지출</DirectionButton>
-          <DirectionButton active={direction === 'income'} onClick={() => onDirectionChange('income')}>수입</DirectionButton>
-        </div>
+  const isUsage = direction === 'expense'
+  const ranking = isUsage ? usageRanking(statistics) : shares.map((category) => ({ id: `category:${category.categoryId}`, label: category.categoryName, amountWon: category.amountWon, category, ratioPercent: category.ratioPercent, barPercent: category.barPercent }))
+  const ratiosHidden = ranking.some((item) => item.ratioPercent === null)
+  const visibleItems = expanded ? ranking : ranking.slice(0, 6)
+  return <section aria-labelledby="category-breakdown-title">
+    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--line)] pb-3">
+      <div><h2 id="category-breakdown-title" className="text-xl font-semibold">{isUsage ? '어디에 가장 많이 썼나요?' : '수입은 어디서 들어왔나요?'}</h2><p className="mt-1 text-sm text-[var(--muted)]">{isUsage ? '생활 지출과 적금·투자 납입을 함께 비교해요.' : '큰 금액부터 수입 분류를 비교해요.'}</p></div>
+      <div className="flex" role="group" aria-label="분류 비중 방향">
+        <DirectionButton active={isUsage} onClick={() => onDirectionChange('expense')}>사용처</DirectionButton>
+        <DirectionButton active={!isUsage} onClick={() => onDirectionChange('income')}>수입</DirectionButton>
       </div>
-      <p className="mt-4 text-sm"><span className="text-[var(--muted)]">{label} 순합계 </span><strong className="tabular-nums">{formatFlowWon(directionTotal, direction)}</strong></p>
-      {donutSlices.length ? <CategoryDonut label={label} categoryCount={shares.length} slices={donutSlices} /> : null}
-      {shares.length ? (
-        <ol id={`category-breakdown-${direction}`} className="mt-3 divide-y divide-[var(--line-subtle)] border-y border-[var(--line)]" aria-label={`${label} 분류 비중`}>
-          {visibleShares.map((item) => {
-            const sliceIndex = donutSlices.findIndex((slice) => slice.categoryIds.includes(item.categoryId))
-            return <li key={item.categoryId} data-category-id={item.categoryId}>
-              <button type="button" className="block min-h-14 w-full px-1 py-3 text-left transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800" aria-label={`${item.categoryName} 거래 내역 보기`} onClick={(event) => onSelectCategory(item, event.currentTarget)}>
-                <span className="flex items-baseline justify-between gap-4 text-sm"><span className="flex min-w-0 items-center gap-2 break-words font-semibold">{sliceIndex >= 0 ? <CategoryTone index={sliceIndex} /> : null}{item.categoryName}</span><span className="shrink-0 text-right tabular-nums"><strong>{formatFlowWon(item.amountWon, direction)}</strong>{item.ratioPercent === null ? null : <span className="ml-2 text-xs text-[var(--muted)]">{formatRatio(item.ratioPercent)}</span>}</span></span>
-                {item.barPercent === null ? null : <span className="mt-2 block h-1 overflow-hidden bg-[var(--line-subtle)]" aria-hidden="true"><span className={`block h-full ${direction === 'expense' ? 'bg-[var(--expense)]' : 'bg-[var(--income)]'}`} style={{ width: `${item.barPercent}%` }} /></span>}
-              </button>
-            </li>
-          })}
-        </ol>
-      ) : <p className="mt-4 border-y border-[var(--line)] py-6 text-sm text-[var(--muted)]">이번 달 {label}이 없습니다</p>}
-      {shares.length > 6 ? <Button className="mt-3" type="button" variant="ghost" aria-expanded={expanded} aria-controls={`category-breakdown-${direction}`} onClick={() => setExpanded((current) => !current)}>{expanded ? '상위 6개만 보기' : `전체 ${shares.length}개 보기`}</Button> : null}
-      {ratiosHidden ? <p className="mt-3 text-sm text-[var(--muted)]" role="status">환불을 반영해 비율 대신 분류별 순금액을 보여드려요</p> : null}
-    </section>
-  )
-}
-
-function CategoryDonut({ label, categoryCount, slices }: {
-  label: string
-  categoryCount: number
-  slices: ReturnType<typeof categoryDonutSlices>
-}) {
-  return (
-    <figure className="mt-3 flex justify-center py-2" role="img" aria-label={`${label} 분류 비중 원형 차트`}>
-      <div className="relative size-36 xs:size-40">
-        <svg className="size-full" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-          <circle cx="50" cy="50" r="38" fill="none" stroke="var(--line-subtle)" strokeWidth="14" />
-          {slices.map((slice, index) => (
-            <circle
-              data-category-donut-slice
-              key={slice.key}
-              cx="50"
-              cy="50"
-              r="38"
-              fill="none"
-              pathLength="100"
-              stroke={categoryChartTone(index)}
-              strokeDasharray={`${slice.normalizedPercent} ${100 - slice.normalizedPercent}`}
-              strokeDashoffset={-slice.offsetPercent}
-              strokeWidth="14"
-              transform="rotate(-90 50 50)"
-              vectorEffect="non-scaling-stroke"
-            />
-          ))}
-        </svg>
-        <span className="pointer-events-none absolute inset-0 grid place-content-center text-center" aria-hidden="true"><span className="text-xs text-[var(--muted)]">{label}</span><strong className="mt-0.5 text-sm">분류 {categoryCount}개</strong></span>
-      </div>
-    </figure>
-  )
-}
-
-function CategoryTone({ index }: { index: number }) {
-  return <span data-category-tone className="size-2 shrink-0 rounded-full" aria-hidden="true" style={{ backgroundColor: categoryChartTone(index) }} />
+    </div>
+    {ranking.length ? <ol id={`category-breakdown-${direction}`} className="mt-3 divide-y divide-[var(--line-subtle)] border-b border-[var(--line)]" aria-label={isUsage ? '사용처 순위' : '수입 분류 비중'}>
+      {visibleItems.map((item, index) => {
+        const accent = statisticsAccent(item.label, item.id === 'savings' || item.id === 'investment' ? item.id : undefined)
+        const content = <>
+          <span className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
+            <span className="flex min-w-0 items-baseline gap-3 font-semibold"><span className="inline-flex size-6 shrink-0 items-center justify-center text-xs text-[var(--muted)] tabular-nums">{index + 1}</span><span className="break-words">{item.label}{item.category === null ? <span className="ml-2 text-xs font-normal text-[var(--muted)]">납입</span> : null}</span></span>
+            <span className="ml-auto shrink-0 text-right tabular-nums"><strong>{isUsage ? `${item.amountWon.toLocaleString('ko-KR')}원` : formatFlowWon(item.amountWon, 'income')}</strong>{item.ratioPercent === null ? null : <span className="ml-2 text-xs text-[var(--muted)]">{formatRatio(item.ratioPercent)}</span>}</span>
+          </span>
+          {item.barPercent === null ? null : <span className="mt-2 ml-9 block h-2.5 overflow-hidden rounded-sm bg-[var(--line-subtle)]" aria-hidden="true"><span data-category-bar className="block h-full rounded-sm" style={{ width: `${item.barPercent}%`, backgroundColor: accent }} /></span>}
+        </>
+        return <li key={item.id} data-usage-item={isUsage ? item.id : undefined} data-category-id={item.category?.categoryId}>
+          {item.category ? <button type="button" className="block min-h-14 w-full px-1 py-3 text-left transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800" aria-label={`${item.label} 거래 내역 보기`} onClick={(event) => { if (item.category) onSelectCategory(item.category, event.currentTarget) }}>{content}</button> : <div className="min-h-14 px-1 py-3">{content}</div>}
+        </li>
+      })}
+    </ol> : <p className="mt-4 py-6 text-sm text-[var(--muted)]">{isUsage ? '이번 달 사용 내역이 없습니다' : '이번 달 수입이 없습니다'}</p>}
+    {ranking.length > 6 ? <Button className="mt-3" type="button" variant="ghost" aria-expanded={expanded} aria-controls={`category-breakdown-${direction}`} onClick={() => setExpanded((current) => !current)}>{expanded ? '상위 6개만 보기' : `전체 ${ranking.length}개 보기`}</Button> : null}
+    {ratiosHidden ? <p className="mt-3 text-sm text-[var(--muted)]" role="status">환불을 반영해 비율 대신 {isUsage ? '사용처별' : '분류별'} 순금액을 보여드려요</p> : null}
+  </section>
 }
 
 function DirectionButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
@@ -349,14 +289,14 @@ function DirectionButton({ active, onClick, children }: { active: boolean; onCli
 function YearlyTrend({ statistics }: { statistics: MonthlyStatistics }) {
   const bars = yearlyBarSeries(statistics.yearlyTrend)
   const year = statistics.month.slice(0, 4)
-  const hasActivity = bars.some((month) => month.incomeWon !== 0 || month.expenseWon !== 0)
+  const hasActivity = bars.some((month) => month.incomeWon !== 0 || month.expenseWon !== 0 || Object.values(month.assetFormation).some((amount) => amount !== 0))
   return (
-    <section className="@min-[54rem]:border-l @min-[54rem]:border-[var(--line)] @min-[54rem]:pl-8" aria-labelledby="yearly-trend-title">
-      <div className="border-b border-[var(--line)] pb-3"><h2 id="yearly-trend-title" className="text-xl font-semibold">{year}년 월별 합계</h2><p className="mt-1 text-sm text-[var(--muted)]">한 해의 수입과 지출을 월별로 비교해요.</p></div>
+    <section aria-labelledby="yearly-trend-title">
+      <div className="border-b border-[var(--line)] pb-3"><h2 id="yearly-trend-title" className="text-xl font-semibold">{year}년 월별 합계</h2><p className="mt-1 text-sm text-[var(--muted)]">한 해의 수입·소비·납입을 함께 비교해요.</p></div>
       {hasActivity ? (
         <>
-          <div className="mt-4 flex flex-wrap gap-4 text-xs"><span className="inline-flex items-center gap-2"><span className="size-2.5 bg-[var(--income)]" aria-hidden="true" />수입</span><span className="inline-flex items-center gap-2"><span className="size-2.5 bg-[var(--expense)]" aria-hidden="true" />지출</span></div>
-          <figure className="mt-4" role="img" aria-label={`${year}년 월별 수입 지출 막대그래프`}>
+          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs"><span className="inline-flex items-center gap-2"><span className="size-2.5 bg-[var(--income)]" aria-hidden="true" />수입</span><span className="inline-flex items-center gap-2"><span className="size-2.5 bg-[var(--expense)]" aria-hidden="true" />소비</span><span className="inline-flex items-center gap-2"><span className="size-2.5 bg-[var(--chart-5)]" aria-hidden="true" />적금 납입</span><span className="inline-flex items-center gap-2"><span className="size-2.5 bg-[var(--chart-3)]" aria-hidden="true" />투자 납입</span></div>
+          <figure className="mt-4" role="img" aria-label={`${year}년 월별 수입 소비 적금 투자 막대그래프`}>
             <div className="relative h-48 border-b border-[var(--line)]" aria-hidden="true">
               <span className="absolute inset-x-0 top-1/4 border-t border-dashed border-[var(--line-subtle)]" />
               <span className="absolute inset-x-0 top-1/2 border-t border-dashed border-[var(--line-subtle)]" />
@@ -365,17 +305,19 @@ function YearlyTrend({ statistics }: { statistics: MonthlyStatistics }) {
                 {bars.map((month) => (
                   <li className="flex h-full min-w-0 items-end justify-center gap-px" data-month-bar-group={month.month} key={month.month}>
                     <span
-                      className="w-[36%] max-w-3 bg-[var(--income)]"
+                      className="w-[20%] max-w-3 bg-[var(--income)]"
                       data-income-bar
                       style={{ height: `${month.incomePercent}%`, minHeight: month.incomeWon === 0 ? undefined : '2px' }}
                       title={`${monthNumber(month.month)}월 수입 ${formatFlowWon(month.incomeWon, 'income')}`}
                     />
                     <span
-                      className="w-[36%] max-w-3 bg-[var(--expense)]"
+                      className="w-[20%] max-w-3 bg-[var(--expense)]"
                       data-expense-bar
                       style={{ height: `${month.expensePercent}%`, minHeight: month.expenseWon === 0 ? undefined : '2px' }}
                       title={`${monthNumber(month.month)}월 지출 ${formatFlowWon(month.expenseWon, 'expense')}`}
                     />
+                    <span className="w-[20%] max-w-3 bg-[var(--chart-5)]" data-savings-bar style={{ height: `${month.savingsPercent}%` }} title={`${monthNumber(month.month)}월 적금 납입 ${month.assetFormation.savingsDepositWon.toLocaleString('ko-KR')}원`} />
+                    <span className="w-[20%] max-w-3 bg-[var(--chart-3)]" data-investment-bar style={{ height: `${month.investmentPercent}%` }} title={`${monthNumber(month.month)}월 투자 납입 ${month.assetFormation.investmentDepositWon.toLocaleString('ko-KR')}원`} />
                   </li>
                 ))}
               </ol>
@@ -384,6 +326,7 @@ function YearlyTrend({ statistics }: { statistics: MonthlyStatistics }) {
               {bars.map((month) => <li className={`min-w-0 text-center text-xs tabular-nums ${month.month === statistics.month ? 'font-semibold text-forest-700 dark:text-forest-100' : 'text-[var(--muted)]'}`} key={month.month}>{monthNumber(month.month)}월</li>)}
             </ol>
           </figure>
+          {bars.some((month) => month.expenseWon < 0) ? <p className="mt-2 text-xs text-[var(--muted)]">소비가 음수인 달은 환불이 더 많았던 달이에요. 막대는 금액 크기이며, 부호는 월별 금액 목록에서 확인해 주세요.</p> : null}
           <details className="mt-5 border-y border-[var(--line)]">
             <summary className="flex min-h-11 cursor-pointer items-center py-3 text-base font-semibold">월별 금액 목록</summary>
             <ol className="divide-y divide-[var(--line-subtle)] border-t border-[var(--line)]" aria-label={`${year}년 월별 금액 목록`}>
@@ -393,13 +336,15 @@ function YearlyTrend({ statistics }: { statistics: MonthlyStatistics }) {
                   <dl className="grid grid-cols-2 gap-3">
                     <FlowValue label="수입" value={formatFlowWon(month.incomeWon, 'income')} tone={month.incomeWon === 0 ? '' : 'text-[var(--income)]'} />
                     <FlowValue label="지출" value={formatFlowWon(month.expenseWon, 'expense')} tone={month.expenseWon === 0 ? '' : 'text-[var(--expense)]'} />
+                    <FlowValue label="적금 납입 / 회수" value={`${month.assetFormation.savingsDepositWon.toLocaleString('ko-KR')} / ${month.assetFormation.savingsWithdrawalWon.toLocaleString('ko-KR')}원`} />
+                    <FlowValue label="투자 납입 / 회수" value={`${month.assetFormation.investmentDepositWon.toLocaleString('ko-KR')} / ${month.assetFormation.investmentWithdrawalWon.toLocaleString('ko-KR')}원`} />
                   </dl>
                 </li>
               ))}
             </ol>
           </details>
         </>
-      ) : <p className="mt-4 border-y border-[var(--line)] py-6 text-sm text-[var(--muted)]">{year}년에는 수입·지출 기록이 없습니다</p>}
+      ) : <p className="mt-4 border-y border-[var(--line)] py-6 text-sm text-[var(--muted)]">{year}년에는 수입·소비·적금·투자 기록이 없습니다</p>}
     </section>
   )
 }

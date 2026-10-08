@@ -59,12 +59,13 @@ test('폐기된 공동 소유 URL은 전체 소유자 필터로 복구한다', (
   assert.equal(statisticsFiltersFromUrl(state).assetOwnerMemberId, null)
 })
 
-test('통계 보기는 다른 필터와 함께 URL 왕복과 월 이동에서 보존한다', () => {
+test('폐기된 보기 URL은 통합 화면으로 정리하고 다른 필터와 월 이동은 보존한다', () => {
   for (const view of ['consumption', 'formation']) {
     const state = parseStatisticsUrl(new URLSearchParams({ month: '2026-06', view, member: 'all', owner: `member:${memberB}` }), options)
-    assert.equal(state.view, view)
+    assert.equal(state.view, undefined)
+    assert.equal(statisticsSearchParams(state, memberA).has('view'), false)
     const roundTrip = parseStatisticsUrl(statisticsSearchParams({ ...state, month: '2026-07' }, memberA), options)
-    assert.equal(roundTrip.view, view)
+    assert.equal(roundTrip.view, undefined)
     assert.equal(roundTrip.owner, `member:${memberB}`)
     assert.equal(roundTrip.memberId, null)
     assert.equal(roundTrip.month, '2026-07')

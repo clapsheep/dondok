@@ -8,7 +8,11 @@ type Evidence = {
   network: Array<{ method: string; path: string; status: number; requestId: string | null }>
 }
 
+type Formation = { savingsDepositWon: number; savingsWithdrawalWon: number; investmentDepositWon: number; investmentWithdrawalWon: number }
+const emptyFormation = { savingsDepositWon: 0, savingsWithdrawalWon: 0, investmentDepositWon: 0, investmentWithdrawalWon: 0 }
+
 type MonthlyStatistics = {
+  assetFormation: Formation
   month: string
   periodStart: string
   periodEndExclusive: string
@@ -25,7 +29,7 @@ type MonthlyStatistics = {
     kind: 'INCOME' | 'EXPENSE'
     amountWon: number
   }>
-  yearlyTrend: Array<{ month: string; incomeWon: number; expenseWon: number; netWon: number }>
+  yearlyTrend: Array<{ month: string; incomeWon: number; expenseWon: number; netWon: number; assetFormation: Formation }>
 }
 
 type StatisticsSeed = {
@@ -151,15 +155,15 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await expect.poll(() => new URL(page.url()).searchParams.get('member')).toBe('all')
   await expectStatisticsSummary(page, { income: '+600,000원', expense: '+180,000원', net: '+780,000원' })
 
-  const expenseCategories = page.getByRole('list', { name: '지출 분류 비중' })
-  await expectCategoryAmount(expenseCategories, '식비', '+220,000원')
-  await expectCategoryAmount(expenseCategories, '교통비', '-40,000원')
-  await expect(page.getByText('환불을 반영해 비율 대신 분류별 순금액을 보여드려요', { exact: true })).toBeVisible()
+  const expenseCategories = page.getByRole('list', { name: '사용처 순위' })
+  await expectCategoryAmount(expenseCategories, '식비', '-220,000원')
+  await expectCategoryAmount(expenseCategories, '교통비', '40,000원')
+  await expect(page.getByText('환불을 반영해 비율 대신 사용처별 순금액을 보여드려요', { exact: true })).toBeVisible()
   await expect(expenseCategories.getByText(/%$/)).toHaveCount(0)
   await expect(page.getByRole('img', { name: '지출 분류 비중 원형 차트' })).toHaveCount(0)
 
   const year = seed.currentMonth.slice(0, 4)
-  const yearlyChart = page.getByRole('img', { name: `${year}년 월별 수입 지출 막대그래프` })
+  const yearlyChart = page.getByRole('img', { name: `${year}년 월별 수입 소비 적금 투자 막대그래프` })
   await expect(yearlyChart).toBeVisible()
   await expect(yearlyChart.locator('[data-month-bar-group]')).toHaveCount(12)
   const selectedMonthBars = yearlyChart.locator(`[data-month-bar-group="${seed.currentMonth}"]`)
@@ -202,19 +206,10 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await expect(incomeDirection).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => new URL(page.url()).searchParams.get('direction')).toBe('income')
   await expectCategoryAmount(page.getByRole('list', { name: '수입 분류 비중' }), '기타 수입', '+600,000원')
-  const categoryChart = page.getByRole('img', { name: '수입 분류 비중 원형 차트' })
-  await expect(categoryChart).toBeVisible()
-  const categorySlices = categoryChart.locator('[data-category-donut-slice]')
-  await expect(categorySlices).toHaveCount(1)
-  await expect(categorySlices.first()).toHaveAttribute('stroke', 'var(--chart-1)')
-  await expect(categorySlices.first()).not.toHaveAttribute('stroke-opacity', /.+/)
-  await expect(page.getByRole('list', { name: '수입 분류 비중' }).locator('[data-category-tone]')).toHaveAttribute('style', /var\(--chart-1\)/)
-  const categoryPalette = await page.evaluate(() => {
-    const root = getComputedStyle(document.documentElement)
-    return Array.from({ length: 6 }, (_, index) => root.getPropertyValue(`--chart-${index + 1}`).trim())
-  })
-  expect(new Set(categoryPalette).size, '분류 팔레트 여섯 색은 서로 구별되어야 합니다').toBe(6)
-  expect(categoryPalette.every(Boolean), '분류 팔레트 토큰은 모두 정의되어야 합니다').toBe(true)
+  const categoryBars = page.getByRole('list', { name: '수입 분류 비중' }).locator('[data-category-bar]')
+  await expect(categoryBars).toHaveCount(1)
+  await expect.poll(() => categoryBars.evaluate((element) => (element as HTMLElement).style.width)).toBe('100%')
+  await expect(page.getByRole('group', { name: '통계 보기' })).toHaveCount(0)
   await expectResponsiveStatisticsState(page, incomeDirection, seed.currentMonth)
 
   await expect(page.getByRole('button', { name: '세부 필터, 통계 필터 열기' })).toBeVisible()
@@ -274,7 +269,7 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   await page.reload()
   await expect(page.getByRole('heading', { name: '월간 통계', exact: true })).toBeVisible()
   await expectStatisticsSummary(page, { income: '0원', expense: '-30,000원', net: '-30,000원' })
-  await expect(page.getByRole('group', { name: '분류 비중 방향' }).getByRole('button', { name: '지출', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('group', { name: '분류 비중 방향' }).getByRole('button', { name: '사용처', exact: true })).toHaveAttribute('aria-pressed', 'true')
 
   const filteredCategoryResponse = page.waitForResponse((response) => {
     const url = new URL(response.url())
@@ -321,7 +316,7 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   expect(await hasPageOverflow(page)).toBe(false)
 })
 
-test('분류 원형 차트는 수입·지출 의미색과 분리된 여섯 색으로 항목을 구분한다', async ({ page, request }) => {
+test('분류 가로 막대는 큰 금액부터 이름과 금액을 바로 읽고 밝고 어두운 화면에서 비교한다', async ({ page, request }) => {
   await registerAndLogin(page, request, `통계 팔레트 ${test.info().workerIndex}`)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
@@ -344,6 +339,7 @@ test('분류 원형 차트는 수입·지출 의미색과 분리된 여섯 색�
       assetOwnerMemberId: null,
       categoryId: null,
     },
+    assetFormation: emptyFormation,
     totals: { incomeWon: 210_000, expenseWon: 0, netWon: 210_000 },
     categoryBreakdown,
     yearlyTrend: Array.from({ length: 12 }, (_, index) => ({
@@ -351,6 +347,7 @@ test('분류 원형 차트는 수입·지출 의미색과 분리된 여섯 색�
       incomeWon: index + 1 === Number(month.slice(5)) ? 210_000 : 0,
       expenseWon: 0,
       netWon: index + 1 === Number(month.slice(5)) ? 210_000 : 0,
+      assetFormation: emptyFormation,
     })),
   }
 
@@ -362,44 +359,27 @@ test('분류 원형 차트는 수입·지출 의미색과 분리된 여섯 색�
   await page.evaluate(() => localStorage.setItem('dondok-theme', 'light'))
   await page.goto(`/statistics?view=consumption&month=${month}&direction=income`)
 
-  const chart = page.getByRole('img', { name: '수입 분류 비중 원형 차트' })
-  const slices = chart.locator('[data-category-donut-slice]')
-  const markers = page.getByRole('list', { name: '수입 분류 비중' }).locator('[data-category-tone]')
-  const expectedTokens = Array.from({ length: 6 }, (_, index) => `var(--chart-${index + 1})`)
-  await expect(slices).toHaveCount(6)
-  await expect(markers).toHaveCount(6)
-  expect(await slices.evaluateAll((elements) => elements.map((element) => element.getAttribute('stroke')))).toEqual(expectedTokens)
-  expect(await markers.evaluateAll((elements) => elements.map((element) => element.getAttribute('style')))).toEqual(
-    expectedTokens.map((token) => `background-color: ${token};`),
-  )
-
-  const lightColors = await resolvedCategoryColors(slices)
-  const lightDirectionColors = await page.evaluate(() => {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    const resolve = (token: string) => {
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
-      circle.setAttribute('stroke', `var(${token})`)
-      svg.append(circle)
-      const color = getComputedStyle(circle).stroke
-      circle.remove()
-      return color
-    }
-    document.body.append(svg)
-    const colors = [resolve('--income'), resolve('--expense')]
-    svg.remove()
-    return colors
-  })
-  expect(new Set(lightColors).size, '밝은 테마의 원형 차트 조각 색은 서로 구별되어야 합니다').toBe(6)
-  expect(lightColors.every((color) => !lightDirectionColors.includes(color)), '분류색은 수입·지출 의미색과 분리되어야 합니다').toBe(true)
-
+  const list = page.getByRole('list', { name: '수입 분류 비중' })
+  const bars = list.locator('[data-category-bar]')
+  await expect(bars).toHaveCount(6)
+  await expect(page.getByRole('img', { name: /원형 차트/ })).toHaveCount(0)
+  const widths = await bars.evaluateAll((elements) => elements.map((element) => Number.parseFloat((element as HTMLElement).style.width)))
+  widths.forEach((width, index) => expect(width).toBeCloseTo(amounts[index] / amounts[0] * 100, 3))
+  await expectCategoryAmount(list, '수입 분류 1', '+60,000원')
+  await expectCategoryAmount(list, '수입 분류 6', '+10,000원')
+  const lightColors = await bars.evaluateAll((elements) => elements.map((element) => getComputedStyle(element).backgroundColor))
+  for (const viewport of RESPONSIVE_VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    expect(await hasPageOverflow(page)).toBe(false)
+    await expect(bars).toHaveCount(6)
+  }
   await page.getByRole('link', { name: '설정', exact: true }).click()
   await page.getByRole('radiogroup', { name: '화면 모드' }).locator('label').filter({ hasText: '다크' }).click()
-  await page.goto(`/statistics?view=consumption&month=${month}&direction=income`)
+  await page.goto(`/statistics?month=${month}&direction=income`)
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await expect(slices).toHaveCount(6)
-  const darkColors = await resolvedCategoryColors(slices)
-  expect(new Set(darkColors).size, '어두운 테마의 원형 차트 조각 색은 서로 구별되어야 합니다').toBe(6)
-  expect(darkColors).not.toEqual(lightColors)
+  await expect(bars).toHaveCount(6)
+  expect(await bars.evaluateAll((elements) => elements.map((element) => getComputedStyle(element).backgroundColor))).not.toEqual(lightColors)
+
 })
 
 async function createSharedStatisticsFixture(page: Page, request: APIRequestContext): Promise<StatisticsSeed> {
@@ -624,10 +604,10 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
 }
 
 async function expectStatisticsSummary(page: Page, expected: { income: string; expense: string; net: string }) {
-  const summary = page.getByLabel('월간 수입 지출 순액 요약')
+  const summary = page.getByLabel('월간 자금 사용 요약')
   await expectSummaryValue(summary, '수입', expected.income)
   await expectSummaryValue(summary, '지출', expected.expense)
-  await expectSummaryValue(summary, '순액', expected.net)
+  await expectSummaryValue(summary, '총계', expected.net)
 }
 
 async function selectStatisticsMember(radio: Locator) {
@@ -687,8 +667,8 @@ async function expectResponsiveStatisticsState(page: Page, focused: Locator, mon
     await expect(focused, `${viewport.label} 분류 방향`).toHaveAttribute('aria-pressed', 'true')
     await expectTouchTarget(focused, `${viewport.label} 분류 방향`)
     await expectStatisticsSummary(page, { income: '+600,000원', expense: '+180,000원', net: '+780,000원' })
-    await expect(page.getByRole('img', { name: '수입 분류 비중 원형 차트' }), `${viewport.label} 원형 차트`).toBeVisible()
-    const yearlyChart = page.getByRole('img', { name: `${month.slice(0, 4)}년 월별 수입 지출 막대그래프` })
+    await expect(page.getByRole('list', { name: '수입 분류 비중' }).locator('[data-category-bar]'), `${viewport.label} 가로 막대`).toBeVisible()
+    const yearlyChart = page.getByRole('img', { name: `${month.slice(0, 4)}년 월별 수입 소비 적금 투자 막대그래프` })
     await expect(yearlyChart, `${viewport.label} 연간 막대그래프`).toBeVisible()
     await expect(yearlyChart.locator('[data-month-bar-group]'), `${viewport.label} 열두 달 막대`).toHaveCount(12)
     await expectTouchTarget(page.getByRole('button', { name: '이전 달' }), `${viewport.label} 이전 달`)
@@ -755,8 +735,4 @@ function addMonths(month: string, delta: number) {
 
 async function hasPageOverflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
-}
-
-async function resolvedCategoryColors(slices: Locator) {
-  return slices.evaluateAll((elements) => elements.map((element) => getComputedStyle(element).stroke))
 }

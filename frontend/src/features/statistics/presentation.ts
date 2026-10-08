@@ -1,4 +1,4 @@
-import type { StatisticsCategoryAmount, StatisticsMonthAmount } from './api'
+import type { MonthlyStatistics, StatisticsCategoryAmount, StatisticsMonthAmount } from './api'
 import type { StatisticsDirection } from './filters'
 
 export type CategoryShare = StatisticsCategoryAmount & {
@@ -6,70 +6,17 @@ export type CategoryShare = StatisticsCategoryAmount & {
   barPercent: number | null
 }
 
-export type CategoryDonutSlice = {
-  key: string
-  label: string
-  amountWon: number
-  normalizedPercent: number
-  offsetPercent: number
-  categoryIds: string[]
-}
-
-export const categoryChartTones = [
-  'var(--chart-1)',
-  'var(--chart-2)',
-  'var(--chart-3)',
-  'var(--chart-4)',
-  'var(--chart-5)',
-  'var(--chart-6)',
-] as const
-
-export function categoryChartTone(index: number) {
-  return categoryChartTones[index % categoryChartTones.length] ?? categoryChartTones[0]
-}
-
 export function categoryShares(items: StatisticsCategoryAmount[], direction: StatisticsDirection, directionTotalWon: number): CategoryShare[] {
   const kind = direction === 'expense' ? 'EXPENSE' : 'INCOME'
-  const directionItems = items.filter((item) => item.kind === kind)
+  const directionItems = items.filter((item) => item.kind === kind).sort((a, b) => b.amountWon - a.amountWon || a.categoryName.localeCompare(b.categoryName, 'ko'))
+  const maximum = Math.max(0, ...directionItems.map((item) => item.amountWon))
   const ratiosAreMeaningful = directionTotalWon > 0 && directionItems.every((item) => item.amountWon > 0)
   return directionItems
     .map((item) => {
       if (!ratiosAreMeaningful) return { ...item, ratioPercent: null, barPercent: null }
       const ratioPercent = item.amountWon / directionTotalWon * 100
-      return { ...item, ratioPercent, barPercent: Math.min(100, ratioPercent) }
+      return { ...item, ratioPercent, barPercent: item.amountWon / maximum * 100 }
     })
-}
-
-export function categoryDonutSlices(shares: CategoryShare[]): CategoryDonutSlice[] {
-  if (!shares.length || shares.some((item) => item.ratioPercent === null || item.amountWon <= 0)) return []
-
-  const visibleSliceLimit = 6
-  const leading = shares.length > visibleSliceLimit ? shares.slice(0, visibleSliceLimit - 1) : shares
-  const groups: Array<{ key: string; label: string; amountWon: number; categoryIds: string[] }> = leading.map((item) => ({
-    key: item.categoryId,
-    label: item.categoryName,
-    amountWon: item.amountWon,
-    categoryIds: [item.categoryId],
-  }))
-  if (shares.length > visibleSliceLimit) {
-    const remaining = shares.slice(visibleSliceLimit - 1)
-    groups.push({
-      key: `other-${remaining[0].categoryId}`,
-      label: `기타 ${remaining.length}개`,
-      amountWon: remaining.reduce((sum, item) => sum + item.amountWon, 0),
-      categoryIds: remaining.map((item) => item.categoryId),
-    })
-  }
-
-  const chartTotalWon = groups.reduce((sum, item) => sum + item.amountWon, 0)
-  if (chartTotalWon <= 0) return []
-  let offsetPercent = 0
-  return groups.map((group) => {
-    const normalizedPercent = group.amountWon / chartTotalWon * 100
-    const slice = { ...group, normalizedPercent, offsetPercent }
-    offsetPercent += normalizedPercent
-    return slice
-  })
 }
 
 export function formatFlowWon(value: number, direction: StatisticsDirection) {
@@ -86,19 +33,49 @@ export function formatRatio(value: number) {
   return `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 }).format(value)}%`
 }
 
+export function usageRanking(statistics: Pick<MonthlyStatistics, 'totals' | 'assetFormation' | 'categoryBreakdown'>) {
+  const categories = statistics.categoryBreakdown.filter((item) => item.kind === 'EXPENSE').map((category) => ({
+    id: `category:${category.categoryId}`, label: category.categoryName, amountWon: category.amountWon, category,
+  }))
+  const deposits = [
+    { id: 'savings', label: '적금', amountWon: statistics.assetFormation.savingsDepositWon, category: null },
+    { id: 'investment', label: '투자', amountWon: statistics.assetFormation.investmentDepositWon, category: null },
+  ].filter((item) => item.amountWon > 0)
+  const items = [...categories, ...deposits].sort((a, b) => b.amountWon - a.amountWon || a.label.localeCompare(b.label, 'ko') || a.id.localeCompare(b.id))
+  const total = statistics.totals.expenseWon + statistics.assetFormation.savingsDepositWon + statistics.assetFormation.investmentDepositWon
+  const maximum = Math.max(1, ...items.map((item) => item.amountWon))
+  const meaningful = total > 0 && items.every((item) => item.amountWon > 0)
+  return items.map((item) => ({ ...item, ratioPercent: meaningful ? item.amountWon / total * 100 : null, barPercent: meaningful ? item.amountWon / maximum * 100 : null }))
+}
+
 export type YearlyBar = StatisticsMonthAmount & {
   incomePercent: number
   expensePercent: number
+  savingsPercent: number
+  investmentPercent: number
 }
 
 export function yearlyBarSeries(months: StatisticsMonthAmount[]): YearlyBar[] {
   const maximum = months.reduce(
-    (current, month) => Math.max(current, Math.abs(month.incomeWon), Math.abs(month.expenseWon)),
+    (current, month) => Math.max(current, Math.abs(month.incomeWon), Math.abs(month.expenseWon), month.assetFormation?.savingsDepositWon ?? 0, month.assetFormation?.investmentDepositWon ?? 0),
     0,
   )
   return months.map((month) => ({
     ...month,
     incomePercent: maximum === 0 ? 0 : Math.abs(month.incomeWon) / maximum * 100,
     expensePercent: maximum === 0 ? 0 : Math.abs(month.expenseWon) / maximum * 100,
+    savingsPercent: maximum === 0 ? 0 : (month.assetFormation?.savingsDepositWon ?? 0) / maximum * 100,
+    investmentPercent: maximum === 0 ? 0 : (month.assetFormation?.investmentDepositWon ?? 0) / maximum * 100,
   }))
+}
+
+// Keep an item's accent independent of its rank and the selected month.
+export function statisticsAccent(label: string, kind?: 'savings' | 'investment') {
+  if (kind === 'savings') return 'var(--chart-5)'
+  if (kind === 'investment') return 'var(--chart-3)'
+  let hash = 2166136261
+  for (const character of label) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619)
+  hash ^= hash >>> 16
+  const palette = [2, 1, 3, 7, 4, 6]
+  return `var(--chart-${palette[(hash >>> 0) % palette.length]})`
 }
