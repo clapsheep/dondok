@@ -31,7 +31,7 @@ public class LedgerBookEntity {
     @Column(nullable = false, length = 20)
     private LedgerBookStatus status;
 
-    @Column(name = "created_by_user_id", nullable = false)
+    @Column(name = "created_by_user_id")
     private UUID createdByUserId;
 
     @Column(name = "created_at", nullable = false)

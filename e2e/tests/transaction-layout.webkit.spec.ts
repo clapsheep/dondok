@@ -8,23 +8,18 @@ test('모바일 Safari 거래 입력이 화면 폭 안에서 한 열로 읽힌�
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(viewport)
-    await expect(page.getByRole('heading', { name: '거래 기록', level: 1 })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '어떤 거래인가요?', level: 1 })).toBeVisible()
 
     const geometry = await page.evaluate(() => {
-      const amount = document.querySelector<HTMLElement>('[data-slot="money-field"]')
       const dateTrigger = document.querySelector<HTMLButtonElement>('#transactionDate')
       const date = dateTrigger?.closest<HTMLElement>('[data-date-picker-field]')
-      if (!amount || !date || !dateTrigger) throw new Error('거래 금액 또는 날짜 field를 찾지 못했습니다.')
+      if (!date || !dateTrigger) throw new Error('거래 금액 또는 날짜 field를 찾지 못했습니다.')
 
-      const amountRect = amount.getBoundingClientRect()
       const dateRect = date.getBoundingClientRect()
       const dateTriggerRect = dateTrigger.getBoundingClientRect()
       return {
         viewportWidth: document.documentElement.clientWidth,
         pageWidth: document.documentElement.scrollWidth,
-        amountTop: amountRect.top,
-        amountBottom: amountRect.bottom,
-        amountWidth: amountRect.width,
         dateTop: dateRect.top,
         dateWidth: dateRect.width,
         dateTriggerRight: dateTriggerRect.right,
@@ -33,9 +28,9 @@ test('모바일 Safari 거래 입력이 화면 폭 안에서 한 열로 읽힌�
 
     expect(geometry.pageWidth, `${viewport.width}px에서 페이지 가로 스크롤이 생기면 안 됩니다`).toBe(geometry.viewportWidth)
     expect(geometry.dateTriggerRight, `${viewport.width}px에서 날짜 선택 오른쪽 경계가 화면 안에 있어야 합니다`).toBeLessThanOrEqual(geometry.viewportWidth)
-    expect(geometry.dateTop, `${viewport.width}px에서 날짜는 금액 다음 행에 있어야 합니다`).toBeGreaterThanOrEqual(geometry.amountBottom - 1)
-    expect(geometry.amountTop, `${viewport.width}px에서 금액이 날짜보다 먼저 보여야 합니다`).toBeLessThan(geometry.dateTop)
-    expect(Math.abs(geometry.amountWidth - geometry.dateWidth), `${viewport.width}px에서 금액과 날짜는 같은 전체 폭을 사용해야 합니다`).toBeLessThanOrEqual(1)
+    await expect(page.getByLabel('금액', { exact: true })).toBeHidden()
+    await page.getByRole('button', { name: '다음', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '분류와 자산을 확인해요', exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: '결제 자산', exact: true }).click()
     const assetPicker = page.getByRole('dialog', { name: '결제 자산 선택', exact: true })
@@ -52,6 +47,7 @@ test('모바일 Safari 거래 입력이 화면 폭 안에서 한 열로 읽힌�
     expect(Math.abs(pickerBoxAfterFilter!.y - pickerBoxBeforeFilter!.y), `${viewport.width}px 모바일 Safari에서 종류 전환 시 drawer 위치가 고정되어야 합니다`).toBeLessThanOrEqual(1)
     await page.keyboard.press('Escape')
     await expect(assetPicker).toHaveCount(0)
+    await page.getByRole('button', { name: '이전 단계', exact: true }).click()
   }
 })
 

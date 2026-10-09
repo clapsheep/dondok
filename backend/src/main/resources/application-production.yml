@@ -1,0 +1,10 @@
+logging:
+  file:
+    name: /var/log/dondok/application.log
+  logback:
+    rollingpolicy:
+      file-name-pattern: /var/log/dondok/application.%d{yyyy-MM-dd,UTC}.%i.log.gz
+      max-file-size: 10MB
+      max-history: 29
+      total-size-cap: 256MB
+      clean-history-on-start: true

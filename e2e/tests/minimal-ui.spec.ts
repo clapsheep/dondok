@@ -2,68 +2,26 @@ import { expect, test, type Page } from '@playwright/test'
 import { assetRow } from './support/assets'
 import { registerAndLogin } from './support/auth'
 
-type SurfaceOffender = {
-  element: string
-  reason: 'shadow' | 'rounded-full-border'
-  radius: number
-  shadow: string
-}
-
 async function expectMinimalSurface(page: Page, screen: string) {
-  const offenders = await page.locator('main').evaluate((main) => {
-    const describe = (element: Element) => {
-      const role = element.getAttribute('role')
-      const label = element.getAttribute('aria-label')
-      const text = element.textContent?.replace(/\s+/g, ' ').trim().slice(0, 48)
-      return `${element.tagName.toLowerCase()}${role ? `[role="${role}"]` : ''}${label ? `[aria-label="${label}"]` : ''}${text ? `:${text}` : ''}`
-    }
-
-    return [main, ...main.querySelectorAll('*')].flatMap((element): SurfaceOffender[] => {
-      if (
-        element.matches('button, input, select, textarea, a, label, [role="radio"], [role="switch"]')
-        || element.closest('[role="switch"]')
-        || element.matches('[data-member-avatar], [data-joint-avatar], [data-financial-institution-avatar], [data-card-issuer-avatar]')
-        || element.closest('[role="dialog"], [role="menu"], [role="listbox"], aside[aria-live="polite"]')
-      ) return []
-
-      const style = getComputedStyle(element)
-      const radius = Math.max(
-        parseFloat(style.borderTopLeftRadius),
-        parseFloat(style.borderTopRightRadius),
-        parseFloat(style.borderBottomRightRadius),
-        parseFloat(style.borderBottomLeftRadius),
-      )
-      const hasFullBorder = [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth]
-        .every((width) => parseFloat(width) > 0)
-
-      if (style.boxShadow !== 'none') return [{ element: describe(element), reason: 'shadow', radius, shadow: style.boxShadow }]
-      if (radius > 0 && hasFullBorder) return [{ element: describe(element), reason: 'rounded-full-border', radius, shadow: style.boxShadow }]
-      return []
-    })
-  })
-
-  expect(offenders, `${screen} 화면에 구조적 카드 surface가 없어야 합니다`).toEqual([])
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
-  expect(overflow, `${screen} 화면에 가로 overflow가 없어야 합니다`).toBe(false)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), `${screen} 가로 overflow`).toBe(false)
+  const panels = page.locator('.ui-soft-panel:visible, .home-summary:visible, .home-day-panel:visible')
+  for(const panel of await panels.all()) {
+    const style = await panel.evaluate(element => { const s=getComputedStyle(element); return { radius:parseFloat(s.borderTopLeftRadius), border:parseFloat(s.borderTopWidth) } })
+    expect(style.radius, `${screen} 부드러운 공통 패널`).toBeGreaterThanOrEqual(14)
+    expect(style.border, `${screen} 패널은 강한 구분선을 쓰지 않습니다`).toBeLessThanOrEqual(1)
+  }
 }
 
 async function expectHomeResponsiveLayout(page: Page) {
-  const viewport = page.viewportSize()
   const calendar = page.getByRole('grid', { name: /거래 달력$/ })
   const summary = page.locator('[data-home-desktop-summary]')
   await expect(calendar).toBeVisible()
   await expect(summary).toBeVisible()
-  const [calendarBox, summaryBox] = await Promise.all([calendar.boundingBox(), summary.boundingBox()])
-  expect(calendarBox).not.toBeNull()
-  expect(summaryBox).not.toBeNull()
-  if ((viewport?.width ?? 0) >= 1024) {
-    expect(summaryBox!.x, '데스크톱은 달력 오른쪽에 이번 달 요약 rail을 둔다').toBeGreaterThanOrEqual(calendarBox!.x + calendarBox!.width)
-    return
-  }
-  expect(summaryBox!.y + summaryBox!.height, '모바일·iPad 세로는 요약을 달력 위의 읽기 흐름에 둔다').toBeLessThanOrEqual(calendarBox!.y)
+  const a=await summary.boundingBox(), b=await calendar.boundingBox()
+  expect(a!.y+a!.height).toBeLessThanOrEqual(b!.y)
 }
 
-test('가입·초대·홈·자산·설정·거래 폼은 카드 대신 구분선 중심의 평면 구조를 유지한다', async ({ page, request }) => {
+test('가입·초대·홈·자산·설정·거래 폼은 새 패널 스타일과 가로 여백을 유지한다', async ({ page, request }) => {
   await page.goto('/sign-up')
   await expect(page.getByRole('heading', { name: '돈독 회원가입' })).toBeVisible()
   await expectMinimalSurface(page, '회원가입')
@@ -92,7 +50,7 @@ test('가입·초대·홈·자산·설정·거래 폼은 카드 대신 구분선
   await expect(page.getByLabel('자산 이름 (선택)', { exact: true })).toBeVisible()
   await expectMinimalSurface(page, '자산 등록 폼')
   await page.getByRole('button', { name: '자산 등록', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('자산을 등록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '자산을 등록했어요.' })).toBeVisible()
   await expectMinimalSurface(page, '자산 등록 직후 목록')
   await assetRow(page, '미니멀 계좌').getByRole('link').click()
   await page.getByRole('link', { name: '자산 편집' }).click()
@@ -104,7 +62,7 @@ test('가입·초대·홈·자산·설정·거래 폼은 카드 대신 구분선
   await expectMinimalSurface(page, '설정')
 
   await page.getByRole('link', { name: '기록', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '거래 기록' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^(기록|어떤 거래인가요\?)$/ })).toBeVisible()
   await expect(page.getByRole('group', { name: '거래 종류' })).toBeVisible()
   await expectMinimalSurface(page, '거래 폼')
 })
@@ -133,6 +91,7 @@ test('모바일은 설정을 5번째 dock 탭으로 제공하고 로그아웃을
   await dock.getByRole('link', { name: '설정', exact: true }).click()
   await expect(page.getByRole('heading', { name: '가계부 설정' })).toBeVisible()
   await expect(page.getByRole('link', { name: '가계부로 돌아가기', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '내 계정', exact: true }).click()
   await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false)
 

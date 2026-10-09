@@ -209,8 +209,8 @@ public class TransactionJdbcRepository {
                        transaction.description, transaction.version, transaction.created_at,
                        transaction.updated_at, category.id category_id, category.name category_name,
                        refund.purchase_transaction_id related_purchase_transaction_id,
-                       performer.id performer_id, performer_user.display_name performer_name,
-                       creator.id creator_id, creator_user.display_name creator_name,
+                       performer.id performer_id, case when performer.id is not null then coalesce(performer_user.display_name, '탈퇴한 구성원') end performer_name,
+                       creator.id creator_id, case when creator.id is not null then coalesce(creator_user.display_name, '탈퇴한 구성원') end creator_name,
                        selected_asset.id primary_asset_id, selected_asset.name primary_asset_name,
                        posting.line_no, posting.asset_id, asset.name asset_name, posting.delta_won,
                        (select max(charge.installment_count) from card_charge charge
@@ -262,8 +262,8 @@ public class TransactionJdbcRepository {
                        transaction.description, transaction.version, transaction.created_at,
                        transaction.updated_at, category.id category_id, category.name category_name,
                        refund.purchase_transaction_id related_purchase_transaction_id,
-                       performer.id performer_id, performer_user.display_name performer_name,
-                       creator.id creator_id, creator_user.display_name creator_name,
+                       performer.id performer_id, case when performer.id is not null then coalesce(performer_user.display_name, '탈퇴한 구성원') end performer_name,
+                       creator.id creator_id, case when creator.id is not null then coalesce(creator_user.display_name, '탈퇴한 구성원') end creator_name,
                        selected_asset.id primary_asset_id, selected_asset.name primary_asset_name,
                        posting.line_no, posting.asset_id, asset.name asset_name, posting.delta_won,
                        (select max(charge.installment_count) from card_charge charge
@@ -321,7 +321,7 @@ public class TransactionJdbcRepository {
     public TransactionState findStateForUpdate(UUID bookId, UUID transactionId) {
         List<TransactionState> rows = jdbcTemplate.query("""
                 select transaction.id, transaction.transaction_type, transaction.transfer_subtype,
-                       transaction.source_type, transaction.version, transaction.primary_asset_id,
+                       transaction.source_type, transaction.version, transaction.primary_asset_id, transaction.performed_by_member_id,
                        (select posting.asset_id
                           from transaction_posting posting
                          where posting.transaction_id = transaction.id
@@ -338,7 +338,7 @@ public class TransactionJdbcRepository {
                 resultSet.getString("source_type"),
                 resultSet.getLong("version"),
                 resultSet.getObject("primary_asset_id", UUID.class),
-                resultSet.getObject("posting_asset_id", UUID.class)), bookId, transactionId);
+                resultSet.getObject("posting_asset_id", UUID.class), resultSet.getObject("performed_by_member_id", UUID.class)), bookId, transactionId);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
@@ -510,7 +510,7 @@ public class TransactionJdbcRepository {
     }
     public record TransactionState(UUID transactionId, TransactionType type,
                                    TransferSubtype transferSubtype, String sourceType, long version,
-                                   UUID primaryAssetId, UUID postingAssetId) {
+                                   UUID primaryAssetId, UUID postingAssetId, UUID performedByMemberId) {
     }
     public record PageRows(List<TransactionRows> items, String nextCursor) {
     }

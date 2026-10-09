@@ -3,9 +3,7 @@ package com.dondok.asset.application;
 import com.dondok.asset.domain.AssetBehavior;
 import com.dondok.asset.domain.AssetOwnershipScope;
 import com.dondok.asset.domain.CardBillingCyclePolicy;
-import com.dondok.asset.domain.CardIssuerCode;
 import com.dondok.asset.domain.DefaultAssetType;
-import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.asset.infrastructure.persistence.AssetEntity;
 import com.dondok.asset.infrastructure.persistence.AssetIdempotencyRepository;
 import com.dondok.asset.infrastructure.persistence.AssetLedgerRepository;
@@ -67,6 +65,7 @@ public class AssetService {
     private final LedgerMemberRepository members;
     private final LedgerMutationGuard mutationGuard;
     private final CardBillingCyclePolicy billingCyclePolicy;
+    private final com.dondok.asset.application.AssetConnectionPolicy connections;
     private final Clock clock;
 
     public AssetService(
@@ -81,7 +80,7 @@ public class AssetService {
             LedgerMemberRepository members,
             LedgerMutationGuard mutationGuard,
             CardBillingCyclePolicy billingCyclePolicy,
-            Clock clock
+            com.dondok.asset.application.AssetConnectionPolicy connections, Clock clock
     ) {
         this.assets = assets;
         this.assetTypes = assetTypes;
@@ -94,7 +93,7 @@ public class AssetService {
         this.members = members;
         this.mutationGuard = mutationGuard;
         this.billingCyclePolicy = billingCyclePolicy;
-        this.clock = clock;
+        this.clock = clock; this.connections = connections;
     }
 
     @Transactional(readOnly = true)
@@ -278,14 +277,14 @@ public class AssetService {
                 member.getBookId(), null, type, command.debitCardSettings());
         SavingsSettingsCommand savingsCommand = validateSavingsSettings(
                 member.getBookId(), null, type, command.savingsSettings());
-        FinancialInstitutionCode financialInstitutionCode = financialInstitutionCode(type, command.financialInstitutionCode());
-        CardIssuerCode cardIssuerCode = cardIssuerCode(type, command.cardIssuerCode());
+        if (cardCommand != null) connections.requireOwner(member.getBookId(), ownerMemberId, cardCommand.settlementAssetId());
+        if (debitCommand != null) connections.requireOwner(member.getBookId(), ownerMemberId, debitCommand.paymentAssetId());
+        if (savingsCommand != null) connections.requireOwner(member.getBookId(), ownerMemberId, savingsCommand.transferAssetId());
         requireOpeningMagnitude(command.openingBalanceWon());
 
         UUID assetId = UuidV7.next();
         AssetEntity asset = assets.save(new AssetEntity(
                 assetId, member.getBookId(), type.getId(), command.ownershipScope(), ownerMemberId,
-                financialInstitutionCode, cardIssuerCode,
                 command.name().strip(), command.openedOn(), stripToNull(command.memo()),
                 command.openingBalanceWon(), 0, member.getId(), now));
         assets.flush();
@@ -304,7 +303,7 @@ public class AssetService {
 
     @Transactional
     public AssetView update(UUID userId, UUID assetId, UpdateAssetCommand command) {
-        LedgerMemberEntity member = mutationGuard.lockCurrentMember(userId);
+        LedgerMemberEntity member = mutationGuard.lockCurrentMemberExclusively(userId);
         AssetEntity asset = activeAsset(member.getBookId(), assetId);
         if (asset.getVersion() != command.expectedVersion()) {
             throw versionConflict();
@@ -321,18 +320,20 @@ public class AssetService {
         requireAvailableName(member.getBookId(), input.name(), assetId);
         AssetTypeEntity type = resolveType(member.getBookId(), input.assetTypeId());
         requirePaymentSourceCapability(assetId, type);
-        UUID ownerMemberId = validateOwner(member.getBookId(), input.ownershipScope(), input.ownerMemberId());
+        UUID ownerMemberId = ownerChanged ? validateOwner(member.getBookId(), input.ownershipScope(), input.ownerMemberId()) : asset.getOwnerMemberId();
         CardSettingsCommand cardCommand = validateCardSettings(
                 member.getBookId(), assetId, type, input.cardSettings());
         DebitCardSettingsCommand debitCommand = validateDebitCardSettings(
                 member.getBookId(), assetId, type, input.debitCardSettings());
         SavingsSettingsCommand savingsCommand = validateSavingsSettings(
                 member.getBookId(), assetId, type, input.savingsSettings());
-        FinancialInstitutionCode financialInstitutionCode = financialInstitutionCode(type, input.financialInstitutionCode());
-        CardIssuerCode cardIssuerCode = cardIssuerCode(type, input.cardIssuerCode());
+        if (cardCommand != null) connections.requireOwner(member.getBookId(), ownerMemberId, cardCommand.settlementAssetId());
+        if (debitCommand != null) connections.requireOwner(member.getBookId(), ownerMemberId, debitCommand.paymentAssetId());
+        if (savingsCommand != null) connections.requireOwner(member.getBookId(), ownerMemberId, savingsCommand.transferAssetId());
+        if (ownerChanged) connections.requireIncomingOwners(member.getBookId(), assetId, ownerMemberId);
         requireOpeningMagnitude(input.openingBalanceWon());
 
-        asset.update(type.getId(), input.ownershipScope(), ownerMemberId, financialInstitutionCode, cardIssuerCode,
+        asset.update(type.getId(), input.ownershipScope(), ownerMemberId,
                 input.name().strip(),
                 input.openedOn(), stripToNull(input.memo()), input.openingBalanceWon(),
                 member.getId(), now);
@@ -363,31 +364,9 @@ public class AssetService {
         return SYSTEM_ASSET_TYPE_CODES.contains(type.getSystemCode());
     }
 
-    private FinancialInstitutionCode financialInstitutionCode(
-            AssetTypeEntity type,
-            FinancialInstitutionCode requested
-    ) {
-        if (Set.of("BANK", "SAVINGS", "LOAN", "INVESTMENT").contains(type.getSystemCode())) {
-            FinancialInstitutionCode resolved = requested == null ? FinancialInstitutionCode.OTHER : requested;
-            if (!resolved.supports(type.getSystemCode())) {
-                throw error(HttpStatus.BAD_REQUEST, "FINANCIAL_INSTITUTION_INVALID",
-                        "선택한 자산 종류에 맞는 금융기관을 선택해 주세요.");
-            }
-            return resolved;
-        }
-        return null;
-    }
-
-    private CardIssuerCode cardIssuerCode(AssetTypeEntity type, CardIssuerCode requested) {
-        if ("CREDIT_CARD".equals(type.getSystemCode()) || "DEBIT_CARD".equals(type.getSystemCode())) {
-            return requested == null ? CardIssuerCode.OTHER : requested;
-        }
-        return null;
-    }
-
     private UUID validateOwner(UUID bookId, AssetOwnershipScope scope, UUID ownerMemberId) {
         if (scope != AssetOwnershipScope.PERSONAL || ownerMemberId == null
-                || members.findByIdAndBookId(ownerMemberId, bookId).isEmpty()) {
+                || members.findActiveByIdAndBookId(ownerMemberId, bookId).isEmpty()) {
             throw error(HttpStatus.BAD_REQUEST, "ASSET_OWNER_INVALID",
                     "같은 가계부의 구성원을 소유자로 선택해 주세요.");
         }
@@ -621,7 +600,7 @@ public class AssetService {
                              CardPaymentDues cardPaymentDues) {
         return new AssetView(asset.getId(), type.getId(), type.getSystemCode(), type.getName(), type.getBehavior(),
                 type.isPaymentSourceCapable(), asset.getOwnershipScope(), asset.getOwnerMemberId(),
-                asset.getFinancialInstitutionCode(), asset.getCardIssuerCode(), asset.getName(), asset.getOpenedOn(), asset.getMemo(), openingBalanceWon,
+                asset.getName(), asset.getOpenedOn(), asset.getMemo(), openingBalanceWon,
                 currentBalanceWon, cardPaymentDues.currentMonthWon(), cardPaymentDues.nextMonthWon(),
                 cardPaymentDues.nearestDueOn(), cardPaymentDues.nearestWon(),
                 cardPaymentDues.followingDueOn(), cardPaymentDues.followingWon(),
@@ -722,8 +701,6 @@ public class AssetService {
         appendHashPart(canonical, command.assetTypeId());
         appendHashPart(canonical, command.ownershipScope());
         appendHashPart(canonical, command.ownerMemberId());
-        appendHashPart(canonical, command.financialInstitutionCode());
-        appendHashPart(canonical, command.cardIssuerCode());
         appendHashPart(canonical, command.name().strip());
         appendHashPart(canonical, command.openedOn());
         appendHashPart(canonical, stripToNull(command.memo()));
@@ -797,41 +774,14 @@ public class AssetService {
     }
 
     public record AssetCommand(UUID assetTypeId, AssetOwnershipScope ownershipScope,
-                               UUID ownerMemberId, FinancialInstitutionCode financialInstitutionCode,
-                               CardIssuerCode cardIssuerCode,
-                               String name,
-                               LocalDate openedOn, String memo, long openingBalanceWon,
-                               CardSettingsCommand cardSettings,
-                               DebitCardSettingsCommand debitCardSettings,
-                               SavingsSettingsCommand savingsSettings) {
-        public AssetCommand(
-                UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
-                FinancialInstitutionCode financialInstitutionCode,
-                String name, LocalDate openedOn, String memo, long openingBalanceWon,
-                CardSettingsCommand cardSettings, DebitCardSettingsCommand debitCardSettings,
-                SavingsSettingsCommand savingsSettings
-        ) {
-            this(assetTypeId, ownershipScope, ownerMemberId, financialInstitutionCode, null, name,
-                    openedOn, memo, openingBalanceWon, cardSettings, debitCardSettings, savingsSettings);
-        }
-
-        public AssetCommand(
-                UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
-                String name, LocalDate openedOn, String memo, long openingBalanceWon,
-                CardSettingsCommand cardSettings
-        ) {
-            this(assetTypeId, ownershipScope, ownerMemberId, null, null, name, openedOn, memo,
+                               UUID ownerMemberId, String name, LocalDate openedOn, String memo,
+                               long openingBalanceWon, CardSettingsCommand cardSettings,
+                               DebitCardSettingsCommand debitCardSettings, SavingsSettingsCommand savingsSettings) {
+        public AssetCommand(UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
+                            String name, LocalDate openedOn, String memo, long openingBalanceWon,
+                            CardSettingsCommand cardSettings) {
+            this(assetTypeId, ownershipScope, ownerMemberId, name, openedOn, memo,
                     openingBalanceWon, cardSettings, null, null);
-        }
-
-        public AssetCommand(
-                UUID assetTypeId, AssetOwnershipScope ownershipScope, UUID ownerMemberId,
-                String name, LocalDate openedOn, String memo, long openingBalanceWon,
-                CardSettingsCommand cardSettings, DebitCardSettingsCommand debitCardSettings,
-                SavingsSettingsCommand savingsSettings
-        ) {
-            this(assetTypeId, ownershipScope, ownerMemberId, null, null, name, openedOn, memo,
-                    openingBalanceWon, cardSettings, debitCardSettings, savingsSettings);
         }
     }
 
@@ -893,8 +843,7 @@ public class AssetService {
     public record AssetView(UUID assetId, UUID assetTypeId, String systemCode,
                             String assetTypeName, AssetBehavior behavior,
                             boolean paymentSourceCapable, AssetOwnershipScope ownershipScope,
-                            UUID ownerMemberId, FinancialInstitutionCode financialInstitutionCode,
-                            CardIssuerCode cardIssuerCode,
+                            UUID ownerMemberId,
                             String name, LocalDate openedOn, String memo,
                             long openingBalanceWon, long currentBalanceWon,
                             long currentMonthCardPaymentDueWon, long nextMonthCardPaymentDueWon,

@@ -86,7 +86,7 @@ function SortableCategory({ category, selected, disabled, onSelect }: { category
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-w-0 items-stretch rounded-md border transition-[border-color,background-color,opacity] ${selected ? 'border-forest-700 bg-[var(--surface-selected)]' : 'border-[var(--line)] bg-transparent hover:border-forest-600 hover:bg-[var(--surface-hover)]'} ${isDragging ? 'z-10 opacity-70 shadow-md' : ''}`}
+      className={`flex min-w-0 items-stretch rounded-xl border border-transparent transition-[background-color,opacity] ${selected ? 'bg-[var(--selection-surface)] text-[var(--selection)]' : 'bg-[var(--surface)] hover:bg-[var(--surface-hover)]'} ${isDragging ? 'z-10 opacity-70 shadow-md' : ''}`}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-category-sortable
       data-category-id={category.categoryId}
@@ -96,7 +96,7 @@ function SortableCategory({ category, selected, disabled, onSelect }: { category
         type="button"
         variant="ghost"
         size="icon"
-        className="min-h-11 shrink-0 cursor-grab touch-none rounded-r-none border-r border-[var(--line-subtle)] px-0 active:cursor-grabbing"
+        className="min-h-11 shrink-0 cursor-grab touch-none rounded-r-none  px-0 active:cursor-grabbing"
         aria-label={`${category.name} 순서 이동`}
         disabled={disabled}
         {...attributes}

@@ -17,7 +17,7 @@ export function removalDescription(disposition: AssetRemovalDisposition) {
 export function removalWarnings(preview: Pick<AssetRemovalPreview, 'disposition' | 'currentBalanceWon' | 'unpaidCardStatementCount'>) {
   const warnings: string[] = []
   if (preview.disposition === 'ARCHIVE' && preview.currentBalanceWon !== 0) warnings.push('현재 잔액은 사용 종료 후에도 순자산에 계속 포함돼요.')
-  if (preview.unpaidCardStatementCount > 0) warnings.push(`미결제 카드 명세 ${preview.unpaidCardStatementCount}건은 남지만 예약 결제와 새 선결제는 중단돼요.`)
+  if (preview.unpaidCardStatementCount > 0) warnings.push(`미결제 카드 결제 내역 ${preview.unpaidCardStatementCount}건은 남지만 예약 결제와 새 선결제는 중단돼요.`)
   return warnings
 }
 

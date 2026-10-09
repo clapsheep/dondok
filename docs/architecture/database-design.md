@@ -76,7 +76,9 @@ V29는 활성·보관 여부와 관계없이 기존 공동 소유 또는 소유�
 
 사용자 정의 자산 종류는 두지 않고 `asset_type.system_code`는 필수다. `기타`는 `현금`과 동일하게 `STANDARD`, `payment_source_capable = false`인 현금성 종류다. 개별 용도는 `asset.name`으로 표현한다. 기존 사용자 정의 종류는 같은 가계부의 `OTHER`로 재지정한 뒤 제거하되 자산과 거래·posting은 유지한다. `BANK`의 표시명은 `계좌`, `SAVINGS`는 `적금`이다. 마이너스 통장은 별도 물리 종류가 아니라 signed 잔액이 음수인 `BANK` 계좌이며 일반 계좌와 같은 결제·이체 기능을 사용한다. 기능은 표시명이나 잔액 부호가 아니라 behavior가 결정한다. 연결 설정의 대상과 출금 계좌는 composite FK로 같은 가계부임을 보장하고 서로 같은 자산일 수 없다. V9·V10은 기존 `BANK` 유형의 표시명만 `계좌`로 바꾸고 사용자가 입력한 `asset.name`은 보존한다. V16은 기존 `OVERDRAFT` 자산의 ID·이름·소유자·posting·연결 설정을 유지한 채 같은 가계부의 `BANK` 유형으로 재지정하고 `OVERDRAFT` 유형과 허용 코드를 제거한다. 자산 version만 증가시켜 이전 화면의 stale 저장을 거부하며 잔액은 기존 posting 합계를 그대로 사용한다.
 
-`asset.financial_institution_code`는 `BANK`·`SAVINGS`의 은행·상호금융, `LOAN`의 은행·캐피탈, `INVESTMENT`의 증권사를 나타내는 표시용 정적 카탈로그 코드다. 자산군과 맞지 않는 코드는 API에서 거부한다. 이전 클라이언트가 값을 생략하면 해당 자산군은 `OTHER`로 정규화하고, 다른 종류로 바꾸면 관련 코드를 `null`로 정규화한다. `asset.card_issuer_code`는 `CREDIT_CARD`·`DEBIT_CARD`에만 저장한다. V23·V24는 기존 계좌·적금과 카드 자산을, V27은 기존 대출·투자 자산을 각각 `OTHER`로 보정하며 금액·거래·설정은 변경하지 않는다.
+D-093에 따라 기관 카탈로그를 제거했다. 별도 기관 테이블은 없으며 V39는 `asset.financial_institution_code`와 `asset.card_issuer_code`, 이 컬럼에 종속된 check/index를 삭제한다. 활성·보관 자산 모두 같은 schema로 보정되며 ID·이름·기준일 잔액·posting·소유자·version·카드/체크카드/적금 연결 설정은 바꾸지 않는다. 자산 종류 테이블은 잔액·정산 동작 계약이므로 유지한다. API는 구버전 요청의 두 필드만 무시하며 응답에는 포함하지 않는다.
+
+V23·V24·V27·V38은 이미 적용된 이력을 위해 유지하고 V39로 전진한다. 배포는 DB 백업 후 V39와 새 backend/frontend를 함께 적용한다. 컬럼을 요구하는 이전 backend로 단독 rollback하지 않으며 복구 시 백업과 일치하는 schema·애플리케이션을 함께 복원한다. 기존 idempotency 기록은 보존한다. 배포 전후 payload hash가 달라진 재시도는 중복 생성 대신 충돌로 거부될 수 있다.
 
 신규 가계부 생성 트랜잭션은 자산 유형 bootstrap 뒤 `CASH`, `BANK`, `CREDIT_CARD`, `DEBIT_CARD` 자산을 생성자 `PERSONAL` 소유로 하나씩 생성한다. 기준일 잔액은 모두 0원이어서 `OPENING_BALANCE` 거래와 posting을 만들지 않고, 잔액 기준일은 `Asia/Seoul` 기준 가계부 생성일이다. 신용카드와 체크카드 설정은 동일 트랜잭션에서 기본 `BANK` 자산을 참조한다. 기존 가계부는 이 네 자산을 backfill하지 않고, 기본 자산도 활성 50개 한도에 포함한다.
 
@@ -345,3 +347,19 @@ V33은 ledger_transaction.transfer_purpose를 추가하고 기존 NORMAL 이체�
 ## D-069 수동 카드 결제 전환
 
 V34는 자동 정산 설정을 false로 고정하고 미처리 예약을 취소한다. 과거 schedule/REGULAR 이력은 보존한다. `card_payment_item_allocation`은 payment와 원 구매/할부 회차별 배분을 저장한다. `card_payable_items(book, card)`는 해당 카드의 유효 charge에서 환불·기준일 흡수·실제 결제액을 반영한다. 선택 배분을 우선 적용하고 기존 미배분 결제액은 같은 명세의 오래된 항목부터 배분한다. 기록 정정으로 charge ID가 재생성돼도 원 구매/회차와 명세가 같으면 연결을 유지하고, 이동·감액·환불로 남는 명세 결제액은 기존 명세 우선 환불 계약을 따른다. 기존 잔액과 거래는 이관으로 바꾸지 않는다. 복구는 이전 바이너리로 자동 실행을 재개하지 않고 새 버전에서 전진 수정한다.
+
+## 이전 회원 탈퇴와 기존 참조 보존 (D-083, D-087로 대체)
+
+V1의 `app_user.status=WITHDRAWN/withdrawn_at`을 사용하므로 새 DDL migration은 필요 없다. display_name은 ‘탈퇴한 회원’, email은 무작위 고유 익명 주소로 교체한다. 공동 장부가 남으면 app_user와 ledger_member의 식별자·FK를 보존하되 현재 사용자 membership 조회에서 제외한다. 마지막 구성원 판정은 WITHDRAWN을 제외하고 LOCKED도 보존 대상으로 센다. credential·OAuth·인증/재설정 token·세션은 삭제한다. 다른 구성원의 장부·posting·금액과 이름/메모 텍스트는 변경하지 않는다. 단독 탈퇴는 ledger_book 삭제 cascade를 재사용한다. 개인정보 삭제는 되돌리는 migration을 제공하지 않으며 실패는 트랜잭션 rollback한다. 기존 백업 30일 보존·복구 승격 gate를 유지한다.
+
+## 계정 이메일 변경 인증 (D-084)
+
+V35는 `account_email_change`를 추가한다. 사용자별 최대 한 행이며 새 이메일·Argon2 인증번호 해시·profile version·발급/만료 시각·실패 횟수(0~5)·인증 여부를 보관한다. 사용자 행 잠금으로 발급/확인/저장을 직렬화하며 app_user 삭제 시 cascade한다. 최종 저장·비밀번호 변경/재설정·회원 탈퇴 시 행을 삭제한다. 인증 자체는 app_user 이메일을 바꾸지 않는다. 이메일 unique 및 프로필 version은 기존 app_user를 사용한다.
+
+복구는 전진 migration을 원칙으로 한다. V35는 기존 테이블 데이터를 변경하지 않는 추가 테이블이므로 이전 앱으로 롤백 시 테이블은 유지하고 만료된 challenge는 재사용하지 않는다. 이메일 변경이 이미 저장된 뒤에는 사용자 승인 없는 이전 값 복원을 하지 않는다.
+
+## D-087 계정 삭제 및 가입 동의
+
+V36: ledger_member.user_id=NULL인 가계부별 단일 시스템 표식을 도입한다. 기존 WITHDRAWN 계정도 같은 삭제 함수로 전환한다. 원장 잠금 뒤 탈퇴자의 참조·텍스트를 정리하고 실제 app_user를 삭제한다. 금액·posting·정산 배분은 수정하지 않으며 변경된 aggregate version을 올린다. 감사 payload와 idempotency 응답에는 삭제 전 개인정보가 남을 수 있어 가계부 단위로 폐기한다. 삭제 함수는 SECURITY INVOKER이며 계정/가계부 잠금과 비밀번호 확인은 application service의 책임이다. 역 migration으로 개인정보를 복원하지 않는다. 실패는 트랜잭션 전체 rollback하며 운영 적용 전 백업·정책을 확인한다.
+
+V37: account_consent에 사용자, 문서 버전, 서버 동의 시각, 만 14세 이상 확인과 필수 동의 증거를 저장한다. 사용자 삭제 시 cascade로 파기한다. IP/생년월일은 수집하지 않는다. 공개 문서 원본은 backend resources/legal의 버전별 파일이다.

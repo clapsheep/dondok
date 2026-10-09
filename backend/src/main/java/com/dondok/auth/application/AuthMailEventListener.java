@@ -22,6 +22,8 @@ public class AuthMailEventListener {
         try {
             if (event.type() == AuthMailEvent.Type.EMAIL_VERIFICATION) {
                 mailGateway.sendEmailVerification(event.recipient(), event.displayName(), event.rawToken());
+            } else if (event.type() == AuthMailEvent.Type.EMAIL_CHANGE) {
+                mailGateway.sendEmailChange(event.recipient(), event.displayName(), event.rawToken());
             } else {
                 mailGateway.sendPasswordReset(event.recipient(), event.displayName(), event.rawToken());
             }

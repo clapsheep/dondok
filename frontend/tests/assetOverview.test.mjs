@@ -33,18 +33,22 @@ test('고정 시스템 코드 순서로 그룹화하고 빈 그룹은 제외한�
     asset('INSURANCE', 20_000),
   ])
 
-  assert.deepEqual(overview.groups.map((group) => group.key), ['liquid', 'cards', 'investments', 'loans', 'insurance'])
-  assert.deepEqual(overview.groups.map((group) => group.label), ['자금', '카드', '투자', '대출', '보험'])
+  assert.deepEqual(overview.groups.map((group) => group.key), ['liquid', 'cards', 'savings', 'investments', 'loans', 'insurance'])
+  assert.deepEqual(overview.groups.map((group) => group.label), ['자금', '카드', '적금', '투자', '대출', '보험'])
   assert.deepEqual(overview.groups.map((group) => group.items.map((item) => item.systemCode)), [
-    ['CASH', 'OTHER', 'BANK', 'BANK', 'SAVINGS'],
+    ['CASH', 'OTHER', 'BANK', 'BANK'],
     ['CREDIT_CARD', 'DEBIT_CARD'],
+    ['SAVINGS'],
     ['INVESTMENT'],
     ['LOAN'],
     ['INSURANCE'],
   ])
-  assert.equal(overview.groups[0].assetsWon, 64_000)
+  assert.equal(overview.groups[0].assetsWon, 14_000)
   assert.equal(overview.groups[0].liabilitiesWon, 5_000)
-  assert.equal(overview.groups[0].netWon, 59_000)
+  assert.equal(overview.groups[0].netWon, 9_000)
+  assert.equal(overview.groups.find(group => group.key === 'savings').netWon, 50_000)
+  assert.equal(overview.groups.find(group => group.key === 'investments').netWon, 70_000)
+  assert.equal(overview.groups.reduce((sum, group) => sum + group.netWon, 0), overview.netWon)
   assert.equal(overview.groups[1].nearestCardPaymentDueWon, 35_000)
   assert.equal(overview.groups[1].followingCardPaymentDueWon, 25_000)
 })
@@ -60,7 +64,7 @@ test('카드별 가장 가까운 결제와 그다음 결제 금액은 각각 선
   assert.equal(overview.followingCardPaymentDueWon, 53_000)
 })
 
-test('계좌와 적금은 금융기관 카탈로그 순서로 붙여서 정렬한다', () => {
+test('자산은 기관과 무관하게 고정 종류 순서와 이름으로 정렬한다', () => {
   const overview = buildAssetOverview([
     { ...asset('BANK', 1), assetId: '3', assetTypeName: '계좌', name: '토스 통장', financialInstitutionCode: 'TOSS_BANK' },
     { ...asset('SAVINGS', 1), assetId: '2', assetTypeName: '적금', name: '국민 적금', financialInstitutionCode: 'KB_KOOKMIN' },
@@ -68,7 +72,7 @@ test('계좌와 적금은 금융기관 카탈로그 순서로 붙여서 정렬�
     { ...asset('BANK', 1), assetId: '4', assetTypeName: '계좌', name: '국민 통장', financialInstitutionCode: 'KB_KOOKMIN' },
   ])
 
-  assert.deepEqual(overview.groups[0].items.map((item) => item.name), ['현금', '국민 통장', '국민 적금', '토스 통장'])
+  assert.deepEqual(overview.groups[0].items.map((item) => item.name), ['현금', '국민 통장', '토스 통장'])
 })
 
 test('상단 합계에는 사용 종료 자산을 포함하고 활성 그룹에서는 제외한다', () => {

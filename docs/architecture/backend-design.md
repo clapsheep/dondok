@@ -341,3 +341,20 @@ public record MoneyWon(long value) {
 ## D-069 카드 상세 결제 계약
 
 GET `/api/assets/{cardAssetId}/card-payment-items`는 최대 50개 cursor 항목, 최근 정산일, 전체/기본 선택 합계와 snapshotToken을 반환한다. POST `/api/assets/{cardAssetId}/card-payments`는 SELECTED(기본 CLOSED/ALL/NONE와 추가/제외 ID) 또는 AMOUNT, 실제 계좌·날짜, snapshotToken과 Idempotency-Key를 받는다. 동일 가계부 변경과 경합하지 않도록 ledger exclusive lock을 잡고 snapshot을 검증한 뒤 명세별 payment·이체·배분을 한 트랜잭션으로 생성한다. stale은 412 CARD_PAYMENT_SELECTION_STALE, 초과/빈 선택은 409 CARD_PAYMENT_AMOUNT_INVALID로 전체 거부한다. 동일 key retry는 최초 결과만 반환하고 취소된 결제의 retry는 409다. 사용자 결제만 생성하며 자동 worker는 실행하지 않는다.
+
+## 회원 탈퇴
+
+`DELETE /api/auth/me`는 CSRF·로그인·현재 비밀번호·동의를 검증하고 사용자 → 가계부의 잠금 순서로 처리한다. `expectedLedgerId/expectedVersion`으로 가입/탈퇴/초대/가계부 재생성 경쟁을 412로 거부한다. 모든 세션 및 실제 계정 삭제, 가계부별 시스템 표식으로 참조 통합, 마지막 구성원의 cascade 삭제는 한 트랜잭션이다. 가계부 쓰기는 root lock 후 활성 사용자 membership을 재조회하며, 매 인증 요청의 ActiveAccountFilter는 탈퇴와 동시에 생성된 세션도 차단한다. 동일 요청 재시도는 이미 탈퇴한 인증의 401이며 데이터 변경을 반복하지 않는다.
+
+## 계정 정보와 비밀번호 수정 (D-084)
+
+- `GET/PUT /api/auth/profile`은 최신 프로필과 `version`을 반환한다. PUT은 이름·이메일·현재 비밀번호·`expectedVersion`을 받는다. `GET /api/auth/me` 역시 세션에 직렬화된 이름·이메일 대신 현재 DB 값을 읽는다.
+- 이메일 변경은 인증번호 발급·확인·프로필 저장을 분리한다. 인증번호는 salted Argon2 해시만 저장하고 사용자/새 주소/version/만료에 묶는다. 확인 실패 횟수는 실패 HTTP 응답과 무관하게 commit하며 재발급 시 기존 인증을 대체한다. 이메일 중복을 발급·저장 양쪽에서 확인하고 DB unique로 최종 경합을 막는다.
+- 모든 계정 mutation은 사용자 행을 먼저 잠근다. 비밀번호 재설정도 사용자→token→credential 순서를 따르며 탈퇴·이메일 변경·비밀번호 변경과 직렬화한다. 이전 주소의 reset 요청이 이메일 저장과 경합하면 잠금 후 주소를 재확인한다.
+- `PUT /api/auth/password`는 기존 비밀번호와 새 비밀번호/확인을 검증하고 모든 세션·reset token·이메일 변경 challenge를 폐기한다. ActiveAccountFilter는 현재 credential hash와 세션 principal hash도 비교하여 비밀번호 변경과 경합한 로그인 세션을 거부한다.
+- 저장 후 클라이언트는 session/profile 캐시를 응답으로 갱신하고 이름이 포함될 수 있는 read model을 무효화한다. 다른 세션은 기존 focus/route refetch 경계에서 변경된 이름을 읽는다. 412에서는 입력값을 유지하고 최신 프로필을 확인한 뒤 명시적으로 version을 갱신한다.
+
+
+D-087: `AssetConnectionPolicy`가 새 자산 연결·이체·카드 결제의 동일 명의를 검증한다. 다른 구성원이 작성하거나 경제활동 주체인 것은 허용한다. 자산 생성·수정은 가계부 배타 잠금 아래에서 발신/수신 연결의 명의를 검사하여 동시 명의 변경과 연결 생성 경합을 직렬화한다. 과거 posting·환불 경로는 재작성하지 않는다. 명의 불일치는 400 `CROSS_MEMBER_ASSET_CONNECTION_NOT_ALLOWED`다. 탈퇴의 `erase_ledger_account`는 SQL FK 재연결과 원본 계정 삭제를 원자적으로 수행하고 JPA context를 비운다. V36은 기존 WITHDRAWN 행도 같은 정책으로 이행한다.
+
+클라이언트는 탈퇴 성공 후 모든 Query/세션 캐시와 해당 구성원 환경설정을 비운다. 남은 구성원은 기존 화면 재진입·focus refetch 계약으로 갱신하며 편집 중 draft는 보존하고 변경된 aggregate version으로 412를 받는다. 삭제된 개인의 이전 ID는 재선택할 수 없다.

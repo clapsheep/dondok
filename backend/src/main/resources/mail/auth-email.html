@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{title}}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f6f5;color:#222725;font-family:Arial,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;-webkit-text-size-adjust:100%;">
+  <div style="display:none;font-size:1px;line-height:1px;color:#f5f6f5;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{{intro}} 링크는 {{validity}} 동안 유효해요.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f6f5;">
+    <tr><td align="center" style="padding:32px 16px;">
+      <!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#ffffff;border-top:4px solid #19463c;">
+        <tr><td style="padding:32px 28px 0;">
+          <img src="cid:dondok-wordmark" alt="돈독" width="132" height="33" style="display:block;border:0;width:132px;height:33px;color:#19463c;font-size:24px;font-weight:bold;">
+          <p style="margin:12px 0 0;color:#68736e;font-size:12px;line-height:18px;">함께 쓰는 가계부</p>
+        </td></tr>
+        <tr><td style="padding:36px 28px 0;">
+          <h1 style="margin:0;color:#1c2923;font-size:26px;line-height:38px;font-weight:700;letter-spacing:-1px;">{{title}}</h1>
+          <p style="margin:22px 0 0;font-size:15px;line-height:26px;overflow-wrap:anywhere;word-break:break-word;">{{name}}님, 안녕하세요.<br>{{intro}}</p>
+          <p style="margin:14px 0 0;color:#57635c;font-size:15px;line-height:26px;">{{description}}</p>
+        </td></tr>
+        <tr><td style="padding:28px 28px 0;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td align="center" bgcolor="#19463c" style="background-color:#19463c;border-radius:6px;mso-padding-alt:15px 28px;">
+              <a href="{{link}}" style="display:inline-block;padding:15px 28px;border:1px solid #19463c;border-radius:6px;color:#ffffff;font-size:16px;line-height:22px;font-weight:700;text-decoration:none;text-align:center;mso-padding-alt:0;">{{action}}</a>
+            </td>
+          </tr></table>
+          <p style="margin:14px 0 0;color:#68736e;font-size:13px;line-height:22px;">이 링크는 <strong style="color:#36473e;">{{validity}}</strong> 동안 한 번만 사용할 수 있어요.</p>
+        </td></tr>
+        <tr><td style="padding:30px 28px 28px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #e7ebe8;"><tr><td style="padding-top:22px;">
+            <p style="margin:0;color:#68736e;font-size:13px;line-height:22px;">{{notice}}</p>
+            <p style="margin:14px 0 0;color:#68736e;font-size:12px;line-height:20px;">버튼이 열리지 않으면 <a href="{{link}}" style="color:#19463c;text-decoration:underline;">이 링크를 눌러 주세요.</a><br>또는 아래 주소를 복사해 브라우저에 붙여 넣어 주세요.</p>
+            <p style="margin:8px 0 0;font-size:11px;line-height:18px;word-break:break-all;overflow-wrap:anywhere;"><a href="{{link}}" style="color:#68736e;text-decoration:underline;word-break:break-all;">{{link}}</a></p>
+          </td></tr></table>
+        </td></tr>
+      </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+      <p style="margin:20px 0 0;color:#7a827d;font-size:12px;line-height:20px;">돈독 · 함께 기록하고 차곡차곡 모아요.<br>이 메일은 발신 전용이에요.</p>
+    </td></tr>
+  </table>
+</body>
+</html>

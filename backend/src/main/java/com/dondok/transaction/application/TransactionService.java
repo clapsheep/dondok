@@ -58,6 +58,7 @@ public class TransactionService {
     private final CategoryRepository categories;
     private final AssetLedgerRepository assetLedger;
     private final CardBillingCyclePolicy billingCyclePolicy;
+    private final com.dondok.asset.application.AssetConnectionPolicy connections;
     private final Clock clock;
 
     public TransactionService(
@@ -72,7 +73,7 @@ public class TransactionService {
             CategoryRepository categories,
             AssetLedgerRepository assetLedger,
             CardBillingCyclePolicy billingCyclePolicy,
-            Clock clock
+            com.dondok.asset.application.AssetConnectionPolicy connections, Clock clock
     ) {
         this.transactions = transactions;
         this.idempotency = idempotency;
@@ -85,7 +86,7 @@ public class TransactionService {
         this.categories = categories;
         this.assetLedger = assetLedger;
         this.billingCyclePolicy = billingCyclePolicy;
-        this.clock = clock;
+        this.clock = clock; this.connections = connections;
     }
 
     @Transactional(readOnly = true)
@@ -237,6 +238,7 @@ public class TransactionService {
                         .orElseThrow(() -> error(HttpStatus.BAD_REQUEST, "DEBIT_CARD_SETTINGS_MISSING",
                                 "체크카드의 결제 계좌를 먼저 입력해 주세요."));
                 AssetEntity paymentAsset = requireAsset(author.getBookId(), setting.getPaymentAssetId());
+                connections.requireSameOwner(author.getBookId(), asset.getId(), paymentAsset.getId());
                 write = write(transactionId, author, expense, TransactionType.EXPENSE, null,
                         category.getId(), performerId, asset.getId(),
                         List.of(new TransactionJdbcRepository.PostingWrite(
@@ -257,6 +259,7 @@ public class TransactionService {
             AssetEntity source = requireTransferAsset(author.getBookId(), transfer.sourceAssetId());
             AssetEntity destination = requireTransferAsset(
                     author.getBookId(), transfer.destinationAssetId());
+            connections.requireSameOwner(author.getBookId(), source.getId(), destination.getId());
             write = write(transactionId, author, transfer, TransactionType.TRANSFER, TransferSubtype.NORMAL,
                     null, performerId, null, List.of(
                             new TransactionJdbcRepository.PostingWrite(source.getId(), -transfer.amountWon()),
@@ -304,7 +307,8 @@ public class TransactionService {
                     lockedCategory,
                     command.type() == TransactionType.INCOME ? CategoryKind.INCOME : CategoryKind.EXPENSE);
         }
-        UUID performerId = requirePerformer(editor.getBookId(), command.performedByMemberId());
+        UUID performerId = java.util.Objects.equals(state.performedByMemberId(), command.performedByMemberId())
+                ? state.performedByMemberId() : requirePerformer(editor.getBookId(), command.performedByMemberId());
         TransactionMutation mutation = mutation(
                 editor.getBookId(), state, command, lockedCategory);
         Instant now = clock.instant();
@@ -387,6 +391,7 @@ public class TransactionService {
                             .orElseThrow(() -> error(HttpStatus.BAD_REQUEST, "DEBIT_CARD_SETTINGS_MISSING",
                                     "체크카드의 결제 계좌를 먼저 입력해 주세요."));
                     postingAssetId = requireAsset(bookId, setting.getPaymentAssetId()).getId();
+                    connections.requireSameOwner(bookId, asset.getId(), postingAssetId);
                 }
             }
             return new TransactionMutation(category.getId(), asset.getId(),
@@ -403,6 +408,7 @@ public class TransactionService {
             }
             AssetEntity source = requireTransferAsset(bookId, command.sourceAssetId());
             AssetEntity destination = requireTransferAsset(bookId, command.destinationAssetId());
+            connections.requireSameOwner(bookId, source.getId(), destination.getId());
             return new TransactionMutation(null, null, List.of(
                     new TransactionJdbcRepository.PostingWrite(source.getId(), -command.amountWon()),
                     new TransactionJdbcRepository.PostingWrite(destination.getId(), command.amountWon())), null);
@@ -538,14 +544,15 @@ public class TransactionService {
     }
 
     private UUID requirePerformer(UUID bookId, UUID performerId) {
-        return members.findByIdAndBookId(performerId, bookId).map(LedgerMemberEntity::getId)
+        return members.findActiveByIdAndBookId(performerId, bookId).map(LedgerMemberEntity::getId)
                 .orElseThrow(() -> error(HttpStatus.BAD_REQUEST, "TRANSACTION_PERFORMER_INVALID",
                         "같은 가계부의 구성원을 선택해 주세요."));
     }
 
     private void requireOptionalPerformer(UUID bookId, UUID performerId) {
         if (performerId != null) {
-            requirePerformer(bookId, performerId);
+            if (members.findByIdAndBookId(performerId, bookId).isEmpty()) throw error(
+                    HttpStatus.BAD_REQUEST, "TRANSACTION_PERFORMER_INVALID", "같은 가계부의 구성원을 선택해 주세요.");
         }
     }
 

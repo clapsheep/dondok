@@ -32,12 +32,13 @@ public class CardPaymentItemService {
     private final LedgerMemberRepository members;
     private final LedgerMutationGuard guard;
     private final ManagedTransferPort transfers;
+    private final com.dondok.asset.application.AssetConnectionPolicy connections;
     private final Clock clock;
     public CardPaymentItemService(CardPaymentItemRepository items, CardSettlementRepository settlements,
             SettlementIdempotencyRepository idempotency, LedgerMemberRepository members,
-            LedgerMutationGuard guard, ManagedTransferPort transfers, Clock clock) {
+            LedgerMutationGuard guard, ManagedTransferPort transfers, com.dondok.asset.application.AssetConnectionPolicy connections, Clock clock) {
         this.items = items; this.settlements = settlements; this.idempotency = idempotency;
-        this.members = members; this.guard = guard; this.transfers = transfers; this.clock = clock;
+        this.members = members; this.guard = guard; this.transfers = transfers; this.clock = clock; this.connections = connections;
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -73,6 +74,7 @@ public class CardPaymentItemService {
             throw error(412, "CARD_PAYMENT_SELECTION_STALE", "미결제 내역이 변경되었습니다. 최신 내역을 확인해 주세요.");
         if (!settlements.isActivePaymentSource(book, command.settlementAssetId()))
             throw error(409, "CARD_SETTLEMENT_ASSET_INVALID", "사용 가능한 출금 계좌를 선택해 주세요.");
+        connections.requireSameOwner(book, cardId, command.settlementAssetId());
         boolean partial = "AMOUNT".equals(command.mode());
         if (!List.of("AMOUNT", "SELECTED").contains(command.mode())
                 || !List.of("CLOSED", "ALL", "NONE").contains(command.baseSelection()))

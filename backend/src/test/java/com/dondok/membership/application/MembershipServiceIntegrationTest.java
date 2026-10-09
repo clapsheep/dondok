@@ -544,7 +544,7 @@ class MembershipServiceIntegrationTest {
                 .isEqualTo("참여자");
         assertThat(retried.members().get(0).getClass().getRecordComponents())
                 .extracting(component -> component.getName())
-                .containsExactly("memberId", "displayName", "joinedAt", "currentUser");
+                .containsExactly("memberId", "displayName", "joinedAt", "currentUser", "withdrawn");
         assertThat(retried.getClass().getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("ledgerId", "version", "members");

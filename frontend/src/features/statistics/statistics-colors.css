@@ -1,0 +1,19 @@
+/* D-094: restrained semantic hues shared by ranking, legend and yearly bars. */
+.ui-statistics, .ds-app {
+  --statistics-income: #528575;
+  --statistics-expense: #708aa5;
+  --statistics-savings: #998956;
+  --statistics-investment: #9381a5;
+  /* The standalone design preview uses the same palette. */
+  --statistics-bar: var(--statistics-expense);
+  --statistics-series-1: var(--statistics-income);
+  --statistics-series-2: var(--statistics-expense);
+  --statistics-series-3: var(--statistics-savings);
+  --statistics-series-4: var(--statistics-investment);
+}
+.dark .ui-statistics, .dark .ds-app {
+  --statistics-income: #8ab7a3;
+  --statistics-expense: #94adc7;
+  --statistics-savings: #c2b27d;
+  --statistics-investment: #b3a1c7;
+}

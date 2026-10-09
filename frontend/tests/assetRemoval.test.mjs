@@ -16,7 +16,7 @@ test('서버가 ARCHIVE를 결정하면 기록 유지와 신규 선택 제외·�
 test('사용 종료 잔액과 중단되는 카드 결제를 경고로 함께 만든다', () => {
   assert.deepEqual(removalWarnings({ disposition: 'ARCHIVE', currentBalanceWon: -50_000, unpaidCardStatementCount: 2 }), [
     '현재 잔액은 사용 종료 후에도 순자산에 계속 포함돼요.',
-    '미결제 카드 명세 2건은 남지만 예약 결제와 새 선결제는 중단돼요.',
+    '미결제 카드 결제 내역 2건은 남지만 예약 결제와 새 선결제는 중단돼요.',
   ])
   assert.deepEqual(removalWarnings({ disposition: 'DELETE', currentBalanceWon: 0, unpaidCardStatementCount: 0 }), [])
 })

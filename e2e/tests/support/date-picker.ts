@@ -1,3 +1,4 @@
+import { showRecordField, showCardPaymentStep } from './record-steps'
 import { expect, type Locator, type Page } from '@playwright/test'
 
 type DateInputWithSpy = HTMLInputElement & {
@@ -5,6 +6,16 @@ type DateInputWithSpy = HTMLInputElement & {
 }
 
 export async function expectInputBodyOpensDatePicker(page: Page, input: Locator, label: string) {
+  if (await input.getAttribute('data-date-picker-field') || await input.getAttribute('data-value') !== null) {
+    const current = await input.getAttribute('data-value')
+    await input.click()
+    const dialog = page.getByRole('dialog', { name: `${await input.getAttribute('aria-label')} 선택`, exact: true })
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(input).toHaveAttribute('data-value', current!)
+    await expect(input).toBeFocused()
+    return
+  }
   await expect(input, `${label} input이 보여야 합니다`).toBeVisible()
   await expect(input).toHaveAttribute('type', 'date')
   const draftValue = await input.inputValue()
@@ -77,14 +88,16 @@ export async function expectResponsiveDatePicker(page: Page, trigger: Locator, l
   await expect(trigger, `${label} 달력을 열고 닫아도 draft를 보존해야 합니다`).toHaveAttribute('data-value', draftValue!)
 }
 
-export async function selectDate(page: Page, label: string, value: string) {
+export async function selectDate(page: Page, label: string, value: string, selectedTrigger?: Locator) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (!match) throw new Error(`날짜는 YYYY-MM-DD 형식이어야 합니다: ${value}`)
   const targetYear = Number(match[1])
   const targetMonth = Number(match[2])
   const targetDay = Number(match[3])
-  const trigger = page.getByLabel(label, { exact: true })
+  const trigger = selectedTrigger ?? page.getByLabel(label, { exact: true })
 
+  if (label === '실제 결제일') await showCardPaymentStep(page, 2)
+  await showRecordField(page, trigger)
   if (await trigger.getAttribute('data-value') === value) return
   await trigger.click()
   const dialog = page.getByRole('dialog', { name: `${label} 선택`, exact: true })
@@ -103,4 +116,6 @@ export async function selectDate(page: Page, label: string, value: string) {
 
   await dialog.locator('.rdp-day:not(.rdp-outside) .rdp-day_button').filter({ hasText: new RegExp(`^${targetDay}$`) }).click()
   await expect(trigger).toHaveAttribute('data-value', value)
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
 }

@@ -178,6 +178,7 @@ class MonthlyStatisticsServiceIntegrationTest {
         Fixture fixture = fixture("필터 사용자");
         UUID secondMember = addMember(fixture.bookId(), "두 번째 구성원");
         AssetService.AssetView ownerBank = asset(fixture.userId(), "BANK");
+        jdbcTemplate.update("update asset set owner_member_id = ? where id = ?", secondMember, ownerBank.assetId());
         AssetService.AssetView ownerCash = assetService.create(
                 fixture.userId(), "statistics-owner-cash",
                 new AssetService.AssetCommand(
@@ -471,6 +472,7 @@ class MonthlyStatisticsServiceIntegrationTest {
         Fixture f = fixture("목적 필터");
         UUID other = addMember(f.bookId(), "적금 명의자");
         var bank = asset(f.userId(), "BANK");
+        jdbcTemplate.update("update asset set owner_member_id = ? where id = ?", other, bank.assetId());
         var savings = formationAsset(f, "SAVINGS", other);
         var deposit = purposeTransfer(f, "owned-deposit", "2026-07-01", bank.assetId(), savings.assetId(),
                 700_000, TransferPurpose.SAVINGS_DEPOSIT, f.memberId());

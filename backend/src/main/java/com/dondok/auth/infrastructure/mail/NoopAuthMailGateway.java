@@ -12,6 +12,9 @@ public class NoopAuthMailGateway implements AuthMailGateway {
     }
 
     @Override
+    public void sendEmailChange(String recipient, String displayName, String code) {}
+
+    @Override
     public void sendPasswordReset(String recipient, String displayName, String rawToken) {
     }
 }

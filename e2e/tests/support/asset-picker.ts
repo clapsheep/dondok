@@ -1,3 +1,4 @@
+import { showRecordStep, showCardPaymentStep } from './record-steps'
 import { expect, type Locator, type Page } from '@playwright/test'
 
 type PickerScope = Page | Locator
@@ -7,6 +8,8 @@ export function assetPickerTrigger(scope: PickerScope, label: string) {
 }
 
 export async function openAssetPicker(page: Page, label: string, scope: PickerScope = page) {
+  if (['입금 자산', '결제 자산', '보내는 자산', '받는 자산'].includes(label)) await showRecordStep(page, 2)
+  if (label === '출금 계좌') await showCardPaymentStep(page, 2)
   const trigger = assetPickerTrigger(scope, label)
   await trigger.click()
   const picker = page.getByRole('dialog', { name: `${label} 선택`, exact: true })
@@ -41,7 +44,7 @@ export async function expectResponsiveAssetPicker(page: Page, trigger: Locator, 
     expect(Math.abs(pickerBox.x)).toBeLessThanOrEqual(1)
     expect(Math.abs(pickerBox.width - viewport.width)).toBeLessThanOrEqual(2)
     expect(Math.abs(pickerBox.y + pickerBox.height - viewport.height)).toBeLessThanOrEqual(2)
-    expect(triggerBox.height, '모바일 자산 선택 trigger가 카드처럼 높아지면 안 됩니다').toBeLessThanOrEqual(52)
+    expect(triggerBox.height, '모바일 선택 필드는 56px 높이를 유지해야 합니다').toBeLessThanOrEqual(56)
 
     const optionHeights = await picker.locator('[data-asset-option]').evaluateAll((options) => options.map((option) => option.getBoundingClientRect().height))
     expect(optionHeights.length).toBeGreaterThan(0)

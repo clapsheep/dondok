@@ -50,7 +50,8 @@ public class SecurityConfiguration {
             HttpSecurity http,
             AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter,
             SecurityContextRepository securityContextRepository,
-            SecurityProblemWriter securityProblemWriter
+            SecurityProblemWriter securityProblemWriter,
+            com.dondok.auth.application.AccountLifecycleService lifecycle
     ) throws Exception {
         HttpSessionCsrfTokenRepository csrfTokens = new HttpSessionCsrfTokenRepository();
         csrfTokens.setHeaderName("X-CSRF-TOKEN");
@@ -62,7 +63,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/auth/csrf",
-                                "/api/auth/login-ids/*/availability").permitAll()
+                                "/api/auth/login-ids/*/availability", "/api/legal").permitAll()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/auth/sign-up",
                                 "/api/auth/email-verifications",
@@ -73,7 +74,8 @@ public class SecurityConfiguration {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(securityProblemWriter::unauthorized)
                         .accessDeniedHandler(securityProblemWriter::forbidden))
-                .addFilterBefore(absoluteSessionLifetimeFilter, SessionManagementFilter.class);
+                .addFilterBefore(absoluteSessionLifetimeFilter, SessionManagementFilter.class)
+                .addFilterBefore(new ActiveAccountFilter(lifecycle, securityProblemWriter), SessionManagementFilter.class);
         return http.build();
     }
 }

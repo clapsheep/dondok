@@ -13,7 +13,7 @@ export function ThemeSettings() {
   const theme = useSyncExternalStore<Theme>(subscribeTheme, storedTheme, () => 'system')
 
   return (
-    <section className="mt-8 max-w-4xl border-y border-[var(--line)] py-5 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] sm:items-center sm:gap-8" aria-labelledby="theme-settings-title">
+    <section className="rounded-2xl bg-[var(--surface)] p-5 sm:p-6" aria-labelledby="theme-settings-title">
       <div>
         <h2 id="theme-settings-title" className="text-lg font-semibold">화면 모드</h2>
         <p className="mt-1 text-sm leading-6 text-[var(--muted)]">기기 설정을 따르면 휴대폰이나 컴퓨터의 화면 모드에 맞춰 자동으로 바뀌어요.</p>
@@ -23,7 +23,7 @@ export function ThemeSettings() {
         value={theme}
         onValueChange={(value) => saveTheme(value as Theme)}
         aria-labelledby="theme-settings-title"
-        className="mt-4 grid grid-cols-3 gap-0 divide-x divide-[var(--line)] border-y border-[var(--line)] sm:mt-0"
+        className="mt-5 grid max-w-lg grid-cols-3 gap-2"
       >
         {themeOptions.map(({ value, label, icon: Icon }) => {
           const selected = value === theme
@@ -32,9 +32,9 @@ export function ThemeSettings() {
             <label
               key={value}
               htmlFor={optionId}
-              className={`relative flex min-h-16 cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2 text-center text-sm transition-colors focus-within:z-10 focus-within:ring-3 focus-within:ring-inset focus-within:ring-[var(--ring)] ${selected ? 'bg-[var(--surface-selected)] font-semibold text-forest-800 dark:text-forest-100' : 'bg-[var(--surface)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-forest-800 dark:hover:text-forest-100'}`}
+              className={`ui-focus-group relative flex min-h-20 rounded-lg border border-transparent cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2 text-center text-sm transition-colors focus-within:z-10    ${selected ? 'bg-[var(--selection-surface)] font-semibold text-[var(--selection)]' : 'bg-[var(--surface)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-forest-800 dark:hover:text-forest-100'}`}
             >
-              <span className="flex items-center gap-1.5">
+              <span className="flex flex-wrap items-center justify-center gap-1.5">
                 <Icon size={18} aria-hidden="true" />
                 <span>{label}</span>
               </span>

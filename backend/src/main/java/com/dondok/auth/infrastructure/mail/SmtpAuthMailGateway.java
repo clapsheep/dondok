@@ -3,11 +3,15 @@ package com.dondok.auth.infrastructure.mail;
 import com.dondok.auth.application.MailProperties;
 import com.dondok.auth.application.PublicUrlProperties;
 import com.dondok.auth.domain.AuthMailGateway;
+import jakarta.mail.MessagingException;
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.mail.SimpleMailMessage;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -31,23 +35,32 @@ public class SmtpAuthMailGateway implements AuthMailGateway {
     @Override
     public void sendEmailVerification(String recipient, String displayName, String rawToken) {
         String link = publicUrlProperties.publicUrl() + "/verify-email?token=" + encode(rawToken);
-        send(recipient, "[돈독] 이메일을 인증해 주세요",
-                displayName + "님, 아래 링크에서 이메일 인증을 완료해 주세요.\n\n" + link + "\n\n링크는 24시간 동안 유효합니다.");
+        send(recipient, AuthMailContent.verification(displayName, link));
     }
 
     @Override
     public void sendPasswordReset(String recipient, String displayName, String rawToken) {
         String link = publicUrlProperties.publicUrl() + "/reset-password?token=" + encode(rawToken);
-        send(recipient, "[돈독] 비밀번호를 재설정해 주세요",
-                displayName + "님, 아래 링크에서 비밀번호를 재설정해 주세요.\n\n" + link + "\n\n링크는 30분 동안 한 번만 사용할 수 있습니다.");
+        send(recipient, AuthMailContent.passwordReset(displayName, link));
     }
 
-    private void send(String recipient, String subject, String body) {
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(mailProperties.from());
-        message.setTo(recipient);
-        message.setSubject(subject);
-        message.setText(body);
+    @Override
+    public void sendEmailChange(String recipient, String displayName, String code) {
+        send(recipient, AuthMailContent.emailChange(displayName, code));
+    }
+
+    private void send(String recipient, AuthMailContent content) {
+        var message = mailSender.createMimeMessage();
+        try {
+            var helper = new MimeMessageHelper(message, MimeMessageHelper.MULTIPART_MODE_RELATED, StandardCharsets.UTF_8.name());
+            helper.setFrom(mailProperties.from(), "돈독");
+            helper.setTo(recipient);
+            helper.setSubject(content.subject());
+            helper.setText(content.text(), content.html());
+            helper.addInline("dondok-wordmark", new ClassPathResource("mail/dondok-wordmark.png"), "image/png");
+        } catch (MessagingException | UnsupportedEncodingException exception) {
+            throw new MailPreparationException("Could not prepare authentication email", exception);
+        }
         mailSender.send(message);
     }
 

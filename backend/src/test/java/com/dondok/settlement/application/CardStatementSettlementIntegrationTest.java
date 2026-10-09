@@ -79,7 +79,7 @@ class CardStatementSettlementIntegrationTest {
         UUID ownerMember = UUID.randomUUID();
         jdbcTemplate.update("insert into ledger_member (id, book_id, user_id) values (?, ?, ?)",
                 ownerMember, fixture.bookId(), ownerUser);
-        jdbcTemplate.update("update asset set owner_member_id = ? where id = ?", ownerMember, fixture.card().assetId());
+        jdbcTemplate.update("update asset set owner_member_id = ? where id in (?, ?)", ownerMember, fixture.card().assetId(), fixture.bank().assetId());
         UUID statementId = statementId(purchase(fixture, 120_000, "manual-purchase").transactionId());
         prepay(fixture, statementId, 30_000, "manual-prior-prepay");
         var initial = statements.statement(fixture.userId(), statementId);
@@ -293,13 +293,13 @@ class CardStatementSettlementIntegrationTest {
     }
 
     @Test
-    void cardOwnerReceivesPaymentHistoryIndependentlyOfAccountOwnerAndWriter() {
+    void cardAndAccountOwnerReceivesPaymentHistoryIndependentlyOfWriter() {
         Fixture fixture = fixture(true, 0);
         UUID otherUser = createUser("카드 명의자");
         UUID cardOwner = UUID.randomUUID();
         jdbcTemplate.update("insert into ledger_member (id, book_id, user_id) values (?, ?, ?)",
                 cardOwner, fixture.bookId(), otherUser);
-        jdbcTemplate.update("update asset set owner_member_id = ? where id = ?", cardOwner, fixture.card().assetId());
+        jdbcTemplate.update("update asset set owner_member_id = ? where id in (?, ?)", cardOwner, fixture.card().assetId(), fixture.bank().assetId());
         UUID statementId = statementId(purchase(fixture, 120_000, "owner-purchase").transactionId());
         var prepayment = prepay(fixture, statementId, 30_000, "owner-prepay");
         var replay = statements.statement(fixture.userId(), statementId);

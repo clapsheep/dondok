@@ -1,6 +1,7 @@
 package com.dondok.auth.api;
 
 import com.dondok.auth.application.AuthService;
+import com.dondok.auth.application.AccountWithdrawalService;
 import com.dondok.auth.application.DondokPrincipal;
 import com.dondok.auth.infrastructure.security.AbsoluteSessionLifetimeFilter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,17 +34,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final com.dondok.auth.application.AccountProfileService profiles;
+    private final AccountWithdrawalService withdrawalService;
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
+    private final com.dondok.auth.application.AccountLifecycleService lifecycle;
 
     public AuthController(
             AuthService authService,
+            com.dondok.auth.application.AccountProfileService profiles,
+            AccountWithdrawalService withdrawalService,
             AuthenticationManager authenticationManager,
-            SecurityContextRepository securityContextRepository
+            SecurityContextRepository securityContextRepository,
+            com.dondok.auth.application.AccountLifecycleService lifecycle
     ) {
         this.authService = authService;
+        this.profiles = profiles;
+        this.withdrawalService = withdrawalService;
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
+        this.lifecycle = lifecycle;
     }
 
     @GetMapping("/csrf")
@@ -63,7 +73,7 @@ public class AuthController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     SignUpResponse signUp(@Valid @RequestBody SignUpRequest request) {
         AuthService.SignUpResult result = authService.signUp(
-                request.loginId(), request.displayName(), request.email(), request.password());
+                request.loginId(), request.displayName(), request.email(), request.password(), request.consent());
         return new SignUpResponse(result.email());
     }
 
@@ -81,6 +91,10 @@ public class AuthController {
     ) {
         Authentication authentication = authenticationManager.authenticate(
                 UsernamePasswordAuthenticationToken.unauthenticated(request.loginId(), request.password()));
+        var principal = (DondokPrincipal) authentication.getPrincipal();
+        if (!lifecycle.recordAuthenticatedActivity(principal.userId(), principal.getPassword())) {
+            throw new org.springframework.security.authentication.BadCredentialsException("Account changed during login");
+        }
         var context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
@@ -94,7 +108,8 @@ public class AuthController {
 
     @GetMapping("/me")
     SessionUser me(@AuthenticationPrincipal DondokPrincipal principal) {
-        return SessionUser.from(principal);
+        var profile = profiles.profile(principal.userId());
+        return new SessionUser(profile.userId(), profile.loginId(), profile.displayName(), profile.email());
     }
 
     @DeleteMapping("/session")
@@ -106,6 +121,20 @@ public class AuthController {
         }
         SecurityContextHolder.clearContext();
     }
+
+    @DeleteMapping("/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void withdraw(@AuthenticationPrincipal DondokPrincipal principal,
+            @Valid @RequestBody WithdrawalRequest body, HttpServletRequest request) {
+        withdrawalService.withdraw(principal.userId(), new AccountWithdrawalService.Command(
+                body.password(), body.confirmed(), body.expectedLedgerId(), body.expectedVersion()));
+        HttpSession session = request.getSession(false);
+        if (session != null) session.invalidate();
+        SecurityContextHolder.clearContext();
+    }
+
+    public record WithdrawalRequest(@NotBlank @Size(max = 128) String password, boolean confirmed,
+            java.util.UUID expectedLedgerId, @jakarta.validation.constraints.PositiveOrZero Long expectedVersion) {}
 
     @DeleteMapping("/sessions")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -135,7 +164,8 @@ public class AuthController {
             @Pattern(regexp = "^[A-Za-z0-9._-]{4,30}$") String loginId,
             @NotBlank @Size(max = 100) String displayName,
             @NotBlank @Email @Size(max = 320) String email,
-            @NotBlank @Size(min = 10, max = 128) String password
+            @NotBlank @Size(min = 10, max = 128) String password,
+            com.dondok.auth.application.SignUpConsent consent
     ) {
     }
 

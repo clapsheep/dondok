@@ -22,7 +22,7 @@ test('두 화면이 같은 자산을 수정하면 오래된 저장을 막고 입
 
   await page.getByLabel('메모 (선택)').fill('첫 번째 화면에서 저장')
   await page.getByRole('button', { name: '변경 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('자산 정보를 변경했어요')
+  await expect(page.getByRole('status').filter({ hasText: '자산 정보를 변경했어요' })).toBeVisible()
 
   await otherPage.getByLabel('자산 이름 (선택)', { exact: true }).fill('')
   await otherPage.getByRole('button', { name: '변경 저장' }).click()

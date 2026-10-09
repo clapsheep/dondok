@@ -9,6 +9,8 @@ test('설치형 PWA와 같은 WebKit에서도 앱 계산기로 원화 금액을 
   await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
 
   await page.goto('/transactions/new')
+  await page.getByRole('button', { name: '다음', exact: true }).click()
+  await page.getByRole('button', { name: '다음', exact: true }).click()
   const amount = page.getByLabel('금액', { exact: true })
   await expect(amount).toHaveAttribute('inputmode', 'none')
   const calculator = page.getByRole('dialog', { name: '금액 계산기' })

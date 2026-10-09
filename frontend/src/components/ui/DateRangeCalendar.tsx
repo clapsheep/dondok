@@ -34,12 +34,12 @@ export function DateRangeCalendar({ value, onChange }: { value: DateRangeValue; 
       labels={{ labelDayButton: (date) => toValue(date) }}
       classNames={{
         month_caption: 'hidden',
-        weekdays: 'border-b border-[var(--line-subtle)]',
+        weekdays: '',
         week: '',
         day_button: 'relative mx-auto grid h-10 w-full max-w-11 place-items-center rounded-md text-sm tabular-nums hover:bg-[var(--surface-hover)] focus-visible:z-20',
         selected: '',
-        range_start: 'rounded-l-md bg-[var(--surface-selected)] [&>button]:bg-forest-700 [&>button]:font-semibold [&>button]:text-white',
-        range_end: 'rounded-r-md bg-[var(--surface-selected)] [&>button]:bg-forest-700 [&>button]:font-semibold [&>button]:text-white',
+        range_start: 'rounded-l-md bg-[var(--surface-selected)] [&>button]:bg-[var(--selection)] [&>button]:font-semibold [&>button]:text-[var(--background)]',
+        range_end: 'rounded-r-md bg-[var(--surface-selected)] [&>button]:bg-[var(--selection)] [&>button]:font-semibold [&>button]:text-[var(--background)]',
         range_middle: 'bg-[var(--surface-selected)] [&>button]:text-[var(--foreground)]',
       }}
     />

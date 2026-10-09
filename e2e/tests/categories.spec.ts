@@ -1,3 +1,4 @@
+import { fillRecordField, showRecordStep } from './support/record-steps'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { submitQuickAsset } from './support/assets'
 import { registerAndLogin } from './support/auth'
@@ -71,15 +72,17 @@ test('공동 분류를 추가·수정하고 사용 중 삭제하면 거래를 �
   await expect(categoryButton(page, originalName)).toHaveCount(0)
 
   await page.goto('/transactions/new')
-  await page.getByLabel('금액').fill(String(amount))
+  await fillRecordField(page, '금액', String(amount))
+  await showRecordStep(page, 2)
   await transactionCategoryTrigger(page).click()
   const picker = page.getByRole('dialog', { name: '지출 분류 선택' })
   const pickerNames = await picker.locator('button[aria-pressed]').allTextContents()
   expect(pickerNames.indexOf(targetName)).toBeLessThan(pickerNames.indexOf(movedName))
   await page.keyboard.press('Escape')
   await selectTransactionCategory(page, renamedName)
+  await showRecordStep(page, 3)
   await page.getByRole('button', { name: '기록 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 기록했어요.' })).toBeVisible()
   await expect(transactionRow(page, renamedName)).toContainText(`-${amount.toLocaleString('ko-KR')}원`)
 
   await page.goto('/settings/categories?kind=EXPENSE')

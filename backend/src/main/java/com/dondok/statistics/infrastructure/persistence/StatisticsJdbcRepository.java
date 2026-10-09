@@ -207,7 +207,7 @@ public class StatisticsJdbcRepository {
                        detail_asset.id asset_id,
                        detail_asset.name asset_name,
                        performer.id performer_id,
-                       performer_user.display_name performer_name
+                       case when performer.id is not null then coalesce(performer_user.display_name, '탈퇴한 구성원') end performer_name
                   from ledger_financial_activity activity
                   join ledger_transaction transaction
                     on transaction.book_id = activity.book_id

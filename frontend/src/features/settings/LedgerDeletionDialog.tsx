@@ -148,7 +148,7 @@ export function LedgerDeletionDialog({ initialLedger, onRequestClose, onResolved
       initialFocus={heading}
     >
       <form className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6" onSubmit={submit}>
-        <header className="flex items-start justify-between gap-4 border-b border-[var(--line)] pb-4">
+        <header className="flex items-start justify-between gap-4 ui-page-section pb-4">
           <div>
             <DialogTitle ref={heading} id="ledger-deletion-dialog-title" className="outline-none" tabIndex={-1}>가계부 삭제</DialogTitle>
             <DialogDescription id="ledger-deletion-dialog-description" className="mt-2">가계부 데이터는 삭제되지만 구성원의 돈독 계정과 로그인은 유지됩니다.</DialogDescription>
@@ -158,7 +158,7 @@ export function LedgerDeletionDialog({ initialLedger, onRequestClose, onResolved
 
         <div className="py-5">
           <p className="font-semibold leading-6">모든 구성원과 자산·거래·분류·카드 결제 기록·초대가 함께 영구 삭제됩니다.</p>
-          <div className="mt-4 border-y border-[var(--line)] py-3">
+          <div className="mt-4 ui-soft-panel py-3">
             <p className="text-sm font-semibold">영향받는 구성원 {snapshot.members.length}명</p>
             <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[var(--muted)]" aria-label="가계부 삭제 영향 구성원">
               {snapshot.members.map((member) => <li key={member.memberId}>{member.displayName}{member.currentUser ? ' (나)' : ''}</li>)}
@@ -180,18 +180,18 @@ export function LedgerDeletionDialog({ initialLedger, onRequestClose, onResolved
           </div>
 
           {conflict ? (
-            <div ref={conflictAlert} className="mt-5 border-l-4 border-amber-500 px-4 py-2 outline-none" role="alert" tabIndex={-1}>
+            <div ref={conflictAlert} className="mt-5 ui-notice px-4 py-2 outline-none" role="alert" tabIndex={-1}>
               <p className="font-semibold">가계부가 변경됐어요</p>
               <p className="mt-1 text-sm leading-6">입력한 확인 문구는 그대로 두었습니다. 최신 구성원 정보를 확인한 뒤 다시 삭제해 주세요.</p>
               <Button className="mt-3" type="button" variant="secondary" disabled={checkingCurrent || !online} onClick={() => void reconcileCurrent('CONFLICT')}>{checkingCurrent ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 내용 다시 확인</Button>
             </div>
           ) : null}
-          {!online ? <p className="mt-5 border-l-4 border-amber-500 px-4 py-2 text-sm" role="status">오프라인 상태예요. 연결되면 입력을 유지한 채 삭제할 수 있어요.</p> : null}
-          {reconcileError ? <p className="mt-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{reconcileError}</p> : null}
-          {ordinaryError ? <p className="mt-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{ordinaryError instanceof Error ? ordinaryError.message : '가계부를 삭제하지 못했어요.'} 확인 문구는 그대로 두었습니다.</p> : null}
+          {!online ? <p className="mt-5 ui-notice px-4 py-2 text-sm" role="status">오프라인 상태예요. 연결되면 입력을 유지한 채 삭제할 수 있어요.</p> : null}
+          {reconcileError ? <p className="mt-5 ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{reconcileError}</p> : null}
+          {ordinaryError ? <p className="mt-5 ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{ordinaryError instanceof Error ? ordinaryError.message : '가계부를 삭제하지 못했어요.'} 확인 문구는 그대로 두었습니다.</p> : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4 sm:flex sm:justify-end">
+        <div className="grid grid-cols-2 gap-2 ui-page-section pt-4 sm:flex sm:justify-end">
           <Button type="button" variant="secondary" disabled={remove.isPending} onClick={requestClose}>취소</Button>
           {!conflict ? <Button type="submit" variant="destructive" disabled={!online || !isLedgerDeletionConfirmed(phrase) || remove.isPending || checkingCurrent}>{remove.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}영구 삭제</Button> : null}
         </div>

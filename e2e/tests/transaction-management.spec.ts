@@ -1,3 +1,4 @@
+import { fillRecordField, showRecordStep } from './support/record-steps'
 import { expectRecordActions } from './support/record-actions'
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { submitQuickAsset } from './support/assets'
@@ -49,7 +50,7 @@ test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보�
   const dayGroup = page.getByRole('region', { name: '2026년 8월 12일 수', exact: true })
   await expect(dayGroup.getByRole('listitem')).toHaveCount(2)
   await expect(dayGroup.locator('header')).toHaveCSS('border-top-width', '1px')
-  const addRecord = page.getByRole('button', { name: '기록 추가', exact: true })
+  const addRecord = page.getByRole('link', { name: '기록 추가', exact: true })
   await expect(addRecord).toHaveText('')
   await expectTouchTarget(addRecord, '기록 추가')
   const addBox = await addRecord.boundingBox()
@@ -83,27 +84,28 @@ test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보�
   const dayDetail = page.getByRole('region', { name: '2026-08-12 거래 상세', exact: true })
   await expect(dayDetail.getByRole('listitem')).toHaveCount(2)
   await expect(dayDetail.getByRole('listitem').first()).toHaveCSS('border-bottom-width', '0px')
-  await expect(dayDetail.getByRole('list')).toHaveCSS('padding-left', `${listLayout.indent}px`)
+  await expect(dayDetail.getByRole('list')).toHaveCSS('padding-left', '0px')
   await page.goto(ledgerUrl)
-  await page.getByRole('button', { name: '기록 추가', exact: true }).click()
-  const recordDialog = page.getByRole('dialog', { name: '거래 기록' })
-  await expect(recordDialog).toBeVisible()
-  await expect(page).toHaveURL(ledgerUrl)
-  await expect(recordDialog.getByRole('button', { name: '결제 자산' })).toContainText(assetName)
-  await recordDialog.getByLabel('금액').fill('9000')
-  await recordDialog.getByRole('button', { name: /^분류 선택, 현재 / }).click()
+  await page.getByRole('link', { name: '기록 추가', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /^(기록|어떤 거래인가요\?)$/ })).toBeVisible()
+  await expect(page).toHaveURL(/\/transactions\/new\?assetId=/)
+  await expect(page.getByRole('dialog', { name: '기록', exact: true })).toHaveCount(0)
+  await showRecordStep(page, 2)
+  await expect(page.getByRole('button', { name: '결제 자산' })).toContainText(assetName)
+  await fillRecordField(page, '금액', '9000')
+  await showRecordStep(page, 2)
+  await page.getByRole('button', { name: /^분류 선택, 현재 / }).click()
   const categoryDialog = page.getByRole('dialog', { name: /분류 선택$/ })
   await categoryDialog.getByRole('button', { name: '식비', exact: true }).click()
-  await recordDialog.getByLabel('내용 (선택)').fill(quickDescription)
-  await recordDialog.getByRole('button', { name: '거래 기록 닫기' }).click()
-  const discardDialog = page.getByRole('dialog', { name: '작성 중인 기록을 닫을까요?' })
+  await fillRecordField(page, '내용 (선택)', quickDescription)
+  await page.getByRole('link', { name: '자산으로 돌아가기' }).click()
+  const discardDialog = page.getByRole('dialog', { name: '작성 중인 기록을 나갈까요?' })
   await expect(discardDialog).toBeVisible()
   await discardDialog.getByRole('button', { name: '계속 작성' }).click()
-  await expect(recordDialog.getByLabel('내용 (선택)')).toHaveValue(quickDescription)
-  await recordDialog.getByRole('button', { name: '기록 저장' }).click()
-  await expect(recordDialog).toHaveCount(0)
+  await expect(page.getByLabel('내용 (선택)')).toHaveValue(quickDescription)
+  await page.getByRole('button', { name: '기록 저장' }).click()
   await expect(page).toHaveURL(ledgerUrl)
-  await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 기록했어요.' })).toBeVisible()
   await expect(transactionRow(page, quickDescription)).toContainText('-9,000원')
   await expect(page.getByText('현재 잔액', { exact: true }).locator('..')).toContainText('291,000원')
 
@@ -270,17 +272,17 @@ test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계
   if ((page.viewportSize()?.width ?? 1280) < 768) {
     await expect(page.getByRole('link', { name: '거래 목록으로', exact: true })).toBeVisible()
   }
-  await expect(page.getByLabel('거래 종류')).toHaveText('지출')
+  await expect(page.getByText('지출 · 종류는 바꿀 수 없어요', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '수입', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '이체', exact: true })).toHaveCount(0)
 
-  await page.getByLabel('금액').fill('24000')
+  await fillRecordField(page, '금액', '24000')
   const description = page.getByLabel('내용 (선택)')
   await description.fill(after)
   await expectTransactionDraftAcrossWidths(page, description, after)
   await page.getByRole('button', { name: '변경 저장' }).click()
 
-  await expect(page.getByRole('status')).toContainText('거래를 수정했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 수정했어요.' })).toBeVisible()
   const updatedRow = transactionRow(page, after)
   await expect(updatedRow).toContainText('-24,000원')
   await expect(transactionRow(page, before)).toHaveCount(0)
@@ -297,7 +299,7 @@ test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계
   await expectTouchTarget(deleteButton, '거래 삭제')
   await deleteButton.click()
 
-  await expect(page.getByRole('status')).toContainText('거래를 삭제했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 삭제했어요.' })).toBeVisible()
   await expect(transactionRow(page, after)).toHaveCount(0)
   await expect(page.getByText('-24,000원', { exact: true })).toHaveCount(0)
   expect(await hasPageOverflow(page)).toBe(false)
@@ -321,10 +323,12 @@ test('계좌 지출은 신용카드 구매로 정정하고 이전 계좌 잔액�
   await expect(page.getByRole('heading', { name: '거래 수정' })).toBeVisible()
   await expect(page.getByLabel('할부 개월')).toHaveCount(0)
   await selectAsset(page, '결제 자산', '신용카드')
+  await showRecordStep(page, 3)
+  await page.locator('summary').filter({ hasText: '카드 결제' }).click()
   await expect(page.getByLabel('할부 개월')).toBeVisible()
   await page.getByLabel('할부 개월').fill('3')
-  await page.getByLabel('금액').fill('30000')
-  await page.getByLabel('내용 (선택)').fill(after)
+  await fillRecordField(page, '금액', '30000')
+  await fillRecordField(page, '내용 (선택)', after)
 
   const updateResponsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url())
@@ -349,7 +353,7 @@ test('계좌 지출은 신용카드 구매로 정정하고 이전 계좌 잔액�
   expect(updated.postings).toHaveLength(1)
   expect(updated.postings[0]).toMatchObject({ assetId: updated.asset?.assetId, deltaWon: -30_000 })
 
-  await expect(page.getByRole('status')).toContainText('거래를 수정했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 수정했어요.' })).toBeVisible()
   const correctedRow = page.getByRole('listitem').filter({ hasText: after })
   await expect(correctedRow).toContainText('-30,000원')
   await expect(transactionRow(page, before)).toHaveCount(0)
@@ -402,11 +406,11 @@ test('두 독립 세션의 같은 거래 수정은 오래된 저장을 거부하
   try {
     await other.page.goto(detailUrl)
     await expect(other.page.getByRole('heading', { name: '거래 수정' })).toBeVisible()
-    await other.page.getByLabel('내용 (선택)').fill(preservedDraft)
+    await fillRecordField(other.page, '내용 (선택)', preservedDraft)
 
-    await page.getByLabel('내용 (선택)').fill(serverLatest)
+    await fillRecordField(page, '내용 (선택)', serverLatest)
     await page.getByRole('button', { name: '변경 저장' }).click()
-    await expect(page.getByRole('status')).toContainText('거래를 수정했어요.')
+    await expect(page.getByRole('status').filter({ hasText: '거래를 수정했어요.' })).toBeVisible()
 
     const conflictResponsePromise = other.page.waitForResponse((response) => {
       const url = new URL(response.url())
@@ -450,12 +454,12 @@ async function prepareLedgerWithBank(page: Page) {
 
 async function createExpense(page: Page, transaction: { amount: string; description: string; assetName?: string }) {
   await page.goto('/transactions/new')
-  await page.getByLabel('금액').fill(transaction.amount)
+  await fillRecordField(page, '금액', transaction.amount)
   await selectTransactionCategory(page, '식비')
   if (transaction.assetName) await selectAsset(page, '결제 자산', transaction.assetName)
-  await page.getByLabel('내용 (선택)').fill(transaction.description)
+  await fillRecordField(page, '내용 (선택)', transaction.description)
   await page.getByRole('button', { name: '기록 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 기록했어요.' })).toBeVisible()
 }
 
 async function seedAssetLedgerTransactions(page: Page, assetName: string, inputs: Array<{ occurredOn: string; amountWon: number; description: string }>) {
@@ -535,7 +539,7 @@ async function expectTransactionDraftAcrossWidths(page: Page, field: Locator, va
     await page.setViewportSize({ width, height: width < 768 ? 760 : 900 })
     await expect(field).toHaveValue(value)
     await expect(field).toBeFocused()
-    await expect(page.getByLabel('거래 종류')).toHaveText('지출')
+    await expect(page.getByText('지출 · 종류는 바꿀 수 없어요', { exact: true })).toBeVisible({ visible: width >= 768 })
     expect(await hasPageOverflow(page)).toBe(false)
   }
   if (originalViewport) await page.setViewportSize(originalViewport)

@@ -1,0 +1,92 @@
+/* Shared reading rhythm: surfaces for summaries, spacing for ordinary rows. */
+.ui-page { max-width:70rem; margin-inline:auto; padding-block:1.5rem 3rem; }
+.ui-page-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.75rem; }
+.ui-subtitle { margin-top:.4rem; font-size:.875rem; color:var(--muted); }
+.ui-caption { font-size:.75rem; color:var(--muted); line-height:1.7; }
+.ui-segmented { display:flex; flex-wrap:wrap; width:fit-content; max-width:100%; gap:.25rem; padding:.25rem; background:var(--surface); border-radius:.75rem; }
+.ui-segmented .ui-segment { max-width:100%; min-width:0; overflow-wrap:anywhere; white-space:normal; min-height:2.75rem; border:0; border-radius:.5rem; padding-inline:1rem; color:var(--muted); font-weight:500; }
+.ui-segmented .ui-segment[aria-pressed=true],.ui-segmented .ui-segment[data-selected=true] { background:var(--background); color:var(--selection); font-weight:600; }
+.ui-kind-filter { background:transparent; padding:0; margin-block:1rem 1.5rem; }
+.ui-kind-filter .ui-segment { padding-inline:.875rem; font-size:.8125rem; }
+.ui-kind-filter .ui-segment[aria-pressed=true] { background:var(--selection-surface); }
+.ui-summary { display:grid; gap:1.75rem; padding:1.5rem; background:var(--surface); border-radius:1.25rem; min-width:0; }
+.ui-summary>dl>dt { font-size:.8125rem; color:var(--muted); }
+.ui-total { margin-block:.5rem; font-size:clamp(1.75rem,7.8cqi,2.75rem); font-weight:650; letter-spacing:-.04em; font-variant-numeric:tabular-nums; line-height:1.35; white-space:nowrap; }
+.ui-total[data-long-money=true] { font-size:clamp(1rem,4.9cqi,1.875rem); }
+.ui-summary-details { display:grid; gap:1rem; align-content:center; }
+.ui-summary-details>div { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:.4rem 1.5rem; }
+.ui-summary-details dt { color:var(--muted); font-size:.8125rem; }
+.ui-summary-details dd { margin-left:auto; font-size:1rem; font-weight:550; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.ui-overview-layout { display:grid; gap:2rem; margin-top:2rem; }
+.ui-section-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.ui-section-heading h2 { font-size:1.0625rem; font-weight:600; }
+.ui-section-heading h2>span { font-size:.8125rem; color:var(--muted); font-weight:400; margin-left:.25rem; }
+.ui-soft-panel { padding:1.5rem; background:var(--surface); border-radius:1.125rem; min-width:0; }
+.ui-soft-panel .ui-section-heading h2 { font-size:.9375rem; }
+.ui-asset-group { margin-top:1.5rem; min-width:0; }
+.ui-asset-group>header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:baseline; gap:.5rem 1rem; margin-bottom:.4rem; color:var(--muted); font-size:.75rem; }
+.ui-asset-group>header h2 { font-weight:500; }
+.ui-asset-group>header h2 span { margin-left:.3rem; opacity:.8; }
+.ui-asset-group>header>span { margin-left:auto; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.ui-asset-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.75rem; min-height:3.5rem; padding:.875rem .25rem; border-radius:.75rem; }
+.ui-asset-row:hover { background:var(--surface); }
+.ui-asset-identity { display:block; min-width:0; }
+.ui-asset-title { display:flex; min-width:0; align-items:center; gap:.5rem; }
+.ui-asset-icon { width:1.25rem; height:1.25rem; display:grid; place-items:center; flex-shrink:0; color:var(--muted); background:transparent; }
+.ui-asset-icon>[data-financial-institution-avatar], .ui-asset-icon>[data-card-issuer-avatar] { width:1.25rem; height:1.25rem; font-size:.5rem; }
+.ui-asset-icon:has([data-logo-kind="wordmark"]) { width:2.5rem; }
+.ui-asset-icon>[data-financial-institution-avatar][data-logo-kind="wordmark"] { width:2.5rem; }
+.ui-asset-icon svg { width:1rem; height:1rem; }
+.ui-asset-identity strong { display:block; min-width:0; font-size:.875rem; font-weight:550; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ui-asset-inline-type { flex-shrink:0; white-space:nowrap; font-size:.75rem; font-weight:400; color:var(--muted); }
+.ui-asset-metadata { display:flex; flex-wrap:wrap; column-gap:.3rem; color:var(--muted); font-size:.75rem; margin-top:.3rem; overflow-wrap:anywhere; }
+.ui-asset-metadata>span+span::before { content:'·'; margin-right:.3rem; }
+.ui-asset-money { white-space:nowrap; font-variant-numeric:tabular-nums; font-size:.9375rem; font-weight:550; text-align:right; }
+.ui-asset-money small { display:block; font-size:.75rem; font-weight:400; color:var(--muted); margin-top:.25rem; }
+.ui-asset-row[data-long-money=true] { grid-template-columns:minmax(0,1fr); }
+.ui-asset-row[data-long-money=true] .ui-asset-money { font-size:.875rem; }
+.ui-payment-totals { display:grid; gap:.875rem; margin-top:1.5rem; }
+.ui-payment-totals>div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.25rem 1rem; }
+.ui-payment-totals dt { font-size:.75rem; color:var(--muted); }
+.ui-payment-totals dd { font-size:.875rem; font-variant-numeric:tabular-nums; margin-left:auto; overflow-wrap:anywhere; }
+.ui-card-due { margin-top:1.75rem; }
+.ui-card-link { min-height:2.75rem; display:flex; align-items:center; justify-content:space-between; gap:.75rem; font-size:.875rem; font-weight:550; overflow-wrap:anywhere; }
+.ui-card-link svg { flex-shrink:0; }
+.ui-due-amount { font-size:clamp(1.25rem,5cqi,1.75rem); font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.03em; margin-top:.25rem; overflow-wrap:anywhere; }
+.ui-due-amount[data-long-money=true] { font-size:1rem; }
+.ui-next-payment { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:.5rem; margin-top:1rem; font-size:.75rem; color:var(--muted); }
+.ui-next-payment strong { font-size:.875rem; font-weight:500; color:var(--foreground); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.ui-text-link { display:flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.8125rem; color:var(--selection); }
+.ui-archived { margin-top:2rem; }
+.ui-archived>summary { min-height:2.75rem; padding-block:.75rem; font-size:.8125rem; color:var(--muted); cursor:pointer; }
+.ui-notice { margin-block:1rem; border-radius:.75rem; padding:.875rem 1rem; background:var(--surface); color:var(--muted); font-size:.875rem; line-height:1.7; }
+.ui-empty { padding-block:3rem; text-align:center; color:var(--muted); font-size:.875rem; }
+.ui-empty>*+* { margin-top:1rem; }
+.ui-stat-controls { display:flex; flex-direction:column; align-items:stretch; gap:1rem; margin-bottom:1.5rem; }
+.ui-month-navigation { display:grid; grid-template-columns:2.75rem minmax(0,1fr) 2.75rem; align-items:center; }
+.ui-month-navigation h2 { text-align:center; font-size:1rem; font-weight:550; white-space:nowrap; }
+.ui-stat-layout { display:grid; gap:2rem; margin-block:2rem; }
+.ui-stat-ranking .ui-section-heading { flex-wrap:wrap; }
+.ui-stat-ranking ol { margin-top:.875rem; }
+.ui-stat-ranking ol>li button,.ui-stat-ranking ol>li>div { border-radius:.625rem; padding-block:1rem; }
+.ui-ranking-track { margin:.625rem 0 0 2.25rem; display:block; height:.3rem; border-radius:1rem; overflow:hidden; background:var(--surface); }
+.ui-ranking-track>span { display:block; height:100%; border-radius:inherit; }
+.ui-yearly { background:var(--surface); padding:1.5rem; border-radius:1.125rem; }
+.ui-yearly h2 { font-size:1.0625rem; font-weight:600; }
+.ui-yearly [data-month-bar-group]>span { border-radius:4px 4px 0 0; }
+.ui-yearly details { margin-top:1.5rem; }
+.ui-formation dl { margin-top:1rem; display:grid; gap:.875rem; }
+.ui-formation dl>div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.5rem; font-size:.8125rem; }
+.ui-formation dt { color:var(--muted); }
+.ui-formation dd { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.ui-formation summary { cursor:pointer; color:var(--muted); font-size:.8125rem; padding-block:1rem; min-height:2.75rem; }
+@container (min-width:40rem) {
+  .ui-summary { grid-template-columns:minmax(0,1fr) minmax(15rem,.75fr); padding:2rem; gap:2rem; }
+  .ui-stat-controls { flex-direction:row; justify-content:space-between; align-items:center; }
+  .ui-month-navigation { min-width:15rem; }
+}
+@container (min-width:54rem) {
+  .ui-overview-layout,.ui-stat-layout { grid-template-columns:minmax(0,1fr) 19rem; gap:3.5rem; margin-top:2.5rem; }
+  .ui-stat-layout>.ui-formation { align-self:start; }
+}
+@media (min-width:48rem) { .ui-page { padding-top:2rem; } }

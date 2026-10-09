@@ -45,6 +45,8 @@
 
 ## 환경변수와 비밀정보
 
+공개 연락처와 휴면·로그 보관 설정은 [개인정보 보관 운영](privacy-retention.md)을 따른다. `DONDOK_LEGAL_OPERATOR_NAME`·`DONDOK_LEGAL_CONTACT_EMAIL`은 사용자에게 공개되는 법정 연락처이며 호스트 환경파일에서 주입한다. 운영 backend는 `production` profile과 전용 로그 volume으로 최대 30일의 파일 로그를 관리한다.
+
 - 실제 값은 저장소 루트 `.env`, 앱별 `.env.local` 또는 Mac mini의 Docker secret 파일에만 둔다.
 - `.env`, `.env.*`, 모든 하위 폴더의 환경파일과 `secrets/`는 Git에서 제외한다.
 - 예외는 값이 비어 있거나 `CHANGE_ME`인 `.env.example`뿐이다.
@@ -188,6 +190,8 @@ DONDOK_SMTP_STARTTLS=true
 기존 SMTP gateway를 그대로 사용하며 API key가 SMTP 비밀번호 역할을 한다. 환경파일 저장 후 새 배포에서 backend 컨테이너를 재생성해야 반영된다. 단순 restart는 환경변수를 갱신하지 않는다. 발신용 도메인 인증만으로 답장 수신 메일함을 만든 것은 아니다.
 
 배포 후 인증·비밀번호 재설정 메일을 각각 받아 발신 주소, 실제 HTTPS origin의 링크, token 1회성과 Resend 발송 상태를 확인한다. 배포 workflow의 HTTP smoke만 통과한 상태를 실제 메일 수신 완료로 보고하지 않는다. API key를 출력하지 않고 provider host·발신 주소 일치 여부만 점검한다.
+
+인증·비밀번호 재설정 메일은 `돈독` 발신자 이름과 공통 HTML 템플릿을 사용한다. `multipart/alternative`의 일반 텍스트 fallback과 `multipart/related`의 CID PNG 로고를 함께 보내므로 외부 이미지 서버나 추적 pixel은 필요 없다. 템플릿은 `backend/src/main/resources/mail/auth-email.html`, 로고는 같은 디렉터리의 `dondok-wordmark.png`이며 브랜드 생성 스크립트로 원본 SVG에서 재생성한다. `SmtpAuthMailGatewayTest`는 MIME·이름 escaping·링크/유효 시간을 검증하고 `backend/build/mail-preview/`에 가상 주소를 쓰는 시각 검수용 HTML을 만든다. Gmail·Outlook 등 실제 메일 앱의 렌더링은 배포 후 별도 확인한다.
 
 참고: [Resend SMTP](https://resend.com/docs/send-with-smtp), [도메인 인증](https://resend.com/docs/dashboard/domains/introduction).
 
@@ -374,3 +378,7 @@ where ownership_scope <> 'PERSONAL' or owner_member_id is null;
 ### V31 수동 카드 결제
 
 V31은 결제 유형 MANUAL과 해당 유형의 작성자 필수 제약을 추가한다. 기존 행·posting을 변경하지 않는다. V30 이후 순차 적용하며 API와 UI를 함께 갱신한다. MANUAL 데이터를 작성한 뒤에는 해당 유형을 이해하는 버전으로만 앱 롤백한다. 제약을 축소하거나 결제 원장을 삭제하는 down migration은 수행하지 않는다.
+
+### 스키마 변경 릴리스의 기동 실패
+
+릴리스 간 Flyway 파일 변경이 있으면 readiness 실패 시 이전 바이너리를 자동 재기동하지 않는다. frontend/backend를 중지하고 DB와 사전 백업을 보존한 채 스키마 호환 수정 릴리스로 복구한다. 스키마 변경이 없는 릴리스만 실제 이전 이미지 ID로 자동 앱 롤백한다. 이 보수적인 판정은 migration 적용 완료 여부를 추측하지 않는다. 운영 DB를 백업으로 자동 덮어쓰지 않는다.

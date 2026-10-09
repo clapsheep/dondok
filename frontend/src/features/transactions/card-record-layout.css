@@ -1,0 +1,18 @@
+.card-original-purchase { padding:16px 18px; border-radius:14px; background:var(--surface); font-size:12px; line-height:1.9; overflow-wrap:anywhere; margin-bottom:24px; }
+.card-original-purchase strong { font-weight:500; }
+.card-record-editor .tr-panel { gap:20px; margin-bottom:26px; }
+.card-record-editor .tr-installment summary,.card-record-editor .tr-performer summary { list-style:none; }
+.card-record-editor summary::-webkit-details-marker { display:none; }
+.card-record-editor .tr-footer { border:0; margin-top:20px; padding-top:8px; }
+.card-record-actions { display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:28px; }
+.card-impact-preview { margin-top:28px; border-radius:18px; background:var(--surface); padding:22px; }
+@media(max-width:767px) {
+  .card-record-editor .tr-mobile-title { font-size:23px; }
+  .card-record-editor .tr-panel { min-height:240px; }
+  .card-record-editor .tr-performer { display:none; }
+  .card-record-editor[data-record-step="3"] .tr-performer { display:block; }
+  .card-record-actions { display:grid; grid-template-columns:1fr; }
+  .refund-record[data-record-step="1"] .refund-confirm { display:none; }
+  .refund-record[data-record-step="2"] .tr-next { display:none; }
+  .card-impact-preview { padding:18px; }
+}

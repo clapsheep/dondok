@@ -1,16 +1,9 @@
+import { AssetIcon } from './AssetIcon'
 import {
-  ChartNoAxesCombined,
   Check,
   ChevronDown,
   CircleEllipsis,
-  CreditCard,
-  HandCoins,
-  Landmark,
-  PiggyBank,
-  ShieldCheck,
-  Wallet,
   X,
-  type LucideIcon,
 } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { MemberAvatar } from '../../components/MemberAvatar'
@@ -27,13 +20,9 @@ import {
 } from '../../components/ui/Popover'
 import { Switch } from '../../components/ui/Switch'
 import type { LedgerMember } from '../membership/api'
-import type { Asset, AssetTypeSystemCode } from './api'
+import type { Asset } from './api'
 import { assetPickerAmountLabel } from './assetPickerAmount'
 import { buildAssetOverview, type AssetGroupKey } from './overview'
-import { FinancialInstitutionAvatar } from './FinancialInstitutionPicker'
-import { financialInstitutionName, financialInstitutionUsageFor } from './financialInstitutions'
-import { CardIssuerAvatar } from './CardIssuerPicker'
-import { cardIssuer } from './cardIssuers'
 
 type MissingAssetSelection = {
   assetId: string
@@ -60,18 +49,6 @@ type PickerGroup = {
   key: AssetGroupKey
   label: string
   items: Asset[]
-}
-
-const assetIcons: Record<AssetTypeSystemCode, LucideIcon> = {
-  CASH: Wallet,
-  BANK: Landmark,
-  CREDIT_CARD: CreditCard,
-  DEBIT_CARD: CreditCard,
-  SAVINGS: PiggyBank,
-  INVESTMENT: ChartNoAxesCombined,
-  LOAN: HandCoins,
-  INSURANCE: ShieldCheck,
-  OTHER: CircleEllipsis,
 }
 
 export function AssetPicker({
@@ -154,7 +131,7 @@ export function AssetPicker({
         </PopoverTrigger>
 
         <PopoverContent className="h-[min(52dvh,30rem)] md:h-auto" positionerClassName="asset-picker-positioner" aria-labelledby={titleId} aria-describedby={descriptionId} finalFocus={trigger}>
-          <PopoverHeader className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start border-b border-[var(--line)] px-4 py-3 md:flex md:px-5 md:py-4">
+          <PopoverHeader className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start  px-4 py-3 md:flex md:px-5 md:py-4">
             <div className="min-w-0">
               <PopoverTitle id={titleId}>{label} 선택</PopoverTitle>
               <PopoverDescription id={descriptionId} className="sr-only md:not-sr-only md:mt-1">처음에는 내 자산만 보여요. 필요하면 모든 자산 보기를 켜세요.</PopoverDescription>
@@ -178,7 +155,7 @@ export function AssetPicker({
           {!showAllAssets && selectedOutsideOwnAssets ? (
             <button
               type="button"
-              className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-2 text-left text-xs text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-forest-800 dark:hover:text-forest-100"
+              className="flex min-h-11 shrink-0 items-center justify-between gap-3  px-4 py-2 text-left text-xs text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-forest-800 dark:hover:text-forest-100"
               onClick={() => changeAssetScope(true)}
             >
               <span>현재 선택은 다른 구성원 자산이에요.</span>
@@ -187,7 +164,7 @@ export function AssetPicker({
           ) : null}
 
           {groups.length > 1 ? (
-            <div className="flex shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-[var(--line)] px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] md:overflow-visible md:px-4 md:py-2" role="group" aria-label="자산 종류 필터">
+            <div className="flex shrink-0 gap-1 overflow-x-auto overscroll-x-contain  px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] md:overflow-visible md:px-4 md:py-2" role="group" aria-label="자산 종류 필터">
               <GroupFilter label="전체" count={visibleAssets.length} active={activeGroup === 'all'} onSelect={() => setActiveGroup('all')} />
               {groups.map((group) => <GroupFilter key={group.key} label={group.label} count={group.items.length} active={activeGroup === group.key} onSelect={() => setActiveGroup(group.key)} />)}
             </div>
@@ -200,7 +177,7 @@ export function AssetPicker({
                 <PopoverClose
                   render={<button
                     type="button"
-                    className="flex min-h-14 w-full items-center gap-2 border-y border-[var(--line)] px-2 py-2 text-left hover:bg-[var(--surface-hover)]"
+                    className="flex min-h-14 w-full items-center gap-2  px-2 py-2 text-left hover:bg-[var(--surface-hover)]"
                     data-asset-option
                     data-asset-id={missingSelected.assetId}
                     aria-label={`${missingSelected.name}, 현재 목록에 없음`}
@@ -218,7 +195,7 @@ export function AssetPicker({
             {filteredGroups.length ? filteredGroups.map((group) => (
               <section className={missingSelected ? 'mt-3' : undefined} key={group.key} aria-labelledby={`${id}-${group.key}-group`}>
                 <h3 id={`${id}-${group.key}-group`} className="flex items-center justify-between px-1 py-1.5 text-xs font-semibold text-[var(--muted)]"><span>{group.label}</span><span>{group.items.length}개</span></h3>
-                <div className="grid border-t border-[var(--line)] md:grid-cols-2 md:border-l" role="group" aria-label={`${group.label} 자산`}>
+                <div className="grid  md:grid-cols-2 " role="group" aria-label={`${group.label} 자산`}>
                   {group.items.map((asset) => (
                     <AssetOption key={asset.assetId} asset={asset} members={members} active={asset.assetId === value} onSelect={selectAsset} />
                   ))}
@@ -236,17 +213,13 @@ export function AssetPicker({
 }
 
 function AssetTriggerValue({ asset, members }: { asset: Asset; members: LedgerMember[] }) {
-  const Icon = assetIcons[asset.systemCode]
   const owner = resolveOwner(asset, members)
-  const bankRelated = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' || asset.systemCode === 'LOAN' || asset.systemCode === 'INVESTMENT'
-  const cardRelated = asset.systemCode === 'CREDIT_CARD' || asset.systemCode === 'DEBIT_CARD'
-  const brandName = bankRelated ? financialInstitutionName(asset.financialInstitutionCode, financialInstitutionUsageFor(asset.systemCode)) : cardRelated ? cardIssuer(asset.cardIssuerCode).name : undefined
   return (
     <>
-      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : cardRelated ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : <span className="grid size-7 shrink-0 place-items-center bg-[var(--surface-selected)] text-forest-700 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
+      <AssetIcon systemCode={asset.systemCode}/>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold leading-4" title={asset.name}>{asset.name}</span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{brandName ? `${brandName} · ` : ''}{asset.assetTypeName} · {owner.label}</span></span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{asset.assetTypeName} · {owner.label}</span></span>
       </span>
       <span className="shrink-0 text-right text-xs font-semibold tabular-nums text-[var(--muted)] max-[22rem]:hidden">{assetPickerAmountLabel(asset)}</span>
     </>
@@ -258,17 +231,13 @@ function MissingTriggerValue({ asset }: { asset: MissingAssetSelection }) {
 }
 
 function AssetOption({ asset, members, active, onSelect }: { asset: Asset; members: LedgerMember[]; active: boolean; onSelect: (assetId: string) => void }) {
-  const Icon = assetIcons[asset.systemCode]
   const owner = resolveOwner(asset, members)
-  const bankRelated = asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' || asset.systemCode === 'LOAN' || asset.systemCode === 'INVESTMENT'
-  const cardRelated = asset.systemCode === 'CREDIT_CARD' || asset.systemCode === 'DEBIT_CARD'
-  const brandName = bankRelated ? financialInstitutionName(asset.financialInstitutionCode, financialInstitutionUsageFor(asset.systemCode)) : cardRelated ? cardIssuer(asset.cardIssuerCode).name : undefined
-  const accessibleName = `${asset.name}, ${brandName ? `${brandName}, ` : ''}${asset.assetTypeName}, ${owner.label}, ${assetPickerAmountLabel(asset)}`
+  const accessibleName = `${asset.name}, ${asset.assetTypeName}, ${owner.label}, ${assetPickerAmountLabel(asset)}`
   return (
     <PopoverClose
       render={<button
         type="button"
-        className={`grid min-h-14 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-[var(--line)] px-2 py-1.5 text-left transition-colors hover:bg-[var(--surface-hover)] md:border-r ${active ? 'bg-[var(--surface-selected)] text-forest-800 dark:text-forest-100' : 'bg-[var(--surface)]'}`}
+        className={`grid min-h-14 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2  px-2 py-1.5 text-left transition-colors hover:bg-[var(--surface-hover)]  ${active ? 'bg-[var(--selection-surface)] text-[var(--selection)]' : 'bg-[var(--surface)]'}`}
         data-asset-option
         data-asset-id={asset.assetId}
         data-asset-system-code={asset.systemCode}
@@ -277,10 +246,10 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
       />}
       onClick={() => onSelect(asset.assetId)}
     >
-      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : cardRelated ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : <span className="grid size-7 place-items-center bg-[var(--surface-selected)] text-forest-700 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
+      <AssetIcon systemCode={asset.systemCode}/>
       <span className="min-w-0">
         <span className="flex min-w-0 items-baseline gap-2 leading-4"><span className="min-w-0 flex-1 truncate text-sm font-semibold" title={asset.name}>{asset.name}</span><span className="shrink-0 text-[0.6875rem] font-semibold tabular-nums text-[var(--muted)]">{assetPickerAmountLabel(asset)}</span></span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{brandName ? `${brandName} · ` : ''}{asset.assetTypeName} · {owner.label}</span></span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{asset.assetTypeName} · {owner.label}</span></span>
       </span>
       {active ? <Check className="mt-0.5 shrink-0 text-forest-700 dark:text-forest-100" size={17} aria-hidden="true" /> : null}
     </PopoverClose>
@@ -288,7 +257,7 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
 }
 
 function GroupFilter({ label, count, active, onSelect }: { label: string; count: number; active: boolean; onSelect: () => void }) {
-  return <Button type="button" variant="ghost" className={`min-h-11 shrink-0 gap-1 rounded-none px-2.5 text-xs md:min-w-0 md:px-2 ${active ? 'bg-forest-100 text-forest-800 dark:bg-forest-800 dark:text-white' : 'text-[var(--muted)]'}`} aria-pressed={active} onClick={onSelect}><span>{label}</span><span className="tabular-nums opacity-70">{count}</span></Button>
+  return <Button type="button" variant="ghost" className={`min-h-11 shrink-0 gap-1 rounded-lg px-2.5 text-xs md:min-w-0 md:px-2 ${active ? 'bg-[var(--selection-surface)] text-[var(--selection)]' : 'text-[var(--muted)]'}`} aria-pressed={active} onClick={onSelect}><span>{label}</span><span className="tabular-nums opacity-70">{count}</span></Button>
 }
 
 function pickerGroups(assets: Asset[]): PickerGroup[] {

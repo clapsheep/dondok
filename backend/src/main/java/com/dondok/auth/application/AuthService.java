@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private final AppUserRepository users;
+    private final jakarta.persistence.EntityManager entityManager;
     private final LocalCredentialRepository credentials;
     private final EmailVerificationTokenRepository verificationTokens;
     private final PasswordResetTokenRepository resetTokens;
@@ -39,6 +40,7 @@ public class AuthService {
 
     public AuthService(
             AppUserRepository users,
+            jakarta.persistence.EntityManager entityManager,
             LocalCredentialRepository credentials,
             EmailVerificationTokenRepository verificationTokens,
             PasswordResetTokenRepository resetTokens,
@@ -50,6 +52,7 @@ public class AuthService {
             Clock clock
     ) {
         this.users = users;
+        this.entityManager = entityManager;
         this.credentials = credentials;
         this.verificationTokens = verificationTokens;
         this.resetTokens = resetTokens;
@@ -62,7 +65,8 @@ public class AuthService {
     }
 
     @Transactional
-    public SignUpResult signUp(String loginId, String displayName, String email, String password) {
+    public SignUpResult signUp(String loginId, String displayName, String email, String password, SignUpConsent consent) {
+        SignUpConsent.requireValid(consent);
         String normalizedLoginId = normalize(loginId);
         String normalizedEmail = normalize(email);
         if (credentials.existsByLoginIdNormalized(normalizedLoginId)) {
@@ -76,6 +80,11 @@ public class AuthService {
         AppUserEntity user = users.save(new AppUserEntity(UuidV7.next(), displayName.strip(), normalizedEmail, now));
         credentials.save(new LocalCredentialEntity(user, normalizedLoginId, passwordEncoder.encode(password), now));
 
+        users.flush();
+        jdbcTemplate.update("""
+                insert into account_consent(user_id, document_version, accepted_at, age_14_or_older, terms_accepted, privacy_accepted)
+                values (?, ?, ?, true, true, true)
+                """, user.getId(), consent.version(), java.sql.Timestamp.from(now));
         SecretTokenService.IssuedToken token = tokenService.issue();
         verificationTokens.save(new EmailVerificationTokenEntity(
                 UuidV7.next(),
@@ -114,14 +123,25 @@ public class AuthService {
     public void requestPasswordReset(String email) {
         String normalizedEmail = normalize(email);
         users.findByEmailNormalized(normalizedEmail)
-                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
-                .ifPresent(this::issuePasswordReset);
+                .ifPresent(found -> {
+                    // Lock before issuing so an old address cannot receive a live link after an email change.
+                    entityManager.refresh(found, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+                    if (found.getStatus() == UserStatus.ACTIVE && found.getEmail().equals(normalizedEmail)) {
+                        issuePasswordReset(found);
+                    }
+                });
     }
 
     @Transactional
     public void resetPassword(String rawToken, String newPassword) {
         Instant now = clock.instant();
-        PasswordResetTokenEntity token = resetTokens.findByTokenDigest(tokenService.digest(rawToken))
+        String digest = tokenService.digest(rawToken);
+        UUID userId = jdbcTemplate.query("select user_id from password_reset_token where token_digest = ?",
+                (rs, row) -> rs.getObject(1, UUID.class), digest).stream().findFirst().orElseThrow(this::invalidToken);
+        // All credential-changing operations lock the user before touching tokens or credentials.
+        AppUserEntity user = entityManager.find(AppUserEntity.class, userId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        if (user == null || user.getStatus() != UserStatus.ACTIVE) throw invalidToken();
+        PasswordResetTokenEntity token = resetTokens.findByTokenDigest(digest)
                 .orElseThrow(this::invalidToken);
         if (!token.isUsableAt(now)) {
             throw invalidToken();
@@ -131,6 +151,7 @@ public class AuthService {
         credential.changePassword(passwordEncoder.encode(newPassword), now);
         token.markUsed(now);
         resetTokens.expireActiveForUser(token.getUserId());
+        jdbcTemplate.update("delete from account_email_change where user_id = ?", userId);
         deleteSessionsForPrincipal(credential.getLoginIdNormalized());
     }
 

@@ -416,7 +416,7 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
-    void memberCanTransferBetweenBankAccountsOwnedByDifferentLedgerMembers() {
+    void rejectsCrossOwnerTransfersButAllowsAnotherPerformerOnSameOwnerTransfers() {
         Fixture fixture = fixture();
         UUID partnerMemberId = addMember(fixture.bookId(), "함께 관리하는 구성원");
         UUID bankTypeId = assetType(fixture.userId(), "BANK");
@@ -431,12 +431,20 @@ class TransactionServiceIntegrationTest {
                         bankTypeId, AssetOwnershipScope.PERSONAL, partnerMemberId,
                         "상대 계좌", LocalDate.of(2026, 7, 1), null, 20_000, null));
 
+        assertThatThrownBy(() -> transactionService.create(
+                fixture.userId(), "cross-owner-transfer", new TransactionService.CreateTransfer(
+                        LocalDate.of(2026, 7, 12), 210_000, myAccount.assetId(), partnerAccount.assetId(),
+                        partnerMemberId, "구성원 간 이체")))
+                .isInstanceOfSatisfying(ApiException.class, ex -> assertThat(ex.getErrorCode()).isEqualTo("CROSS_MEMBER_ASSET_CONNECTION_NOT_ALLOWED"));
+        assertThat(assetService.asset(fixture.userId(), myAccount.assetId()).currentBalanceWon()).isEqualTo(500_000);
+        assertThat(assetService.asset(fixture.userId(), partnerAccount.assetId()).currentBalanceWon()).isEqualTo(20_000);
+        var sameOwnerAccount = assetService.create(fixture.userId(), "same-owner-destination",
+                new AssetService.AssetCommand(bankTypeId, AssetOwnershipScope.PERSONAL, fixture.memberId(),
+                        "내 두 번째 계좌", LocalDate.of(2026, 7, 1), null, 20_000, null));
         TransactionService.TransactionView transfer = transactionService.create(
-                fixture.userId(), "cross-owner-transfer",
-                new TransactionService.CreateTransfer(
-                        LocalDate.of(2026, 7, 12), 210_000,
-                        myAccount.assetId(), partnerAccount.assetId(), partnerMemberId,
-                        "구성원 간 이체"));
+                fixture.userId(), "same-owner-transfer", new TransactionService.CreateTransfer(
+                        LocalDate.of(2026, 7, 12), 210_000, myAccount.assetId(), sameOwnerAccount.assetId(),
+                        partnerMemberId, "다른 구성원이 사용"));
 
         assertThat(transfer.postings()).satisfiesExactly(
                 source -> {
@@ -444,14 +452,14 @@ class TransactionServiceIntegrationTest {
                     assertThat(source.deltaWon()).isEqualTo(-210_000);
                 },
                 destination -> {
-                    assertThat(destination.assetId()).isEqualTo(partnerAccount.assetId());
+                    assertThat(destination.assetId()).isEqualTo(sameOwnerAccount.assetId());
                     assertThat(destination.deltaWon()).isEqualTo(210_000);
                 });
         assertThat(transfer.performedBy().memberId()).isEqualTo(partnerMemberId);
         assertThat(transfer.createdBy().memberId()).isEqualTo(fixture.memberId());
         assertThat(assetService.asset(fixture.userId(), myAccount.assetId()).currentBalanceWon())
                 .isEqualTo(290_000);
-        assertThat(assetService.asset(fixture.userId(), partnerAccount.assetId()).currentBalanceWon())
+        assertThat(assetService.asset(fixture.userId(), sameOwnerAccount.assetId()).currentBalanceWon())
                 .isEqualTo(230_000);
         assertThat(assetService.asset(fixture.userId(), myAccount.assetId()).ownerMemberId())
                 .isEqualTo(fixture.memberId());

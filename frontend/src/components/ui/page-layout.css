@@ -1,0 +1,32 @@
+/* Shared secondary-page surfaces. Fields keep the record page's underline controls. */
+.ui-page-section { margin-block:28px; }
+.ui-soft-panel { border-radius:20px; background:var(--surface); padding:24px; }
+.ui-soft-row { border-radius:14px; background:var(--surface); padding:16px; }
+.ui-empty-state { border-radius:20px; background:var(--surface); padding:40px 24px; text-align:center; }
+.ui-notice { border-radius:12px; background:var(--surface); padding:14px 16px; }
+.ui-choice { border:0; border-radius:12px; background:var(--surface); min-height:48px; color:var(--muted); }
+.ui-choice[aria-pressed=true],.ui-choice[aria-current=page] { background:var(--selection-surface); color:var(--selection); }
+.ui-focus-group:has(:focus-visible) { outline:2px solid var(--focus-ring); outline-offset:2px; }
+.ui-focus-group :focus-visible { outline:none; --tw-ring-shadow:0 0 #0000; }
+.asset-editor { max-width:72rem; margin-inline:auto; }
+.asset-editor form> .grid { gap:28px; }
+.asset-editor [data-slot=member-picker] { margin-block:6px; }
+.asset-editor .asset-type-options { gap:8px; margin-block:12px 4px; }
+.asset-editor .asset-type-options button { flex-direction:column; gap:8px; padding:14px 8px; }
+.asset-editor .asset-type-options button[aria-pressed=true] svg { color:inherit; }
+.statement-page { max-width:54rem; margin:auto; padding:24px 0 48px; container-type:inline-size; }
+.statement-page>header { margin-block:28px; }
+.statement-summary { margin-block:28px; padding:28px; border-radius:20px; background:var(--surface); }
+.statement-summary dd { color:var(--foreground); overflow-wrap:anywhere; }
+.statement-history { margin-block:32px; }
+.statement-history ul { display:grid; gap:12px; }
+.statement-history li { border-radius:16px; background:var(--surface); padding:18px; }
+.statement-actions { margin-top:32px; padding:24px; border-radius:20px; background:var(--surface); }
+.statement-list { margin-top:28px; }
+.statement-list ul { display:grid; gap:10px; }
+.statement-list li>a { border-radius:16px; background:var(--surface); padding:18px; }
+.category-settings { max-width:60rem; margin:auto; }
+.category-settings .ui-segmented { margin-top:28px; max-width:30rem; }
+.category-settings .ui-segment { flex:1; }
+@media(max-width:767px) { .ui-soft-panel,.statement-summary,.statement-actions { padding:20px; border-radius:16px; } .asset-editor .asset-type-options button { font-size:12px; } .statement-page { padding-top:16px; } }
+@media(forced-colors:active) { .ui-focus-group:has(:focus-visible) { outline-color:Highlight; } .ui-choice[aria-pressed=true] { outline:2px solid Highlight; } }
