@@ -154,6 +154,8 @@ test('마지막으로 지출한 자산을 다음 지출의 기본값으로 기�
 })
 
 test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목록을 같은 의미로 확인한다', { tag: '@pr' }, async ({ page, request }, testInfo) => {
+  // 여러 자산·거래 생성과 반응형 검사, cursor seed까지 포함하는 종합 흐름이다.
+  test.setTimeout(90_000)
   const displayName = `거래 사용자 ${test.info().workerIndex}`
   const account = await registerAndLogin(page, request, displayName)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
