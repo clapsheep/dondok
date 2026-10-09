@@ -24,6 +24,8 @@ if kind == 'git':
         print('d' * 40 if os.environ['MODE'] == 'new-main' else os.environ['NEW'])
     elif args[:3] == ['remote', 'get-url', 'origin']:
         print('https://github.com/clapsheep/dondok.git')
+    elif args[:2] == ['diff', '--quiet'] and os.environ['MODE'] == 'unhealthy-schema-change':
+        sys.exit(1)
     elif args[:2] == ['checkout', '--detach']:
         (directory / 'head').write_text(args[2])
 elif kind == 'docker':
@@ -38,7 +40,7 @@ elif kind == 'docker':
     elif args and args[0] == 'compose':
         if 'ps' in args and args[-1] in ('backend', 'frontend'):
             print('old-' + args[-1])
-        if 'up' in args and os.environ['MODE'] == 'unhealthy' and os.environ.get('DONDOK_BACKEND_IMAGE', '').startswith('ghcr.io/'):
+        if 'up' in args and os.environ['MODE'] in ('unhealthy', 'unhealthy-schema-change') and os.environ.get('DONDOK_BACKEND_IMAGE', '').startswith('ghcr.io/'):
             sys.exit(17)
 '''
 FUNCTIONS = r'''
@@ -111,3 +113,13 @@ class DeployProductionTest(unittest.TestCase):
         starts = [image for kind, args, image in log if kind == 'docker' and 'up' in args]
         self.assertEqual(len(starts), 2)
         self.assertEqual(starts[-1], IMAGE_ID)
+
+    def test_failed_health_with_migration_change_never_restarts_incompatible_app(self):
+        result, log, revision, head = self.exercise('unhealthy-schema-change')
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertEqual((revision, head), (None, NEW))
+        starts = [args for kind, args, _ in log if kind == 'docker' and 'up' in args]
+        self.assertEqual(len(starts), 1)
+        stops = [args for kind, args, _ in log if kind == 'docker' and 'stop' in args]
+        self.assertEqual(len(stops), 1)
+        self.assertEqual(stops[0][-2:], ['frontend', 'backend'])

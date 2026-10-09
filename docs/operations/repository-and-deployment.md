@@ -378,3 +378,7 @@ where ownership_scope <> 'PERSONAL' or owner_member_id is null;
 ### V31 수동 카드 결제
 
 V31은 결제 유형 MANUAL과 해당 유형의 작성자 필수 제약을 추가한다. 기존 행·posting을 변경하지 않는다. V30 이후 순차 적용하며 API와 UI를 함께 갱신한다. MANUAL 데이터를 작성한 뒤에는 해당 유형을 이해하는 버전으로만 앱 롤백한다. 제약을 축소하거나 결제 원장을 삭제하는 down migration은 수행하지 않는다.
+
+### 스키마 변경 릴리스의 기동 실패
+
+릴리스 간 Flyway 파일 변경이 있으면 readiness 실패 시 이전 바이너리를 자동 재기동하지 않는다. frontend/backend를 중지하고 DB와 사전 백업을 보존한 채 스키마 호환 수정 릴리스로 복구한다. 스키마 변경이 없는 릴리스만 실제 이전 이미지 ID로 자동 앱 롤백한다. 이 보수적인 판정은 migration 적용 완료 여부를 추측하지 않는다. 운영 DB를 백업으로 자동 덮어쓰지 않는다.

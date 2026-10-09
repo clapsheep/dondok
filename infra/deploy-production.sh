@@ -263,6 +263,15 @@ DEPLOY_STATUS=$?
 set -e
 
 if (( DEPLOY_STATUS != 0 )); then
+  # Flyway migrations are forward-only. The prior binary may no longer understand
+  # the schema even when the new application failed its readiness check.
+  if ! git -C "$DEPLOY_DIR" diff --quiet "$PREVIOUS_REVISION" "$REVISION" -- backend/src/main/resources/db/migration; then
+    printf 'ERROR: release includes schema changes; automatic application rollback is unsafe\n' >&2
+    "${DEPLOY_COMPOSE[@]}" stop frontend backend \
+      || printf 'ERROR: failed to stop application services; operator recovery is required\n' >&2
+    printf 'ERROR: keep the database and pre-deployment backup; recover with a schema-compatible release\n' >&2
+    exit "$DEPLOY_STATUS"
+  fi
   printf 'ERROR: deployment failed; attempting application rollback to %s\n' "$PREVIOUS_REVISION" >&2
   if git -C "$DEPLOY_DIR" cat-file -e "$PREVIOUS_REVISION^{commit}" 2>/dev/null \
      && "$DOCKER_BIN" image inspect "$PREVIOUS_BACKEND_IMAGE" >/dev/null 2>&1 \
