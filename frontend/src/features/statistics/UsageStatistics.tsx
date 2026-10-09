@@ -5,9 +5,9 @@ import { formatSignedWon } from './presentation'
 export function UsageStatistics({ statistics }: { statistics: MonthlyStatistics }) {
   const deposits = statistics.assetFormation.savingsDepositWon + statistics.assetFormation.investmentDepositWon
   const totalUsage = statistics.totals.expenseWon + deposits
-  const total = formatSignedWon(-totalUsage)
+  const total = formatSignedWon(statistics.totals.incomeWon - totalUsage)
   return <>
-    <section className="ui-summary" aria-label="월간 자금 사용 요약"><dl><dt>이번 달 지출</dt><dd className="ui-total" data-long-money={total.length > 16}>{total}</dd><dd className="ui-caption">생활 지출과 적금·투자 납입 포함</dd></dl><dl className="ui-summary-details"><div><dt>수입</dt><dd>{formatSignedWon(statistics.totals.incomeWon)}</dd></div><div><dt>총계 <span className="ui-caption">수입 − 지출</span></dt><dd>{formatSignedWon(statistics.totals.incomeWon - totalUsage)}</dd></div></dl></section>
+    <section className="ui-summary" aria-label="월간 자금 사용 요약"><dl><dt>총계</dt><dd className="ui-total" data-long-money={total.length > 16}>{total}</dd><dd className="ui-caption">수입 − 지출 · 적금·투자 납입 포함</dd></dl><dl className="ui-summary-details"><div><dt>수입</dt><dd>{formatSignedWon(statistics.totals.incomeWon)}</dd></div><div><dt>이번 달 지출</dt><dd>{formatSignedWon(-totalUsage)}</dd></div></dl></section>
     <p className="sr-only">지출에는 생활 지출과 적금·투자 납입이 포함돼요. 회수액은 차감하지 않으며, 총계는 수입에서 지출을 뺀 금액으로 실제 계좌 잔액과 달라요.</p>
   </>
 }
