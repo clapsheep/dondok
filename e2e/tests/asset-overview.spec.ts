@@ -441,8 +441,8 @@ async function expectSummaryAndListPlacement(summary: Locator, firstGroup: Locat
     expect(position, `${viewport.label} 요약 rail은 긴 목록에서도 맥락을 유지해야 합니다`).toBe('sticky')
     await summary.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
     const stickyBox = await summary.boundingBox()
-    expect(stickyBox?.y ?? 0, `${viewport.label} 요약 rail은 스크롤 뒤에도 viewport 안에 남아야 합니다`).toBeGreaterThanOrEqual(31)
-    expect(stickyBox?.y ?? Number.POSITIVE_INFINITY, `${viewport.label} 요약 rail은 지정된 top 위치에 고정되어야 합니다`).toBeLessThanOrEqual(34)
+    expect(stickyBox?.y ?? 0, `${viewport.label} 요약 rail은 스크롤 뒤에도 viewport 안에 남아야 합니다`).toBeGreaterThanOrEqual(95)
+    expect(stickyBox?.y ?? Number.POSITIVE_INFINITY, `${viewport.label} 요약 rail은 지정된 top 위치에 고정되어야 합니다`).toBeLessThanOrEqual(98)
     await summary.evaluate(() => window.scrollTo(0, 0))
     return
   }

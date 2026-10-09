@@ -86,8 +86,8 @@ export function CardPaymentSection({ asset, members }: { asset: Asset; members: 
     setAttempt(request); mutation.mutate(request)
   }
 
-  return <section className="mt-6 border-b border-[var(--line)] pb-5 @container" aria-labelledby="card-payment-title">
-    <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 id="card-payment-title" className="text-lg font-semibold">카드 대금 결제</h2><p className="text-sm">전체 미결제 <strong className="tabular-nums">{current ? formatWon(current.totals.amountWon) : '—'}</strong></p></div>
+  return <section className="mt-6 border-b border-[var(--line)] pb-5 @container" aria-label="카드 대금 결제">
+    <p className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-[var(--muted)]">전체 미결제 <strong className="text-xl font-semibold tabular-nums text-[var(--foreground)]">{current ? formatWon(current.totals.amountWon) : '—'}</strong></p>
     <div role="tablist" aria-label="카드 결제 방식" className="mt-4 flex border-b border-[var(--line)]">
       {(['SELECTED', 'AMOUNT'] as const).map((value, index) => <button key={value} id={`card-pay-tab-${value}`} type="button" role="tab" aria-selected={mode === value} aria-controls={`card-pay-panel-${value}`} tabIndex={mode === value ? 0 : -1} disabled={locked} onClick={() => setMode(value)} onKeyDown={(event) => {
         if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {

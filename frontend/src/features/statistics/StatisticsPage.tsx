@@ -273,7 +273,7 @@ function CategoryBreakdown({ statistics, direction, shares, onDirectionChange, o
           {item.barPercent === null ? null : <span className="mt-2 ml-9 block h-2.5 overflow-hidden rounded-sm bg-[var(--line-subtle)]" aria-hidden="true"><span data-category-bar className="block h-full rounded-sm" style={{ width: `${item.barPercent}%`, backgroundColor: accent }} /></span>}
         </>
         return <li key={item.id} data-usage-item={isUsage ? item.id : undefined} data-category-id={item.category?.categoryId}>
-          {item.category ? <button type="button" className="block min-h-14 w-full px-1 py-3 text-left transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800" aria-label={`${item.label} 거래 내역 보기`} onClick={(event) => { if (item.category) onSelectCategory(item.category, event.currentTarget) }}>{content}</button> : <div className="min-h-14 px-1 py-3">{content}</div>}
+          {item.category ? <button type="button" className="block min-h-14 w-full px-1 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)]" aria-label={`${item.label} 거래 내역 보기`} onClick={(event) => { if (item.category) onSelectCategory(item.category, event.currentTarget) }}>{content}</button> : <div className="min-h-14 px-1 py-3">{content}</div>}
         </li>
       })}
     </ol> : <p className="mt-4 py-6 text-sm text-[var(--muted)]">{isUsage ? '이번 달 사용 내역이 없습니다' : '이번 달 수입이 없습니다'}</p>}

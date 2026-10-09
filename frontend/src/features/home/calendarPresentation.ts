@@ -1,3 +1,9 @@
+const calendarNumberFormat = new Intl.NumberFormat('ko-KR')
+
+export function calendarAmount(value: number) {
+  return Math.abs(value) < 1_000_000 ? calendarNumberFormat.format(Math.abs(value)) : compactCalendarWon(value)
+}
+
 export function compactCalendarWon(value: number) {
   const absolute = Math.abs(value)
 

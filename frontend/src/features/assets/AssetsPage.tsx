@@ -181,7 +181,7 @@ function AssetOverviewContent({ summaryOverview, activeOverview, archivedAssets,
     <div className="mt-1">
       {hasFilteredAssets ? (
         <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start xl:gap-10">
-          <div className="xl:sticky xl:top-8 xl:col-start-2 xl:row-start-1">
+          <div className="xl:sticky xl:top-[calc(var(--app-header-height,0px)+2rem)] xl:col-start-2 xl:row-start-1">
             <AssetFinancialSnapshot overview={summaryOverview} />
           </div>
           <div className="mt-5 min-w-0 xl:col-start-1 xl:row-start-1 xl:mt-0">
@@ -353,7 +353,7 @@ function AssetRow({ asset, groupKey, ledger, showOwnerMetadata }: { asset: Asset
 
   return (
     <li>
-      <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-12 py-2.5 transition-colors hover:bg-forest-50 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800 md:px-1`}>
+      <Link to={`/assets/${asset.assetId}`} aria-label={accessibleName} title={fullIdentity} className={`${layoutClassName} group min-h-12 py-2.5 transition-colors hover:bg-[var(--surface-hover)] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] md:px-1`}>
         <span className="flex min-w-0 items-center gap-2.5 leading-5" data-asset-identity>
           {institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : issuer ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : null}
           <span className="min-w-0 flex-1">

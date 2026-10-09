@@ -1,17 +1,20 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ArrowLeft, LoaderCircle, Plus, RotateCcw, Settings, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, LoaderCircle, Plus, RotateCcw, Settings, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/Dialog'
 import { ApiError } from '../../lib/api'
 import type { LedgerBook } from '../membership/api'
-import { transactionApi, transactionKeys, type Transaction } from '../transactions/api'
+import { transactionApi, transactionKeys, type Transaction, type TransactionFilters } from '../transactions/api'
+import { groupTransactionsByDate } from '../transactions/groupTransactionsByDate'
+import { TransactionHistory } from '../transactions/TransactionHistory'
+import { readTransactionFilters, writeTransactionFilters } from '../transactions/transactionFilters'
+import { TransactionListRow } from '../transactions/TransactionDateGroup'
 import { AssetTransactionEditor } from '../transactions/TransactionFormPage'
 import { transactionRowDestination, transactionTypeLabel } from '../transactions/transactionRow'
-import { CardPaymentSection } from '../card-statements/CardPaymentSection'
 import { assetApi, assetKeys, type Asset } from './api'
 import { buildAssetLedgerTimeline, type AssetLedgerEntry } from './assetLedgerTimeline'
 import { formatDate, formatPaymentDueDate, formatWon } from './format'
@@ -31,6 +34,14 @@ function isCardRelated(asset: Asset) {
 export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   const { assetId = '' } = useParams()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo(() => readTransactionFilters(searchParams), [searchParams])
+  const filtered = Object.values(filters).some(Boolean)
+  function changeFilters(next: TransactionFilters) {
+    setSearchParams((previous) => {
+      return writeTransactionFilters(previous, next)
+    })
+  }
   const asset = useQuery({
     queryKey: assetKeys.detail(assetId),
     queryFn: () => assetApi.detail(assetId),
@@ -40,8 +51,8 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   })
   const transactions = useInfiniteQuery({
-    queryKey: transactionKeys.assetList(assetId),
-    queryFn: ({ pageParam }) => transactionApi.listForAsset({ assetId, cursor: pageParam }),
+    queryKey: transactionKeys.assetList(assetId, filters),
+    queryFn: ({ pageParam }) => transactionApi.listForAsset({ assetId, cursor: pageParam, ...filters }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: Boolean(assetId) && !asset.isError,
@@ -51,8 +62,10 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = transactions
   const items = useMemo(() => transactions.data?.pages.flatMap((page) => page.items) ?? [], [transactions.data])
   const groups = useMemo(
-    () => asset.data ? buildAssetLedgerTimeline(items, asset.data, Boolean(hasNextPage)) : [],
-    [asset.data, hasNextPage, items],
+    () => filtered
+      ? groupTransactionsByDate<AssetLedgerEntry>(items.map((transaction) => ({ kind: 'TRANSACTION', transaction, balanceAfterWon: null })), (entry) => entry.kind === 'TRANSACTION' ? entry.transaction.occurredOn : entry.occurredOn)
+      : asset.data ? buildAssetLedgerTimeline(items, asset.data, Boolean(hasNextPage)) : [],
+    [asset.data, filtered, hasNextPage, items],
   )
   const loadMore = useRef<HTMLDivElement | null>(null)
   const [recordOpen, setRecordOpen] = useState(false)
@@ -118,24 +131,42 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
     setRecordOpen(false)
   }
 
+  const headerActions = <div className="flex shrink-0 items-center" aria-label="자산 관리">
+    {currentAsset.status === 'ACTIVE' ? <Button type="button" size="icon" variant="ghost" onClick={openRecord} aria-label="기록 추가" title="기록 추가"><Plus size={20} aria-hidden="true" /></Button> : null}
+    {editAction}
+  </div>
+
   return (
     <AppShell
       ledgerNavigation
-      mobileHeader={{ title: currentAsset.name, backTo: '/assets', backLabel: '자산 목록으로', action: editAction }}
+      mobileHeader={{ title: currentAsset.name, backTo: '/assets', backLabel: '자산 목록으로', action: headerActions }}
     >
       <section className="mx-auto max-w-[52rem] py-4 md:py-8">
         <Button asChild className="mb-3 hidden md:inline-flex" variant="ghost"><Link to="/assets"><ArrowLeft size={17} />자산 현황으로</Link></Button>
         <header className="border-b border-[var(--line)] pb-5">
           <div className="hidden items-start justify-between gap-4 md:flex">
             <div className="flex min-w-0 items-center gap-3">{brandAvatar()}<div className="min-w-0"><p className="text-sm text-[var(--muted)]">{brandName ? `${brandName} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-[-.025em]">{currentAsset.name}</h1></div></div>
-            {editAction}
+            {headerActions}
           </div>
           <div className="flex items-end justify-between gap-4 md:mt-5">
             <div className="flex min-w-0 items-center gap-2 md:hidden">{brandAvatar('sm')}<p className="text-xs text-[var(--muted)]">{brandName ? `${brandName} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p></div>
             <dl className="ml-auto text-right"><dt className="text-xs text-[var(--muted)]">{currentAsset.behavior === 'CREDIT_CARD' ? '카드 잔액' : '현재 잔액'}</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.035em] tabular-nums md:text-3xl ${currentAsset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`}>{formatWon(currentAsset.currentBalanceWon)}</dd></dl>
           </div>
           <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted)]">{owner.avatar}<span>{owner.label}</span><span aria-hidden="true">·</span><span>잔액 기준일 {formatDate(currentAsset.openedOn)}</span></div>
-          {currentAsset.behavior === 'CREDIT_CARD' ? currentAsset.nearestCardPaymentDueOn ? <dl className="mt-4 grid grid-cols-2 divide-x divide-[var(--line-subtle)] border-t border-[var(--line-subtle)] pt-3 text-sm"><div className="pr-4"><dt className="text-xs text-[var(--muted)]">{formatPaymentDueDate(currentAsset.nearestCardPaymentDueOn)} 결제 예정</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(currentAsset.nearestCardPaymentDueWon)}</dd></div><div className="pl-4 text-right"><dt className="text-xs text-[var(--muted)]">{currentAsset.followingCardPaymentDueOn ? `${formatPaymentDueDate(currentAsset.followingCardPaymentDueOn)} 결제 예정` : '그다음 결제'}</dt><dd className="mt-1 font-semibold tabular-nums">{currentAsset.followingCardPaymentDueOn ? formatWon(currentAsset.followingCardPaymentDueWon) : '없음'}</dd></div></dl> : <p className="mt-4 border-t border-[var(--line-subtle)] pt-3 text-right text-xs text-[var(--muted)]">결제 예정 없음</p> : null}
+          {currentAsset.behavior === 'CREDIT_CARD' ? <section className="mt-5 border-t border-[var(--line-subtle)] pt-4" aria-label="카드 대금">
+            <h2 className="text-sm font-semibold">카드 대금</h2>
+            <div className="mt-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+              {currentAsset.nearestCardPaymentDueOn ? <dl className="min-w-0">
+                <dt className="text-sm text-[var(--muted)]">{formatPaymentDueDate(currentAsset.nearestCardPaymentDueOn)} 결제 예정</dt>
+                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums md:text-3xl">{formatWon(currentAsset.nearestCardPaymentDueWon)}</dd>
+              </dl> : <p className="py-2 text-sm text-[var(--muted)]">결제 예정 없음</p>}
+              <Button asChild variant="secondary"><Link to={`/assets/${currentAsset.assetId}/card-payment`}>대금 결제<ChevronRight size={16} aria-hidden="true" /></Link></Button>
+            </div>
+            {currentAsset.followingCardPaymentDueOn ? <dl className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--line-subtle)] pt-3 text-xs">
+              <dt className="text-[var(--muted)]">다음 · {formatPaymentDueDate(currentAsset.followingCardPaymentDueOn)} 결제 예정</dt>
+              <dd className="text-sm font-medium tabular-nums">{formatWon(currentAsset.followingCardPaymentDueWon)}</dd>
+            </dl> : null}
+          </section> : null}
         </header>
 
         {deleted ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 삭제했어요.</p> : null}
@@ -146,19 +177,23 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
         {restored ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산을 다시 사용할 수 있게 복원했어요.</p> : null}
         {recordSaved ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 기록했어요. 현재 잔액과 거래 내역을 새로 반영했습니다.</p> : null}
 
-        {currentAsset.behavior === 'CREDIT_CARD' ? <CardPaymentSection key={currentAsset.assetId} asset={currentAsset} members={ledger.members} /> : null}
-
         <div className="mt-5">
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] pb-2"><div className="flex min-w-0 items-baseline gap-2"><h2 className="text-lg font-semibold">거래 내역</h2>{items.length ? <span className="text-xs text-[var(--muted)]">최신순</span> : null}</div>{currentAsset.status === 'ACTIVE' ? <Button type="button" onClick={openRecord}><Plus size={16} />기록 추가</Button> : null}</div>
-          {transactions.isPending ? <LoadingState label="거래 내역을 불러오는 중…" /> : transactions.isError && !transactions.data ? <div className="py-12 text-center"><p role="alert">거래 내역을 불러오지 못했어요.</p><Button className="mt-4" variant="secondary" onClick={() => transactions.refetch()}>다시 불러오기</Button></div> : groups.length ? (
-            <div>
-              {groups.map((group) => <AssetMonthGroup key={group.month} month={group.month} items={group.items} asset={currentAsset} returnTo={`/assets/${assetId}`} />)}
-              {!items.length ? <div className="border-b border-[var(--line)] py-8 text-center"><p className="font-semibold">추가로 기록된 거래가 없어요.</p><p className="mt-2 text-sm text-[var(--muted)]">기준일 잔액부터 시작해 수입·지출·이체를 이어서 확인할 수 있어요.</p>{currentAsset.status === 'ACTIVE' ? <Button className="mt-5" type="button" onClick={openRecord}><Plus size={17} />첫 기록 추가</Button> : null}</div> : null}
+          <TransactionHistory
+            filters={filters} members={ledger.members} onFiltersChange={changeFilters}
+            groups={groups} isPending={transactions.isPending} isError={transactions.isError && !transactions.data}
+            onRetry={() => { void transactions.refetch() }}
+            countItems={(entries) => entries.filter((entry) => entry.kind === 'TRANSACTION').length}
+            itemKey={(entry) => entry.kind === 'OPENING_BALANCE' ? `opening-${entry.occurredOn}` : entry.transaction.transactionId}
+            renderItem={(entry) => entry.kind === 'OPENING_BALANCE'
+              ? <OpeningBalanceRow entry={entry} />
+              : <AssetTransactionRow transaction={entry.transaction} balanceAfterWon={entry.balanceAfterWon} asset={currentAsset} returnTo={`${location.pathname}${location.search}`} />}
+            footer={<>
+              {!items.length && !filtered && !transactions.isPending ? <div className="py-8 text-center"><p className="font-semibold">추가로 기록된 거래가 없어요.</p><p className="mt-2 text-sm text-[var(--muted)]">기준일 잔액부터 시작해 수입·지출·이체를 이어서 확인할 수 있어요.</p></div> : null}
               {items.length ? <div ref={loadMore} className="grid min-h-16 place-items-center">
                 {transactions.hasNextPage ? <Button type="button" variant="ghost" disabled={transactions.isFetchingNextPage} onClick={() => transactions.fetchNextPage()}>{transactions.isFetchingNextPage ? <><LoaderCircle className="animate-spin" size={17} />불러오는 중…</> : '이전 거래 더 보기'}</Button> : <p className="text-xs text-[var(--muted)]">모든 거래를 확인했어요.</p>}
               </div> : null}
-            </div>
-          ) : null}
+            </>}
+          />
         </div>
       </section>
       {recordOpen ? (
@@ -195,40 +230,29 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   )
 }
 
-function AssetMonthGroup({ month, items, asset, returnTo }: { month: string; items: AssetLedgerEntry[]; asset: Asset; returnTo: string }) {
-  return (
-    <section aria-labelledby={`asset-month-${month}`}>
-      <h3 id={`asset-month-${month}`} className="border-b border-[var(--line-subtle)] bg-cream-100 py-2 text-sm font-semibold tabular-nums dark:bg-[#101714]">{monthLabel(month)}</h3>
-      <ul>{items.map((entry) => entry.kind === 'OPENING_BALANCE'
-        ? <OpeningBalanceRow key={`opening-${entry.occurredOn}`} entry={entry} />
-        : <AssetTransactionRow key={entry.transaction.transactionId} transaction={entry.transaction} balanceAfterWon={entry.balanceAfterWon} asset={asset} returnTo={returnTo} />)}</ul>
-    </section>
-  )
-}
-
 function OpeningBalanceRow({ entry }: { entry: Extract<AssetLedgerEntry, { kind: 'OPENING_BALANCE' }> }) {
   return (
-    <li className="border-b border-[var(--line-subtle)]" data-opening-balance>
-      <div className="grid min-h-[4.25rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 md:px-2">
-        <span className="min-w-0"><strong className="block text-sm">기준일 잔액</strong><span className="mt-1 block text-xs text-[var(--muted)]"><time dateTime={entry.occurredOn}>{formatDate(entry.occurredOn)}</time> 시작 시점</span></span>
+    <li data-opening-balance>
+      <TransactionListRow>
+        <span className="min-w-0"><strong className="block text-sm">기준일 잔액</strong><span className="mt-1 block text-xs text-[var(--muted)]">하루 시작 시점</span></span>
         <span className="text-right"><strong className="block text-sm font-semibold tabular-nums">{formatWon(entry.balanceAfterWon)}</strong><span className="mt-1 block text-xs text-[var(--muted)]">자산 기록 시작</span></span>
-      </div>
+      </TransactionListRow>
     </li>
   )
 }
 
-function AssetTransactionRow({ transaction, balanceAfterWon, asset, returnTo }: { transaction: Transaction; balanceAfterWon: number; asset: Asset; returnTo: string }) {
+function AssetTransactionRow({ transaction, balanceAfterWon, asset, returnTo }: { transaction: Transaction; balanceAfterWon: number | null; asset: Asset; returnTo: string }) {
   const delta = transactionDeltaForAsset(transaction, asset.assetId)
   const type = transactionTypeLabel(transaction)
   const label = transaction.description || transaction.category?.name || type
   const flow = transactionFlow(transaction, asset.assetId)
   const destination = transactionRowDestination(transaction)
   return (
-    <li className="border-b border-[var(--line-subtle)]">
-      <Link to={destination} state={{ returnTo }} className="grid min-h-[4.25rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800 md:px-2" aria-label={`${label} 거래 상세, ${type} ${signedWon(delta)}, 거래 후 잔액 ${formatWon(balanceAfterWon)}`}>
-        <span className="min-w-0"><span className="block truncate text-sm font-semibold">{label}</span><span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><time className="shrink-0 tabular-nums" dateTime={transaction.occurredOn}>{dayLabel(transaction.occurredOn)}</time><span aria-hidden="true">·</span><span className="shrink-0">{type}</span><span aria-hidden="true">·</span><span className="truncate">{flow}</span>{transaction.excludedFromStatistics ? <><span aria-hidden="true">·</span><span className="shrink-0 font-semibold">집계 제외</span></> : null}</span></span>
-        <span className="text-right"><strong className={`block text-sm font-semibold tabular-nums ${delta < 0 ? 'text-[var(--expense)]' : delta > 0 ? 'text-[var(--income)]' : 'text-[var(--transfer)]'}`}>{signedWon(delta)}</strong><span className="mt-1 block whitespace-nowrap text-xs tabular-nums text-[var(--muted)]">잔액 {formatWon(balanceAfterWon)}</span></span>
-      </Link>
+    <li>
+      <TransactionListRow to={destination} returnTo={returnTo} accessibleName={`${label} 거래 상세, ${type} ${signedWon(delta)}${balanceAfterWon === null ? '' : `, 거래 후 잔액 ${formatWon(balanceAfterWon)}`}`}>
+        <span className="min-w-0"><span className="block truncate text-sm font-semibold">{label}</span><span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[var(--muted)]"><span className="shrink-0">{type}</span><span aria-hidden="true">·</span><span className="truncate">{flow}</span>{transaction.excludedFromStatistics ? <><span aria-hidden="true">·</span><span className="shrink-0 font-semibold">집계 제외</span></> : null}</span></span>
+        <span className="text-right"><strong className={`block text-sm font-semibold tabular-nums ${delta < 0 ? 'text-[var(--expense)]' : delta > 0 ? 'text-[var(--income)]' : 'text-[var(--transfer)]'}`}>{signedWon(delta)}</strong>{balanceAfterWon !== null ? <span className="mt-1 block whitespace-nowrap text-xs tabular-nums text-[var(--muted)]">잔액 {formatWon(balanceAfterWon)}</span> : null}</span>
+      </TransactionListRow>
     </li>
   )
 }
@@ -261,7 +285,5 @@ function transactionFlow(transaction: Transaction, assetId: string) {
   return values.filter(Boolean).join(' · ') || '자산 반영'
 }
 
-function monthLabel(month: string) { const [year, value] = month.split('-'); return `${year}년 ${Number(value)}월` }
-function dayLabel(date: string) { return new Intl.DateTimeFormat('ko-KR', { day: 'numeric', weekday: 'short', timeZone: 'Asia/Seoul' }).format(new Date(`${date}T00:00:00+09:00`)) }
 function signedWon(value: number) { return `${value > 0 ? '+' : ''}${formatWon(value)}` }
 function LoadingState({ label }: { label: string }) { return <div className="grid min-h-56 place-items-center text-sm text-[var(--muted)]"><span className="inline-flex items-center gap-2"><LoaderCircle className="animate-spin" size={18} />{label}</span></div> }

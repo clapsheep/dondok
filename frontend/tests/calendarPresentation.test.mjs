@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { compactCalendarWon, nextCalendarDate, selectedDateForMonth, shiftCalendarDate } from '../src/features/home/calendarPresentation.ts'
+import { calendarAmount, compactCalendarWon, nextCalendarDate, selectedDateForMonth, shiftCalendarDate } from '../src/features/home/calendarPresentation.ts'
+
+test('달력은 작은 금액을 쉼표로 읽고 큰 금액은 셀 너비에 맞게 축약한다', () => {
+  assert.equal(calendarAmount(679_500), '679,500')
+  assert.equal(calendarAmount(-22_000), '22,000')
+  assert.equal(calendarAmount(999_999), '999,999')
+  assert.equal(calendarAmount(1_000_000), '100만')
+})
 
 test('달력 금액은 좁은 날짜 셀에서 읽을 수 있는 길이로 축약한다', () => {
   assert.equal(compactCalendarWon(9_999), '9999')

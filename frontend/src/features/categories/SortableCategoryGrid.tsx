@@ -86,7 +86,7 @@ function SortableCategory({ category, selected, disabled, onSelect }: { category
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-w-0 items-stretch rounded-md border transition-[border-color,background-color,opacity] ${selected ? 'border-forest-700 bg-forest-50 dark:bg-forest-950' : 'border-[var(--line)] bg-transparent hover:border-forest-600 hover:bg-forest-50 dark:hover:bg-forest-950'} ${isDragging ? 'z-10 opacity-70 shadow-md' : ''}`}
+      className={`flex min-w-0 items-stretch rounded-md border transition-[border-color,background-color,opacity] ${selected ? 'border-forest-700 bg-[var(--surface-selected)]' : 'border-[var(--line)] bg-transparent hover:border-forest-600 hover:bg-[var(--surface-hover)]'} ${isDragging ? 'z-10 opacity-70 shadow-md' : ''}`}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-category-sortable
       data-category-id={category.categoryId}

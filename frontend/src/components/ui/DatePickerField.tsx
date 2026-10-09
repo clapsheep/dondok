@@ -1,6 +1,8 @@
 import { CalendarDays, ChevronDown, X } from 'lucide-react'
 import { lazy, Suspense, useId, useRef, useState, type ReactNode } from 'react'
 import { Button } from './Button'
+import { controlSize, controlSurface } from './controlStyles'
+import { cn } from '../../lib/cn'
 import { Label } from './Label'
 import {
   Popover,
@@ -71,7 +73,7 @@ export function DatePickerField({
               id={id}
               type="button"
               variant="secondary"
-              className="min-h-12 w-full min-w-0 justify-start px-3 text-left text-base font-normal tabular-nums"
+              className={cn(controlSurface, controlSize, "w-full min-w-0 justify-start text-left font-normal tabular-nums hover:bg-[var(--background)] dark:hover:text-[var(--foreground)]")}
               data-value={value}
               aria-label={label}
               aria-invalid={Boolean(error)}

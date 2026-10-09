@@ -54,7 +54,7 @@ export function CategoryTransactionDialog({ category, filters, returnTo, onOpenC
                       to={`/transactions/${item.transactionId}`}
                       state={{ returnTo }}
                       aria-label={`${label} 거래 상세, ${amount}`}
-                      className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 transition-colors hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] dark:hover:bg-forest-800"
+                      className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)]"
                     >
                       <div className="min-w-0">
                         <p className="break-words text-sm font-semibold">{label}</p>

@@ -51,7 +51,7 @@ export function CardIssuerPicker({ value, onChange, error, id = 'cardIssuer' }: 
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
               {cardIssuers.map((issuer) => (
-                <button key={issuer.code} type="button" className={cn('flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-forest-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] dark:hover:bg-forest-950', issuer.code === value && 'bg-forest-50 text-forest-800 dark:bg-forest-950 dark:text-forest-100')} onClick={() => choose(issuer.code)}>
+                <button key={issuer.code} type="button" className={cn('flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)]', issuer.code === value && 'bg-[var(--surface-selected)] text-forest-800 dark:text-forest-100')} onClick={() => choose(issuer.code)}>
                   <CardIssuerAvatar code={issuer.code} size="sm" />
                   <span className="min-w-0 flex-1 truncate">{issuer.name}</span>
                   {issuer.code === value ? <Check className="shrink-0" size={15} /> : null}

@@ -154,6 +154,8 @@ test('마지막으로 지출한 자산을 다음 지출의 기본값으로 기�
 })
 
 test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목록을 같은 의미로 확인한다', { tag: '@pr' }, async ({ page, request }, testInfo) => {
+  // 여러 자산·거래 생성과 반응형 검사, cursor seed까지 포함하는 종합 흐름이다.
+  test.setTimeout(90_000)
   const displayName = `거래 사용자 ${test.info().workerIndex}`
   const account = await registerAndLogin(page, request, displayName)
   await page.getByRole('button', { name: '가계부 시작하기' }).click()
@@ -301,8 +303,9 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   const today = todayInSeoul()
   const calendarCell = page.getByRole('gridcell', { name: new RegExp(`수입 \\+200,000원, 지출 -50,000원`) })
   await expect(calendarCell).toBeVisible()
-  await expect(calendarCell.getByTitle('수입 +200,000원')).toHaveCSS('color', await cssVariableColor(page, '--income'))
-  await expect(calendarCell.getByTitle('지출 -50,000원')).toHaveCSS('color', await cssVariableColor(page, '--expense'))
+  await expect(calendarCell.getByTitle('수입 +200,000원')).toHaveCSS('color', await cssVariableColor(page, '--calendar-income'))
+  await expect(calendarCell.getByTitle('지출 -50,000원')).toHaveCSS('color', await cssVariableColor(page, '--calendar-expense'))
+  await expect(calendarCell.getByTitle('합산 거래 2건')).toHaveText('2건')
   await expect(calendarCell).toHaveCSS('border-radius', '0px')
   const calendarAmounts = calendarCell.locator('[title^="수입 "], [title^="지출 "]')
   await expect(calendarAmounts).toHaveCount(2)
@@ -522,7 +525,9 @@ async function expectTransactionFormLayout(page: Page, width: number) {
   expect(date.top, `${width}px 날짜는 금액 다음 독립 행에 있어야 합니다`).toBeGreaterThanOrEqual(amount.bottom - 1)
   expect(amount.top, `${width}px 거래 입력은 금액부터 읽혀야 합니다`).toBeLessThan(date.top)
   expect(Math.abs(amount.width - date.width), `${width}px 금액과 날짜는 같은 전체 폭을 사용해야 합니다`).toBeLessThanOrEqual(1)
-  expect(Math.abs(amount.controlHeight - date.controlHeight), `${width}px 금액과 날짜 control 높이가 같아야 합니다`).toBeLessThanOrEqual(1)
+  expect(amount.controlHeight, `${width}px 금액은 48px 높이로 강조합니다`).toBe(48)
+  const dateHeight = await page.evaluate(() => matchMedia('(pointer: coarse)').matches ? 44 : 40)
+  expect(date.controlHeight, `${width}px 날짜는 입력 장치에 맞는 기본 높이를 사용합니다`).toBe(dateHeight)
   expect(asset.top, `${width}px 자산은 분류 다음 독립 행에 있어야 합니다`).toBeGreaterThanOrEqual(category.bottom - 1)
   expect(await continuousFlow.evaluate((element) => [...element.children].filter((child) => {
     const style = getComputedStyle(child)
@@ -612,8 +617,20 @@ async function expectResponsiveMoneyCalculator(page: Page, amount: Locator, calc
   }
 
   expect(calculatorBox.width, '태블릿·데스크톱 계산기는 입력 근처의 도구창 폭이어야 합니다').toBeLessThanOrEqual(340)
-  expect(Math.abs(calculatorBox.x - amountBox.x), '태블릿·데스크톱 계산기는 금액 입력 왼쪽에 정렬되어야 합니다').toBeLessThanOrEqual(8)
-  expect(Math.abs(calculatorBox.y - (amountBox.y + amountBox.height)), '태블릿·데스크톱 계산기는 금액 입력 바로 아래에 있어야 합니다').toBeLessThanOrEqual(16)
+  // 화면 아래 공간이 부족하면 Base UI가 입력 옆으로 배치한다.
+  const side = await calculator.getAttribute('data-side')
+  if (side === 'left' || side === 'right') {
+    const gap = side === 'right' ? calculatorBox.x - (amountBox.x + amountBox.width) : amountBox.x - (calculatorBox.x + calculatorBox.width)
+    expect(Math.abs(gap), '계산기는 금액 입력 바로 옆에 있어야 합니다').toBeLessThanOrEqual(16)
+  } else {
+    expect(Math.abs(calculatorBox.x - amountBox.x), '계산기는 금액 입력 왼쪽에 정렬되어야 합니다').toBeLessThanOrEqual(8)
+    const gap = side === 'top' ? amountBox.y - (calculatorBox.y + calculatorBox.height) : calculatorBox.y - (amountBox.y + amountBox.height)
+    expect(Math.abs(gap), '계산기는 금액 입력 바로 위나 아래에 있어야 합니다').toBeLessThanOrEqual(16)
+  }
+  expect(calculatorBox.x).toBeGreaterThanOrEqual(0)
+  expect(calculatorBox.y).toBeGreaterThanOrEqual(0)
+  expect(calculatorBox.x + calculatorBox.width).toBeLessThanOrEqual(viewport.width)
+  expect(calculatorBox.y + calculatorBox.height).toBeLessThanOrEqual(viewport.height)
 }
 
 async function seedCursorTransfers(page: Page, occurredOn: string, count: number): Promise<SeedResult> {
@@ -668,7 +685,7 @@ async function attachSeedEvidence(testInfo: TestInfo, loginId: string, seed: See
   })
 }
 
-async function cssVariableColor(page: Page, name: '--income' | '--expense') {
+async function cssVariableColor(page: Page, name: '--calendar-income' | '--calendar-expense') {
   return page.evaluate((variable) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(variable).trim()
     const probe = document.createElement('span')

@@ -1,7 +1,7 @@
 import { transferPurposeLabels } from './transferPurpose'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, LoaderCircle, Pencil, Trash2 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { LoaderCircle, Pencil, ReceiptText, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
@@ -15,6 +15,7 @@ import { cardStatementApi, cardStatementKeys } from '../card-statements/api'
 import { performerPersonLabel } from './performerLabels'
 import { transactionApi, transactionKeys, type Transaction } from './api'
 import { transactionTypeLabel } from './transactionRow'
+import { TransactionActionLink, TransactionDetailLayout, TransactionDetailRow as DetailRow } from './TransactionDetailLayout'
 
 type NavigationState = { returnTo?: string }
 
@@ -42,26 +43,13 @@ export function TransactionDetailPage() {
   return <TransactionDetail transaction={transaction.data} returnTo={returnTo} />
 }
 
-function TransactionDetail({ transaction, returnTo }: { transaction: Transaction; returnTo: string }) {
+export function TransactionDetail({ transaction, returnTo, editing = false }: { transaction: Transaction; returnTo: string; editing?: boolean }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
-  const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmCancelPayment, setConfirmCancelPayment] = useState(false)
   const [paymentConflict, setPaymentConflict] = useState(false)
-  const [conflict, setConflict] = useState(false)
   const [remoteDeleted, setRemoteDeleted] = useState(false)
-  const remove = useMutation({
-    mutationFn: (expectedVersion: number) => transactionApi.remove(transaction.transactionId, expectedVersion),
-    onSuccess: () => {
-      queryClient.removeQueries({ queryKey: transactionKeys.detail(transaction.transactionId) })
-      void queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType: 'none' })
-      void queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType: 'none' })
-      void queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType: 'none' })
-      navigate(returnTo, { replace: true, state: { transactionDeleted: true } })
-    },
-    onError: (error) => void handleRemoveError(error),
-  })
   const cancelPayment = useMutation({
     mutationFn: () => {
       const payment = transaction.cardPayment
@@ -102,29 +90,11 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
     },
   })
 
-  async function handleRemoveError(error: unknown) {
-    if (!(error instanceof ApiError)) return
-    setConfirmDelete(false)
-    if (error.status === 404) {
-      setRemoteDeleted(true)
-      return
-    }
-    if (error.status !== 412) return
-    try {
-      await queryClient.fetchQuery({
-        queryKey: transactionKeys.detail(transaction.transactionId),
-        queryFn: () => transactionApi.detail(transaction.transactionId),
-        staleTime: 0,
-      })
-      setConflict(true)
-    } catch (latestError) {
-      if (latestError instanceof ApiError && latestError.status === 404) setRemoteDeleted(true)
-    }
-  }
   const editable = transaction.managementType === 'GENERAL'
   const cancellableCardPayment = transaction.managementType === 'SYSTEM'
     && transaction.cardPayment
     && ['PREPAYMENT', 'REGULAR', 'MANUAL'].includes(transaction.cardPayment.paymentType)
+  const paymentCardId = transaction.postings.find((posting) => posting.deltaWon > 0)?.assetId
   const manualPayment = transaction.cardPayment?.paymentType === 'MANUAL'
   const automaticSettlement = cancellableCardPayment && transaction.cardPayment?.paymentType === 'REGULAR'
   const type = transactionTypeLabel(transaction)
@@ -136,21 +106,20 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
   const updated = Boolean((useLocation().state as { transactionUpdated?: boolean } | null)?.transactionUpdated)
 
   return (
-    <AppShell ledgerNavigation mobileHeader={{ title: '거래 상세', backTo: returnTo, backLabel: '거래 목록으로' }}>
-      <section className="mx-auto max-w-[46rem] py-4 md:py-8">
-        <Button asChild className="hidden md:inline-flex" variant="ghost"><Link to={returnTo}><ArrowLeft size={17} />목록으로 돌아가기</Link></Button>
-        <header className="border-b border-[var(--line)] pb-5 md:mt-3">
-          <h1 className="hidden text-2xl font-semibold tracking-[-.025em] md:block">거래 상세</h1>
+    <TransactionDetailLayout title={editing ? '결제 기록 편집' : '거래 상세'} returnTo={returnTo} actions={!editing && !remoteDeleted ? <div className="flex items-center" aria-label="기록 관리">
+      {editable || cancellableCardPayment ? <TransactionActionLink to={`/transactions/${transaction.transactionId}/edit`} returnTo={returnTo} label="기록 편집" icon={Pencil} /> : null}
+      {transaction.managementType === 'CARD_REFUND' && transaction.relatedPurchaseTransactionId ? <TransactionActionLink to={`/transactions/${transaction.relatedPurchaseTransactionId}/card-purchase`} returnTo={returnTo} label="원 카드 구매 보기" icon={ReceiptText} /> : null}
+    </div> : undefined}>
+        <header className="border-b border-[var(--line-subtle)] pb-5">
           <p className="text-sm font-semibold text-[var(--muted)]">{type}</p>
           <p className={`mt-2 text-3xl font-semibold tracking-[-.04em] tabular-nums md:text-4xl ${amountTone}`}>{amountPrefix(transaction)}{formatWon(transaction.amountWon)}</p>
           <p className="mt-3 break-words text-base font-semibold">{transaction.description || transaction.category?.name || type}</p>
         </header>
 
         {updated ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 수정했어요.</p> : null}
-        {conflict ? <div className="mt-4 border-l-4 border-amber-500 px-4 py-2" role="alert"><p className="font-semibold">다른 구성원이 이 거래를 먼저 변경했어요</p><p className="mt-1 text-sm text-[var(--muted)]">최신 내용을 불러왔어요. 내용을 확인한 뒤 삭제가 필요하면 다시 눌러 주세요.</p></div> : null}
         {remoteDeleted ? <div className="mt-4 border-l-4 border-amber-500 px-4 py-2" role="alert"><p className="font-semibold">다른 구성원이 이 거래를 먼저 삭제했어요</p><Button asChild className="mt-3" variant="secondary"><Link to={returnTo}>목록으로 돌아가기</Link></Button></div> : null}
 
-        <dl className="divide-y divide-[var(--line-subtle)] border-b border-[var(--line)] text-sm">
+        <dl className="divide-y divide-[var(--line-subtle)] border-b border-[var(--line-subtle)] text-sm">
           <DetailRow label="날짜" value={formatDate(transaction.occurredOn)} />
           {transaction.category ? <DetailRow label="분류" value={transaction.category.name} /> : null}
           <DetailRow label="자산 흐름" value={postingFlow(transaction)} />
@@ -160,27 +129,17 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
           {transaction.transferPurpose ? <DetailRow label="이체 목적" value={transferPurposeLabels[transaction.transferPurpose]} /> : null}
           {transaction.type !== 'TRANSFER' ? <DetailRow label="달력·통계" value={transaction.excludedFromStatistics ? '집계 제외' : '집계 포함'} /> : null}
           {transaction.type === 'EXPENSE' && transaction.statisticsAmountWon !== transaction.amountWon ? <DetailRow label="대표 결제" value={`지출에는 ${formatWon(transaction.statisticsAmountWon)} 반영`} /> : null}
-          {transaction.description ? <DetailRow label="내용" value={transaction.description} /> : null}
         </dl>
 
-        {transaction.managementType === 'CARD_REFUND' && transaction.relatedPurchaseTransactionId ? <section className="border-b border-[var(--line)] py-5"><p className="text-sm leading-6 text-[var(--muted)]">카드 환불은 원 구매와 결제 계좌 반환 내역을 함께 관리해요.</p><Button asChild className="mt-3" variant="secondary"><Link to={`/transactions/${transaction.relatedPurchaseTransactionId}/card-purchase`} state={{ returnTo }}>원 카드 구매 보기</Link></Button></section> : null}
-        {cancellableCardPayment ? (
-          <section className="border-b border-[var(--line)] py-5" aria-label="카드 결제 관리">
+        {cancellableCardPayment && editing && paymentCardId ? <Button asChild className="mt-5" variant="secondary"><Link to={`/assets/${paymentCardId}/card-statements/${transaction.cardPayment!.statementId}`}>결제 명세에서 출금 계좌 변경</Link></Button> : null}
+        {cancellableCardPayment && editing ? (
+          <section className="mt-10 border-t border-[var(--line-subtle)] pt-6" aria-label="카드 결제 관리">
+            <h2 className="mb-3 text-lg font-semibold">결제 기록 취소</h2>
             <p className="text-sm leading-6 text-[var(--muted)]">{automaticSettlement ? '자동 정산 기록이에요. 삭제하면 이 명세는 자동으로 다시 정산되지 않아요.' : manualPayment ? '직접 기록한 카드 전액 결제예요. 취소하면 자동 정산도 중단돼요.' : '직접 기록한 카드 선결제예요.'} 취소하면 결제 계좌 잔액이 복원되고 카드 미결제 금액이 다시 늘어납니다.</p>
             {transaction.cardPayment!.returnedAmountWon > 0 ? <p className="mt-3 text-sm text-amber-900 dark:text-[#ffe3a3]">이 결제로 반환된 환불 금액이 있어 바로 취소할 수 없어요.</p> : <Button className="mt-4" type="button" variant="destructive" disabled={!online} onClick={() => { setConfirmCancelPayment(true); setPaymentConflict(false); cancelPayment.reset() }}><Trash2 size={17} />{automaticSettlement ? '자동 정산 삭제' : manualPayment ? '수동 결제 취소' : '선결제 취소'}</Button>}
           </section>
-        ) : transaction.managementType === 'SYSTEM' ? <p className="border-b border-[var(--line)] py-5 text-sm leading-6 text-[var(--muted)]">카드 자동 정산처럼 시스템이 생성한 기록은 연결된 카드 명세에서 관리하므로 직접 편집하거나 삭제할 수 없어요.</p> : null}
+        ) : transaction.managementType === 'SYSTEM' && !cancellableCardPayment ? <p className="border-b border-[var(--line)] py-5 text-sm leading-6 text-[var(--muted)]">카드 자동 정산처럼 시스템이 생성한 기록은 연결된 카드 명세에서 관리하므로 직접 편집하거나 삭제할 수 없어요.</p> : null}
 
-        {editable && !remoteDeleted ? (
-          <section className="pt-6" aria-label="거래 관리">
-            <div className="grid gap-3 xs:grid-cols-2">
-              <Button asChild size="large"><Link to={`/transactions/${transaction.transactionId}/edit`} state={{ returnTo }}><Pencil size={18} />기록 편집</Link></Button>
-              <Button type="button" size="large" variant="secondary" disabled={!online} onClick={() => { setConfirmDelete(true); setConflict(false); remove.reset() }}><Trash2 size={18} />기록 삭제</Button>
-            </div>
-            {confirmDelete ? <div className="mt-4 border-y border-[var(--line)] py-4"><h2 className="font-semibold">이 거래를 삭제할까요?</h2><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{transaction.type === 'TRANSFER' ? '보내는 자산과 받는 자산의 잔액을 함께 되돌립니다.' : '자산 잔액을 되돌리고 달력과 통계에서도 제거합니다.'}</p>{remove.error && !(remove.error instanceof ApiError && [404, 412].includes(remove.error.status)) ? <p className="mt-3 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{remove.error.message}</p> : null}<div className="mt-4 flex flex-wrap gap-2"><Button type="button" variant="destructive" disabled={remove.isPending || !online} onClick={() => remove.mutate(transaction.version)}>{remove.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}삭제하기</Button><Button type="button" variant="secondary" onClick={() => { setConfirmDelete(false); remove.reset() }}>취소</Button></div></div> : null}
-          </section>
-        ) : null}
-      </section>
       <Dialog open={confirmCancelPayment} onOpenChange={(open) => { if (!open && !cancelPayment.isPending) setConfirmCancelPayment(false) }}>
         <DialogContent className="max-w-md">
           <DialogTitle>{automaticSettlement ? '자동 정산을 삭제할까요?' : manualPayment ? '수동 결제를 취소할까요?' : '선결제를 취소할까요?'}</DialogTitle>
@@ -189,12 +148,8 @@ function TransactionDetail({ transaction, returnTo }: { transaction: Transaction
           <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={cancelPayment.isPending} onClick={() => setConfirmCancelPayment(false)}>유지</Button><Button type="button" variant="destructive" disabled={!online || cancelPayment.isPending || !transaction.cardPayment} onClick={() => { setPaymentConflict(false); cancelPayment.mutate() }}>{cancelPayment.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Trash2 size={17} />}{automaticSettlement ? '자동 정산 삭제' : manualPayment ? '수동 결제 취소' : '선결제 취소'}</Button></div>
         </DialogContent>
       </Dialog>
-    </AppShell>
+    </TransactionDetailLayout>
   )
-}
-
-function DetailRow({ label, value }: { label: string; value: ReactNode }) {
-  return <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-4 py-3.5"><dt className="text-[var(--muted)]">{label}</dt><dd className="min-w-0 break-words font-semibold">{value}</dd></div>
 }
 
 function MemberValue({ transaction }: { transaction: Transaction }) {

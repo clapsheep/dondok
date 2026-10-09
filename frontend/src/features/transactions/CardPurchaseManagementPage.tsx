@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, LoaderCircle, RotateCcw, Save } from 'lucide-react'
+import { ArrowLeft, Check, LoaderCircle, Pencil, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
@@ -14,6 +14,7 @@ import { ApiError } from '../../lib/api'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { assetApi, assetKeys, type Asset } from '../assets/api'
 import { AssetPicker } from '../assets/AssetPicker'
+import { formatDate } from '../assets/format'
 import { categoryApi, categoryKeys, type Category } from '../categories/api'
 import type { LedgerBook } from '../membership/api'
 import {
@@ -31,6 +32,7 @@ import { performerPersonLabel, performerQuestionLabel, performerSelectionError }
 import { PerformerPicker } from './PerformerPicker'
 import { RepresentativePaymentFields } from './RepresentativePaymentFields'
 import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
+import { TransactionActionLink, TransactionDetailLayout, TransactionDetailRow } from './TransactionDetailLayout'
 
 export type CardPurchaseAction = 'detail' | 'correction' | 'refund'
 
@@ -126,35 +128,19 @@ function CardPurchaseDetail({ management, returnTo, state }: { management: CardP
       ? '환불을 기록했어요. 미결제 금액과 원 결제 계좌 장부를 다시 맞췄어요.'
       : undefined
   return (
-    <AppShell ledgerNavigation>
-      <section className="mx-auto max-w-[52rem] py-5 md:py-8">
-        <Button asChild variant="ghost"><Link to={returnTo}><ArrowLeft size={17} />가계부로 돌아가기</Link></Button>
-        <header className="mt-4 border-b border-[var(--line)] pb-4">
-          <h1 className="text-2xl font-semibold tracking-[-.025em]">카드 구매 상세</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">구매 기록과 카드 명세·결제 내역을 함께 확인할 수 있어요.</p>
-        </header>
-        {status ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">{status}</p> : null}
-        <PurchaseSummary management={management} />
-        <BillingDetails management={management} />
-        <section className="mt-8 border-t border-[var(--line)]" aria-labelledby="card-purchase-actions-title">
-          <h2 id="card-purchase-actions-title" className="py-4 text-lg font-semibold">관리</h2>
-          <ActionRow
-            title="기록 정정"
-            description="날짜나 금액처럼 입력한 구매 기록이 잘못되었을 때 원 구매일 기준으로 다시 맞춥니다."
-            to={`/transactions/${purchase.transactionId}/card-purchase/correction`}
-            returnTo={returnTo}
-          />
-          {management.refundableAmountWon > 0 ? (
-            <ActionRow
-              title="환불 처리"
-              description="판매처에서 실제로 환불받았을 때 환불일에 기록합니다. 원 구매 기록은 그대로 남습니다."
-              to={`/transactions/${purchase.transactionId}/card-purchase/refund`}
-              returnTo={returnTo}
-            />
-          ) : <UnavailableActionRow title="환불 처리" description="환불할 수 있는 금액이 남아 있지 않아요." />}
-        </section>
-      </section>
-    </AppShell>
+    <TransactionDetailLayout title="카드 구매 상세" returnTo={returnTo} actions={<div className="flex items-center" aria-label="기록 관리">
+      <TransactionActionLink to={`/transactions/${purchase.transactionId}/card-purchase/correction`} returnTo={returnTo} label="기록 정정" icon={Pencil} />
+      {management.refundableAmountWon > 0 ? <TransactionActionLink to={`/transactions/${purchase.transactionId}/card-purchase/refund`} returnTo={returnTo} label="환불 처리" icon={Undo2} /> : null}
+    </div>}>
+      <header className="border-b border-[var(--line-subtle)] pb-5">
+        <p className="text-sm font-semibold text-[var(--muted)]">카드 지출</p>
+        <p className="mt-2 text-3xl font-semibold tracking-[-.04em] text-[var(--expense)] tabular-nums md:text-4xl">-{formatWon(purchase.amountWon)}</p>
+        <p className="mt-3 break-words text-base font-semibold">{purchase.description || purchase.category?.name || '카드 구매'}</p>
+      </header>
+      {status ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">{status}</p> : null}
+      <PurchaseSummary management={management} />
+      <BillingDetails management={management} />
+    </TransactionDetailLayout>
   )
 }
 
@@ -531,18 +517,16 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
 function PurchaseSummary({ management }: { management: CardPurchaseManagementView }) {
   const purchase = management.purchase
   return (
-    <section className="border-b border-[var(--line)] py-5" aria-labelledby="purchase-summary-title">
+    <section className="border-b border-[var(--line-subtle)]" aria-labelledby="purchase-summary-title">
       <h2 id="purchase-summary-title" className="sr-only">원 구매</h2>
-      <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
-        <Value label="구매 날짜" value={purchase.occurredOn} />
-        <Value label="구매 금액" value={formatWon(purchase.amountWon)} />
-        {purchase.statisticsAmountWon !== purchase.amountWon ? <Value label="지출 반영 금액" value={formatWon(purchase.statisticsAmountWon)} /> : null}
-        <Value label="결제 카드" value={management.billingSnapshot.cardAssetName} />
-        <Value label="분류" value={purchase.category?.name ?? '분류 없음'} />
-        <Value label={performerPersonLabel('EXPENSE')} value={purchase.performedBy ? <span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={purchase.performedBy.displayName} memberId={purchase.performedBy.memberId} size="xs" /><span>{purchase.performedBy.displayName}</span></span> : '구성원 없음'} />
-        <Value label="결제 방식" value={management.billingSnapshot.installmentCount > 1 ? `${management.billingSnapshot.installmentCount}개월 할부` : '일시불'} />
-        <Value label="달력·통계" value={purchase.excludedFromStatistics ? '집계 제외' : '지출에 포함'} />
-        <Value className="sm:col-span-2" label="내용" value={purchase.description || '내용 없음'} />
+      <dl className="divide-y divide-[var(--line-subtle)] text-sm">
+        <TransactionDetailRow label="구매 날짜" value={<time dateTime={purchase.occurredOn}>{formatDate(purchase.occurredOn)}</time>} />
+        {purchase.statisticsAmountWon !== purchase.amountWon ? <TransactionDetailRow label="지출 반영 금액" value={formatWon(purchase.statisticsAmountWon)} /> : null}
+        <TransactionDetailRow label="결제 카드" value={management.billingSnapshot.cardAssetName} />
+        <TransactionDetailRow label="분류" value={purchase.category?.name ?? '분류 없음'} />
+        <TransactionDetailRow label={performerPersonLabel('EXPENSE')} value={purchase.performedBy ? <span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={purchase.performedBy.displayName} memberId={purchase.performedBy.memberId} size="xs" /><span>{purchase.performedBy.displayName}</span></span> : '구성원 없음'} />
+        <TransactionDetailRow label="결제 방식" value={management.billingSnapshot.installmentCount > 1 ? `${management.billingSnapshot.installmentCount}개월 할부` : '일시불'} />
+        <TransactionDetailRow label="달력·통계" value={purchase.excludedFromStatistics ? '집계 제외' : '지출에 포함'} />
       </dl>
     </section>
   )
@@ -593,15 +577,6 @@ function BillingDetails({ management }: { management: CardPurchaseManagementView
 
 function CompactPurchaseLine({ purchase }: { purchase: Transaction }) {
   return <p className="border-b border-[var(--line)] py-4 text-sm leading-6"><span className="text-[var(--muted)]">원 구매 </span><strong>{purchase.occurredOn} · {formatWon(purchase.amountWon)}</strong><span className="text-[var(--muted)]"> · {purchase.description || purchase.category?.name || '카드 구매'}</span></p>
-}
-
-function ActionRow({ title, description, to, returnTo }: { title: string; description: string; to: string; returnTo: string }) {
-  const descriptionId = `action-${title === '기록 정정' ? 'correction' : 'refund'}-description`
-  return <div className="grid gap-3 border-t border-[var(--line)] py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div><h3 className="font-semibold">{title}</h3><p id={descriptionId} className="mt-1 text-sm leading-6 text-[var(--muted)]">{description}</p></div><Button asChild variant="secondary"><Link to={to} state={{ returnTo }} aria-describedby={descriptionId}>{title}</Link></Button></div>
-}
-
-function UnavailableActionRow({ title, description }: { title: string; description: string }) {
-  return <div className="border-t border-[var(--line)] py-5"><h3 className="font-semibold">{title}</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">{description}</p></div>
 }
 
 function NoRefundAvailable({ returnTo, purchaseId }: { returnTo: string; purchaseId: string }) {

@@ -91,7 +91,7 @@ export function MoneyField({ id, label, value, onValueChange, hint, error, allow
                 autoComplete="off"
                 spellCheck={false}
                 className={cn(
-                  'min-h-14 pr-12 text-right text-xl font-semibold tracking-[-.025em] tabular-nums sm:text-2xl',
+                  'min-h-12 pointer-coarse:min-h-12 pr-12 text-right text-xl pointer-coarse:text-xl font-semibold tracking-[-.025em] tabular-nums',
                   negative && 'text-[var(--expense)] dark:text-[var(--expense)]',
                   inputClassName,
                 )}

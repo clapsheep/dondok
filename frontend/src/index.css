@@ -5,19 +5,17 @@
 
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, SUIT, Inter, ui-sans-serif, system-ui, sans-serif;
-  --color-forest-50: #f0f6f3;
-  --color-forest-100: #dcebe4;
-  --color-forest-300: #86b8a2;
-  --color-forest-500: #24775c;
-  --color-forest-600: #1c604a;
-  --color-forest-700: #174b3a;
-  --color-forest-800: #133f32;
-  --color-forest-900: #0d3025;
-  --color-forest-950: #091f19;
+  --color-forest-50: #f0f6f4;
+  --color-forest-100: #dcebe8;
+  --color-forest-300: #86b8ad;
+  --color-forest-500: #287565;
+  --color-forest-600: #205e51;
+  --color-forest-700: #19463c;
+  --color-forest-800: #143a32;
+  --color-forest-900: #0f2e27;
+  --color-forest-950: #0a1f1a;
   --color-brass-500: var(--brand-accent);
-  --color-cream-50: #fdfcf8;
-  --color-cream-100: #f8f5ed;
-  --color-ink-900: #18231f;
+  --color-ink-900: #171717;
   --breakpoint-xs: 30rem;
   --breakpoint-md: 48rem;
   --breakpoint-lg: 64rem;
@@ -26,21 +24,29 @@
 
 :root {
   color-scheme: light;
-  color: #18231f;
-  background: #f8f5ed;
+  color: var(--foreground);
+  background: var(--background);
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --surface: #fffefa;
-  --muted: #66736e;
-  --line: #918d82;
-  --line-subtle: #d7d2c7;
+  --background: #ffffff;
+  --foreground: #171717;
+  --surface: #fafafa;
+  --surface-hover: #f5f5f5;
+  --surface-selected: #e5e5e5;
+  --muted: #666666;
+  --line: #8a8a8a;
+  --line-subtle: #e5e5e5;
+  --control-border: #d4d4d4;
+  --control-border-hover: #a3a3a3;
   --brand-accent: #77571f;
-  --ring: #1f6a51;
+  --ring: #19463c;
   --income: #1e6a4e;
   --expense: #a94035;
   --transfer: #315e85;
+  --calendar-income: #c03848;
+  --calendar-expense: #2465b4;
   --chart-1: #168b83;
   --chart-2: #df654e;
   --chart-3: #4779e8;
@@ -66,17 +72,23 @@
 
 :root.dark {
   color-scheme: dark;
-  color: #edf4f0;
-  background: #101714;
-  --surface: #18211d;
-  --muted: #aab8b2;
-  --line: #60756c;
-  --line-subtle: #364941;
+  --background: #121212;
+  --foreground: #f5f5f5;
+  --surface: #1e1e1e;
+  --surface-hover: #2a2a2a;
+  --surface-selected: #333333;
+  --muted: #a3a3a3;
+  --line: #858585;
+  --line-subtle: #404040;
+  --control-border: #404040;
+  --control-border-hover: #737373;
   --brand-accent: #d2a856;
-  --ring: #80c7a7;
+  --ring: #80c7b7;
   --income: #77d5a6;
   --expense: #f58b80;
   --transfer: #8fc5f2;
+  --calendar-income: #ff9aa4;
+  --calendar-expense: #8fc1ff;
   --chart-1: #63d4c4;
   --chart-2: #ff9a80;
   --chart-3: #8baeff;
@@ -122,8 +134,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 :focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+.dondok-control:focus-visible { outline: none; outline-offset: 0; }
 
-::selection { background: #dcebe4; color: #174b3a; }
+::selection { background: var(--color-forest-100); color: var(--color-forest-700); }
 
 .auth-shell { container-type: inline-size; }
 

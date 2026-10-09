@@ -116,9 +116,9 @@ Redis는 단일 backend 인스턴스에서는 넣지 않는다. reverse proxy �
 - trusted proxy와 forwarded header를 명시하고 backend health/debug endpoint를 공개하지 않는다.
 - Mac mini 방화벽에서는 reverse proxy 80/443과 신뢰 LAN에서 오는 PostgreSQL 관리 포트만 허용하고 backend·PostgreSQL 관리 포트는 WAN에서 접근할 수 없어야 한다.
 
-### DuckDNS와 Nginx Proxy Manager
+### 구매한 도메인·Cloudflare DNS와 Nginx Proxy Manager
 
-운영 origin은 비공개 운영 설정의 `DONDOK_PUBLIC_URL`을 사용한다. DuckDNS A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream, backend와 PostgreSQL 관리 포트는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
+운영 origin은 비공개 운영 설정의 `DONDOK_PUBLIC_URL`을 사용한다. 가비아에서 구매한 도메인의 네임서버는 Cloudflare에 위임한다. Cloudflare의 DNS only A record가 Mac mini가 사용하는 현재 공인 IPv4와 같아야 하며, 공유기에서는 WAN TCP 80과 443만 Mac mini의 고정 LAN 주소로 전달한다. `www`는 기본 도메인을 가리키는 CNAME으로 설정한다. DNS CNAME은 HTTP 리디렉션을 만들지 않으므로 기본 origin으로의 이동은 별도 설정과 실제 주소창으로 확인한다. Nginx Proxy Manager 관리 포트 81, 돈독 upstream, backend와 PostgreSQL 관리 포트는 포트포워딩하지 않는다. 공인 IPv4가 공유기 WAN 주소와 다르거나 80/443 외부 확인이 실패하면 CGNAT·이중 NAT·통신사 포트 차단 여부를 먼저 확인한다.
 
 Nginx Proxy Manager의 Proxy Host는 다음 값으로 관리한다.
 
@@ -136,39 +136,60 @@ Nginx Proxy Manager의 Proxy Host는 다음 값으로 관리한다.
 
 HTTP-01 인증서 발급과 HTTP→HTTPS redirect를 위해 외부 TCP 80과 443이 모두 Nginx Proxy Manager에 도달해야 한다. 돈독 Compose를 배포하기 전에 Proxy Host를 만들어도 되지만 upstream은 frontend가 시작되기 전까지 `502`를 반환할 수 있다. Nginx Proxy Manager 자체의 데이터·인증서 백업과 image pinning은 돈독 Compose와 별도로 관리한다.
 
-공인 IP 변경은 [`infra/duckdns-update.sh`](../../infra/duckdns-update.sh)와 사용자 LaunchAgent가 5분마다 갱신한다. DuckDNS token은 process argument나 log에 넣지 않고 `~/.config/dondok/duckdns.env` 같은 저장소 밖 0600 파일에만 둔다. installer는 interactive terminal에서 token을 숨김 입력으로 받고 즉시 update API를 검증한 뒤 LaunchAgent를 설치한다.
+공인 IP 변경은 [`infra/cloudflare_ddns.py`](../../infra/cloudflare_ddns.py)의 사용자 LaunchAgent가 5분마다 확인한다. Python 3 표준 라이브러리와 macOS의 `/usr/bin/curl`을 사용하며 추가 패키지는 설치하지 않는다. IPv4 HTTPS로 ipify에서 공인 IP를 조회하고 Cloudflare에서 지정한 이름의 기존 A record가 정확히 하나인지 확인한다. IP가 다를 때만 `content`를 PATCH하며 레코드를 자동 생성하거나 proxy 상태·TTL·comment·tag를 변경하지 않는다. 로그에는 상태·시각만 남고 도메인·IP·토큰·API 응답 원문은 남지 않는다.
+
+설치 준비:
+
+1. Cloudflare의 사용자 API Tokens에서 `Edit zone DNS` 템플릿으로 API token을 만든다. 권한은 `Zone / DNS / Edit`, Zone Resources는 `Include / Specific zone / <public-domain>`으로 제한한다. zone을 검색하지 않으므로 Zone Read 권한은 필요 없다. Client IP Address Filtering을 현재 유동 IP로 제한하면 IP 변경 후 갱신이 차단되므로 사용하지 않는다. 만료일을 설정하면 만료 전에 토큰을 교체한다.
+2. 해당 도메인의 Overview에서 **Zone ID**를 확인한다. Account ID와 구분한다.
+3. 새 스크립트를 Mac mini에 전달한 뒤 해당 사용자의 터미널에서 아래 명령을 실행한다. 배포 전이라면 파일 한 개만 별도 폴더에 복사해 설치할 수 있다. 도메인과 Zone ID는 로컬 입력을 사용하고 API token은 숨김 입력한다. `sudo`를 사용하지 않는다.
 
 ```bash
 cd /absolute/repository/dondok
-./infra/install-duckdns-updater.sh --domain "<duckdns-subdomain>"
+python3 infra/cloudflare_ddns.py install
 ```
 
-기존 secret 또는 LaunchAgent를 의도적으로 교체할 때만 `--replace`를 추가한다. 설치 뒤 `launchctl print gui/$(id -u)/com.dondok.duckdns-update`와 `~/Library/Logs/dondok/duckdns-update.log`에서 최근 성공 시각을 확인한다. log에는 domain과 성공 시각만 남고 token은 남지 않는다.
+설치기는 IP가 이미 같아도 한 번 PATCH해 실제 DNS 수정 권한을 검증한다. 성공 후 `~/.config/dondok/cloudflare-ddns.json`에 `zone_id`, `record_name`, `api_token`을 0600 권한으로 저장하고 실행 파일을 `~/.local/share/dondok/cloudflare_ddns.py`에 복사한다. 이 복사본은 저장소 checkout·rollback과 독립적으로 실행된다. LaunchAgent는 `com.dondok.cloudflare-ddns`이며 즉시 한 번, 이후 300초마다 실행한다. 기존 설치·토큰을 교체할 때는 `install --replace`를 사용한다. 새 토큰의 API 검증이 실패하면 이전 설정을 덮어쓰지 않는다. Python 실행 경로를 제거·변경한 경우 재설치한다.
+
+설치 성공과 예약 실행 성공을 구분해 확인한다. 로그에 최근 시각의 `updated` 또는 `unchanged`가 주기적으로 남아야 한다. 토큰이나 환경파일 전체를 출력하지 않는다.
+
+```bash
+launchctl print "gui/$(id -u)/com.dondok.cloudflare-ddns"
+tail -n 5 "$HOME/Library/Logs/dondok/cloudflare-ddns.log"
+tail -n 5 "$HOME/Library/Logs/dondok/cloudflare-ddns-error.log"
+```
+
+사용자 LaunchAgent이므로 재부팅 후 해당 macOS 사용자가 GUI에 로그인해야 실행되며 절전 중에는 갱신하지 않는다. 다음 예약 실행의 성공과 새 도메인의 외부 HTTPS 접속을 확인한 뒤 기존 DuckDNS 작업을 중단한다. 설치기는 DuckDNS를 자동 중단하거나 토큰을 삭제하지 않는다. 이전 주소를 더 이상 유지하지 않을 때 아래 명령으로 재로그인 시 재실행도 막는다.
+
+```bash
+launchctl disable "gui/$(id -u)/com.dondok.duckdns-update"
+launchctl bootout "gui/$(id -u)/com.dondok.duckdns-update"
+```
+
+DuckDNS 복구가 필요하면 기존 secret·plist를 유지한 상태에서 `launchctl enable "gui/$(id -u)/com.dondok.duckdns-update"` 후 기존 plist를 `bootstrap`한다. 전환 완료 전에는 기존 [`infra/duckdns-update.sh`](../../infra/duckdns-update.sh)와 설치기를 사용할 수 있다. [Cloudflare DDNS 공식 안내](https://developers.cloudflare.com/dns/manage-dns-records/how-to/managing-dynamic-ip-addresses/)·[API token 안내](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)를 참고한다.
 
 ### 운영 SMTP
 
-MVP의 낮은 인증·비밀번호 재설정 메일량에는 개인 Gmail SMTP를 사용한다. 별도 메일 서버를 Mac mini에서 운영하지 않고 Gmail이 발송을 담당하므로 DuckDNS에 MX·SPF·DKIM record를 추가하지 않는다. Gmail 계정은 2단계 인증을 켜고 돈독 전용 16자리 앱 비밀번호를 발급한다. 일반 Google 계정 비밀번호를 사용하거나 저장소·GitHub Actions·대화에 앱 비밀번호를 넣지 않는다. 조직 계정, Advanced Protection 또는 보안 키만 사용하는 2단계 인증처럼 앱 비밀번호를 만들 수 없는 계정이면 개인 Gmail 계정을 별도로 사용하거나 sender 인증을 지원하는 외부 transactional SMTP로 교체한다.
+2026-10-09 사용자 결정으로 인증·비밀번호 재설정 메일은 구매한 도메인의 발신 주소와 Resend SMTP를 사용한다. 도메인을 Resend에 등록하고 DNS를 관리하는 Cloudflare에 발송용 인증 record를 추가해 `Verified` 상태를 확인한다. 웹사이트 A/CNAME은 유지하고 발송용 DNS 값은 Resend가 제시한 값을 그대로 사용한다. 개인 Gmail SMTP는 이전 구성이다. 로컬 개발과 E2E는 계속 Mailpit만 사용한다.
 
-Mac mini의 저장소 밖 `production.env`에 다음 값을 넣고 파일 권한을 0600으로 유지한다.
+Mac mini의 저장소 밖 0600 `production.env`에 다음 값을 설정한다. 실제 도메인과 API key는 공개 저장소·로그·대화에 넣지 않는다. API key는 Sending access와 해당 도메인으로 제한한다.
 
 ```dotenv
-DONDOK_PUBLIC_URL=https://<public-domain>
-DONDOK_COOKIE_SECURE=true
-DONDOK_FRONTEND_PORT=<frontend-host-port>
-DONDOK_DB_BIND_HOST=<db-lan-address>
-DONDOK_DB_HOST_PORT=<db-host-port>
-
 DONDOK_MAIL_ENABLED=true
-DONDOK_MAIL_FROM=<발송에 사용할 Gmail 주소>
-DONDOK_SMTP_HOST=smtp.gmail.com
+DONDOK_MAIL_FROM=no-reply@<verified-domain>
+DONDOK_SMTP_HOST=smtp.resend.com
 DONDOK_SMTP_PORT=587
-DONDOK_SMTP_USERNAME=<같은 Gmail 주소>
-DONDOK_SMTP_PASSWORD=<돈독 전용 Google 앱 비밀번호>
+DONDOK_SMTP_USERNAME=resend
+DONDOK_SMTP_PASSWORD=<resend-sending-api-key>
 DONDOK_SMTP_AUTH=true
 DONDOK_SMTP_STARTTLS=true
 ```
 
-`DONDOK_MAIL_FROM`과 `DONDOK_SMTP_USERNAME`은 우선 같은 Gmail 주소를 사용한다. 운영 기동 뒤 새 테스트 계정으로 인증 메일과 비밀번호 재설정 메일을 각각 한 번 보내 실제 수신, 링크 origin과 token 1회성까지 확인한다. Google 계정 비밀번호를 바꾸면 기존 앱 비밀번호가 폐기될 수 있으므로 새 앱 비밀번호로 운영 환경파일을 갱신하고 backend를 재기동한다.
+기존 SMTP gateway를 그대로 사용하며 API key가 SMTP 비밀번호 역할을 한다. 환경파일 저장 후 새 배포에서 backend 컨테이너를 재생성해야 반영된다. 단순 restart는 환경변수를 갱신하지 않는다. 발신용 도메인 인증만으로 답장 수신 메일함을 만든 것은 아니다.
+
+배포 후 인증·비밀번호 재설정 메일을 각각 받아 발신 주소, 실제 HTTPS origin의 링크, token 1회성과 Resend 발송 상태를 확인한다. 배포 workflow의 HTTP smoke만 통과한 상태를 실제 메일 수신 완료로 보고하지 않는다. API key를 출력하지 않고 provider host·발신 주소 일치 여부만 점검한다.
+
+참고: [Resend SMTP](https://resend.com/docs/send-with-smtp), [도메인 인증](https://resend.com/docs/dashboard/domains/introduction).
 
 ### 같은 LAN의 DBeaver 연결
 
@@ -310,6 +331,14 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build --wait
 - 개발 메일함: `http://localhost:8025`
 
 운영은 저장소 밖의 0600 `production.env`에 실제 origin·PostgreSQL·SMTP 값을 넣고 private 배포 저장소 workflow로 기동한다. 긴급 수동 배포도 임의 branch가 아니라 CI를 통과한 `main`의 전체 Git SHA를 [`infra/deploy-production.sh`](../../infra/deploy-production.sh)에 전달한다. 운영 Compose는 frontend를 loopback 주소의 `DONDOK_FRONTEND_PORT`, PostgreSQL 관리 포트를 `DONDOK_DB_BIND_HOST:DONDOK_DB_HOST_PORT`에만 bind한다. 기존 Nginx Proxy Manager만 WAN 80/443을 공개하며 backend는 호스트 포트를 열지 않는다.
+
+### 운영 스냅샷으로 로컬 수동 테스트
+
+사용자가 명시적으로 요청한 경우 운영 DB를 읽기 전용 `pg_dump --format=custom --no-owner --no-acl`로 복사해 별도 로컬 PostgreSQL에 복원할 수 있다. 운영 DB를 개발 앱에 직접 연결하지 않는다. 접속 설정과 dump·복원 로그·로컬 Compose·DB 비밀번호는 저장소 밖의 사용자 전용 디렉터리(0700, 파일 0600)에 보관한다. 복원 대상은 별도 Compose 프로젝트와 신규 named volume이며 기존 개발 DB를 덮어쓰지 않는다. 재복사 시에도 새 볼륨 또는 기존 복사본 백업으로 로컬 수정 내용을 보존한다.
+
+로컬 DB는 internal network에만 연결한다. API와 Mailpit 관리 화면에는 별도의 접근용 network를 연결하고 공개 포트를 loopback에만 bind한다. internal network만 연결한 컨테이너는 Docker 환경에 따라 호스트 포트 공개가 적용되지 않을 수 있으므로 실제 HTTP 접속까지 검증한다. 운영 SMTP 설정은 복사하지 않고 Mailpit으로만 발송한다. `SERVER_SERVLET_SESSION_COOKIE_NAME`을 로컬 복사본 전용 값으로 지정해 기존 개발 서버와 세션 충돌을 방지한다. 계정·암호 해시는 복원하므로 운영 계정으로 로컬에 새로 로그인한다. 백엔드를 시작하기 전에 archive 유효성·복원 오류·Flyway 이력과 데이터 정합성을 검사하고, 현재 코드의 추가 migration은 복사본에만 적용한다.
+
+프론트엔드의 `frontend/.env.local`에서 `DONDOK_DEV_API_TARGET=http://127.0.0.1:8082`처럼 로컬 복사본 API를 지정하고 Vite를 재시작하면 `/api`와 `/actuator` proxy가 전환된다. 미지정 시 기존 `http://localhost:8080`을 사용한다. 이 변수는 Vite 개발 서버 전용이며 브라우저 번들이나 운영 정적 앱에는 포함하지 않는다. 이 복사본은 사용자 수동 테스트용이며 CI·자동 E2E에는 계속 합성 seed DB를 사용한다. 운영과 자동 동기화하지 않는다.
 
 ## 프로젝트 생성 완료 조건
 

@@ -323,7 +323,7 @@ public record MoneyWon(long value) {
 
 공개 도메인+HTTPS로 운영하므로 reverse proxy만 외부에 노출하고 secure cookie, CSRF, 인증 관련 rate limit, 방화벽과 암호화 백업을 배포 전에 검증한다.
 
-월간 달력은 동일 월·가계부·거래 주체 조건으로 canonical 수입·지출과 유효 카드 정산·선결제를 각각 읽고 날짜별로 합산한다. `cardPaymentWon`은 별도 필드이며 `incomeWon`·`expenseWon`·`netWon`에 더하지 않는다. 취소된 결제는 제외한다. 기존 구성원 필터와 cursor 일별 조회, mutation 무효화·focus 재조회 경로를 유지한다.
+월간 달력은 동일 월·가계부·거래 주체 조건으로 canonical 수입·지출과 유효 카드 정산·선결제를 각각 읽고 날짜별로 합산한다. `cardPaymentWon`은 별도 필드이며 `incomeWon`·`expenseWon`·`netWon`에 더하지 않는다. 취소된 결제는 제외한다. D-072의 `transactionCount`는 이 두 범위의 UNION ALL에서 같은 SQL의 COUNT(*)로 계산한다. 거래별 한 행이므로 posting·할부 회차·pagination 때문에 중복/누락되지 않고, 일반 이체·집계 제외·삭제·기준일 잔액은 세지 않는다. 합산 금액이 0원인 날도 건수는 반환한다. 기존 구성원 필터와 cursor 일별 조회, mutation 무효화·focus 재조회 경로를 유지한다.
 
 ### 사용자 수동 카드 정산
 

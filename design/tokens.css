@@ -1,33 +1,33 @@
-/* shadcn/ui + Tailwind v4용 브랜드 토큰 초안. 앱 생성 시 globals.css로 옮긴다. */
+/* 디자인 참조 토큰. 실행 UI 토큰은 frontend/src/index.css에서 관리한다. */
 :root {
-  --background: #f8f5ed;
-  --foreground: #173f33;
-  --card: #fffefb;
-  --card-foreground: #173f33;
-  --popover: #fffefb;
-  --popover-foreground: #173f33;
-  --primary: #174b3a;
-  --primary-foreground: #f8f5ed;
-  --secondary: #efeade;
-  --secondary-foreground: #1e4a3b;
-  --muted: #f0ede6;
-  --muted-foreground: #55665f;
+  --background: #ffffff;
+  --foreground: #171717;
+  --card: #fafafa;
+  --card-foreground: #171717;
+  --popover: #fafafa;
+  --popover-foreground: #171717;
+  --primary: #19463c;
+  --primary-foreground: #ffffff;
+  --secondary: #e5e5e5;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #666666;
   --accent: #b8893b;
   --accent-foreground: #211b11;
   --destructive: #a94035;
-  --destructive-foreground: #f8f5ed;
-  --border: #918d82;
-  --input: #827f75;
-  --ring: #1f6a51;
+  --destructive-foreground: #ffffff;
+  --border: #8a8a8a;
+  --input: #d4d4d4;
+  --ring: #19463c;
 
   --success: #1e6a4e;
-  --success-foreground: #f8f5ed;
+  --success-foreground: #ffffff;
   --warning: #8b5e00;
-  --warning-foreground: #f8f5ed;
+  --warning-foreground: #ffffff;
   --info: #2c5f8a;
-  --info-foreground: #f8f5ed;
-  --subtle: #e8e3d8;
-  --subtle-foreground: #465950;
+  --info-foreground: #ffffff;
+  --subtle: #e5e5e5;
+  --subtle-foreground: #525252;
   --income: #1e6a4e;
   --expense: #a94035;
   --transfer: #315e85;
@@ -41,14 +41,14 @@
   --chart-5: #805f7e;
   --chart-6: #7b8549;
 
-  --sidebar: #f2eee5;
-  --sidebar-foreground: #173f33;
-  --sidebar-primary: #174b3a;
-  --sidebar-primary-foreground: #f8f5ed;
-  --sidebar-accent: #e4ded1;
-  --sidebar-accent-foreground: #173f33;
-  --sidebar-border: #918d82;
-  --sidebar-ring: #1f6a51;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #171717;
+  --sidebar-primary: #19463c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5e5e5;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #8a8a8a;
+  --sidebar-ring: #19463c;
 
   --radius: 0.75rem;
   --space-unit: 0.25rem;
@@ -58,31 +58,31 @@
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
-  --shadow-card: 0 1px 2px rgb(23 63 51 / 0.06), 0 8px 24px rgb(23 63 51 / 0.05);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.05);
   --duration-fast: 120ms;
   --duration-default: 180ms;
 }
 
 .dark {
-  --background: #15251f;
-  --foreground: #f4f0e8;
-  --card: #1d3028;
-  --card-foreground: #f4f0e8;
-  --popover: #1d3028;
-  --popover-foreground: #f4f0e8;
-  --primary: #80c7a7;
+  --background: #121212;
+  --foreground: #f5f5f5;
+  --card: #1e1e1e;
+  --card-foreground: #f5f5f5;
+  --popover: #1e1e1e;
+  --popover-foreground: #f5f5f5;
+  --primary: #80c7b7;
   --primary-foreground: #10231c;
-  --secondary: #2a3c34;
-  --secondary-foreground: #f4f0e8;
-  --muted: #293a33;
-  --muted-foreground: #bcc7c1;
+  --secondary: #333333;
+  --secondary-foreground: #f5f5f5;
+  --muted: #2a2a2a;
+  --muted-foreground: #a3a3a3;
   --accent: #d2a856;
   --accent-foreground: #211b11;
   --destructive: #f58b80;
   --destructive-foreground: #1f0f0d;
-  --border: #60756c;
-  --input: #7e938a;
-  --ring: #80c7a7;
+  --border: #858585;
+  --input: #404040;
+  --ring: #80c7b7;
 
   --success: #77d5a6;
   --success-foreground: #10231c;
@@ -90,8 +90,8 @@
   --warning-foreground: #211b11;
   --info: #8fc5f2;
   --info-foreground: #10202c;
-  --subtle: #30433b;
-  --subtle-foreground: #d5ddd8;
+  --subtle: #333333;
+  --subtle-foreground: #d4d4d4;
   --income: #77d5a6;
   --expense: #f58b80;
   --transfer: #8fc5f2;
@@ -105,14 +105,14 @@
   --chart-5: #c99bc5;
   --chart-6: #b4c77b;
 
-  --sidebar: #1a2c25;
-  --sidebar-foreground: #f4f0e8;
-  --sidebar-primary: #80c7a7;
+  --sidebar: #1e1e1e;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-primary: #80c7b7;
   --sidebar-primary-foreground: #10231c;
-  --sidebar-accent: #30433b;
-  --sidebar-accent-foreground: #f4f0e8;
-  --sidebar-border: #60756c;
-  --sidebar-ring: #80c7a7;
+  --sidebar-accent: #333333;
+  --sidebar-accent-foreground: #f5f5f5;
+  --sidebar-border: #858585;
+  --sidebar-ring: #80c7b7;
   --shadow-card: none;
 }
 

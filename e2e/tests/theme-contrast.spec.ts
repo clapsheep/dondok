@@ -27,13 +27,16 @@ async function contrastRatio(locator: Locator) {
   return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
 }
 
-test('라이트·다크 모드의 보조 버튼은 hover 중에도 읽을 수 있다', async ({ page }) => {
+test('라이트·다크 모드의 보조 버튼은 hover 중에도 읽을 수 있다', async ({ page }, testInfo) => {
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.goto('/sign-up')
   await page.evaluate(() => window.localStorage.setItem('dondok-theme', 'light'))
   await page.reload()
   await page.getByLabel('아이디').fill('contrast_test')
 
+  await expect(page.getByRole('main')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', /^#(?:fff|ffffff)$/i)
+  await page.screenshot({ path: testInfo.outputPath('neutral-light.png'), fullPage: true })
   const duplicateButton = page.getByRole('button', { name: '중복 확인' })
   await duplicateButton.hover()
   await page.waitForTimeout(200)
@@ -46,6 +49,9 @@ test('라이트·다크 모드의 보조 버튼은 hover 중에도 읽을 수 �
   await duplicateButton.hover()
   await page.waitForTimeout(200)
   expect(await contrastRatio(duplicateButton)).toBeGreaterThanOrEqual(4.5)
+  await expect(page.getByRole('main')).toHaveCSS('background-color', 'rgb(18, 18, 18)')
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#121212')
+  await page.screenshot({ path: testInfo.outputPath('neutral-dark.png'), fullPage: true })
   const darkColors = await duplicateButton.evaluate((element) => {
     const style = getComputedStyle(element)
     return { foreground: style.color, background: style.backgroundColor }
