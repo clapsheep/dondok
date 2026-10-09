@@ -122,7 +122,7 @@ public class TransactionJdbcRepository {
         arguments.addAll(paymentArguments);
         String sql = """
                 select occurred_on, sum(income_won) income_won, sum(expense_won) expense_won,
-                       sum(card_payment_won) card_payment_won
+                       sum(card_payment_won) card_payment_won, count(*) transaction_count
                   from (
                     select occurred_on,
                            case when transaction_type = 'INCOME' then statistics_amount_won else 0 end income_won,
@@ -144,52 +144,43 @@ public class TransactionJdbcRepository {
                 """;
         return jdbcTemplate.query(sql, (rs, rowNum) -> new CalendarRow(
                 rs.getObject("occurred_on", LocalDate.class), rs.getLong("income_won"),
-                rs.getLong("expense_won"), rs.getLong("card_payment_won")), arguments.toArray());
+                rs.getLong("expense_won"), rs.getLong("card_payment_won"),
+                rs.getLong("transaction_count")), arguments.toArray());
     }
 
-    public PageRows page(
-            UUID bookId, LocalDate from, LocalDate toExclusive, Cursor cursor, int limit,
-            UUID performedByMemberId
-    ) {
+    public PageRows filteredPage(UUID bookId, UUID assetId, Cursor cursor, int limit, String search,
+                                 LocalDate from, LocalDate toExclusive, String type, UUID performedByMemberId) {
         List<Object> arguments = new ArrayList<>();
         arguments.add(bookId);
-        arguments.add(Date.valueOf(from));
-        arguments.add(Date.valueOf(toExclusive));
-        String performerClause = "";
-        if (performedByMemberId != null) {
-            performerClause = " and transaction.performed_by_member_id = ?";
-            arguments.add(performedByMemberId);
+        StringBuilder filters = new StringBuilder();
+        if (assetId != null) {
+            filters.append("""
+                     and (transaction.primary_asset_id = ? or exists (
+                         select 1 from transaction_posting selected_posting
+                          where selected_posting.book_id = transaction.book_id
+                            and selected_posting.transaction_id = transaction.id
+                            and selected_posting.asset_id = ?))
+                    """);
+            arguments.add(assetId);
+            arguments.add(assetId);
         }
-        String cursorClause = "";
-        if (cursor != null) {
-            cursorClause = " and (transaction.occurred_on, transaction.created_at, transaction.id) < (?, ?, ?)";
-            arguments.add(Date.valueOf(cursor.occurredOn()));
-            arguments.add(Timestamp.from(cursor.createdAt()));
-            arguments.add(cursor.id());
+        if (from != null) { filters.append(" and transaction.occurred_on >= ?"); arguments.add(Date.valueOf(from)); }
+        if (toExclusive != null) { filters.append(" and transaction.occurred_on < ?"); arguments.add(Date.valueOf(toExclusive)); }
+        if (type != null) { filters.append(" and transaction.transaction_type = ?"); arguments.add(type); }
+        if (performedByMemberId != null) { filters.append(" and transaction.performed_by_member_id = ?"); arguments.add(performedByMemberId); }
+        if (!search.isEmpty()) {
+            filters.append("""
+                     and (position(lower(?) in lower(coalesce(transaction.description, ''))) > 0
+                          or exists (select 1 from category searched_category
+                              where searched_category.book_id = transaction.book_id
+                                and searched_category.id = transaction.category_id
+                                and position(lower(?) in lower(searched_category.name)) > 0))
+                    """);
+            arguments.add(search);
+            arguments.add(search);
         }
-        arguments.add(limit + 1);
-        String selection = """
-                select transaction.id, transaction.occurred_on, transaction.created_at
-                  from ledger_transaction transaction
-                 where transaction.book_id = ? and transaction.occurred_on >= ?
-                   and transaction.occurred_on < ? and transaction.deleted_at is null
-                   and transaction.transaction_type in ('INCOME', 'EXPENSE', 'TRANSFER')
-                """ + performerClause + cursorClause + """
-                 order by transaction.occurred_on desc, transaction.created_at desc,
-                          transaction.id desc
-                 limit ?
-                """;
-        return page(selection, arguments, limit);
-    }
-
-    public PageRows pageForAsset(UUID bookId, UUID assetId, Cursor cursor, int limit) {
-        List<Object> arguments = new ArrayList<>();
-        arguments.add(bookId);
-        arguments.add(assetId);
-        arguments.add(assetId);
-        String cursorClause = "";
         if (cursor != null) {
-            cursorClause = " and (transaction.occurred_on, transaction.created_at, transaction.id) < (?, ?, ?)";
+            filters.append(" and (transaction.occurred_on, transaction.created_at, transaction.id) < (?, ?, ?)");
             arguments.add(Date.valueOf(cursor.occurredOn()));
             arguments.add(Timestamp.from(cursor.createdAt()));
             arguments.add(cursor.id());
@@ -200,14 +191,7 @@ public class TransactionJdbcRepository {
                   from ledger_transaction transaction
                  where transaction.book_id = ? and transaction.deleted_at is null
                    and transaction.transaction_type in ('INCOME', 'EXPENSE', 'TRANSFER')
-                   and (transaction.primary_asset_id = ? or exists (
-                       select 1
-                         from transaction_posting selected_posting
-                        where selected_posting.book_id = transaction.book_id
-                          and selected_posting.transaction_id = transaction.id
-                          and selected_posting.asset_id = ?
-                   ))
-                """ + cursorClause + """
+                """ + filters + """
                  order by transaction.occurred_on desc, transaction.created_at desc,
                           transaction.id desc
                  limit ?
@@ -498,7 +482,8 @@ public class TransactionJdbcRepository {
     }
     public record InstallmentWrite(int number, long amountWon, CardBillingCyclePolicy.Cycle cycle) {
     }
-    public record CalendarRow(LocalDate date, long incomeWon, long expenseWon, long cardPaymentWon) {
+    public record CalendarRow(LocalDate date, long incomeWon, long expenseWon, long cardPaymentWon,
+                              long transactionCount) {
     }
     public record PostingRow(short lineNo, UUID assetId, String assetName, long deltaWon) {
     }

@@ -131,9 +131,9 @@ export function CategoryPicker({ kind, categories, value, missingName, onChange,
               <div className="grid grid-cols-[repeat(auto-fill,minmax(min(7rem,100%),1fr))] gap-2 pt-5" role="group" aria-label={`${kindLabel} 분류 항목`}>
                 {categories.map((category) => {
                   const active = category.categoryId === value
-                  return <Button key={category.categoryId} type="button" variant="secondary" className={`min-w-0 whitespace-normal px-2.5 py-2 text-sm leading-5 ${active ? 'border-forest-700 bg-forest-50 font-semibold text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'border-[var(--line)] bg-transparent font-medium hover:border-forest-600 hover:bg-forest-50 dark:hover:bg-forest-950'}`} aria-pressed={active} title={category.name} onClick={() => selectCategory(category.categoryId)}>{active ? <Check className="shrink-0" size={15} aria-hidden="true" /> : null}<span className="line-clamp-2 break-words">{category.name}</span></Button>
+                  return <Button key={category.categoryId} type="button" variant="secondary" className={`min-w-0 whitespace-normal px-2.5 py-2 text-sm leading-5 ${active ? 'border-forest-700 bg-[var(--surface-selected)] font-semibold text-forest-800 dark:text-forest-100' : 'border-[var(--line)] bg-transparent font-medium hover:border-forest-600 hover:bg-[var(--surface-hover)]'}`} aria-pressed={active} title={category.name} onClick={() => selectCategory(category.categoryId)}>{active ? <Check className="shrink-0" size={15} aria-hidden="true" /> : null}<span className="line-clamp-2 break-words">{category.name}</span></Button>
                 })}
-                <Button type="button" variant="secondary" className="min-w-0 border-dashed bg-transparent px-2.5 py-2 text-forest-700 hover:border-forest-600 hover:bg-forest-50 dark:text-forest-100 dark:hover:bg-forest-950" onClick={showAdd}><Plus size={16} aria-hidden="true" />항목 추가</Button>
+                <Button type="button" variant="secondary" className="min-w-0 border-dashed bg-transparent px-2.5 py-2 text-forest-700 hover:border-forest-600 hover:bg-[var(--surface-hover)] dark:text-forest-100" onClick={showAdd}><Plus size={16} aria-hidden="true" />항목 추가</Button>
               </div>
             )}
           </div>

@@ -1,3 +1,4 @@
+import { expectRecordActions } from './support/record-actions'
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { selectAsset } from './support/asset-picker'
 import { registerAndLogin } from './support/auth'
@@ -80,10 +81,17 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await originalRow.getByRole('link', { name: new RegExp(`${purchaseDescription}.*거래 상세.*지출.*-80,000원`) }).click()
 
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
-  await expect(page.getByText('구매 금액', { exact: true }).locator('..')).toContainText('80,000원')
+  await expect(page.getByText('-80,000원', { exact: true })).toBeVisible()
   await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('80,000원')
   await expect(page.getByRole('link', { name: '기록 정정', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: '환불 처리', exact: true })).toBeVisible()
+  await expectRecordActions(page, '카드 구매 상세', ['기록 정정', '환불 처리'])
+  const originalViewport = page.viewportSize()!
+  await page.setViewportSize({ width: 320, height: 740 })
+  await expectRecordActions(page, '카드 구매 상세', ['기록 정정', '환불 처리'])
+  expect(await hasPageOverflow(page)).toBe(false)
+  await page.setViewportSize(originalViewport)
+  await page.screenshot({ path: testInfo.outputPath('card-detail-actions.png'), fullPage: true })
   const detailUrl = page.url()
 
   await page.goto('/assets')
@@ -120,14 +128,14 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
 
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
   await expect(page.getByRole('status')).toContainText('환불을 기록했어요.')
-  await expect(page.getByText('구매 금액', { exact: true }).locator('..')).toContainText('80,000원')
-  await expect(page.getByText('내용', { exact: true }).locator('..')).toContainText(purchaseDescription)
+  await expect(page.getByText('-80,000원', { exact: true })).toBeVisible()
+  await expect(page.getByText(purchaseDescription, { exact: true })).toBeVisible()
   await expect(page.getByText('환불 가능 50,000원', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('50,000원')
   await expect(page.getByRole('heading', { name: '환불 처리 내역' }).locator('..')).toContainText('+30,000원')
   await expect(page.getByRole('heading', { name: '환불 처리 내역' }).locator('..')).toContainText('집계 제외')
 
-  await page.getByRole('link', { name: '가계부로 돌아가기' }).click()
+  await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
   await expect(page.getByRole('button', { name: '일별 보기' })).toHaveAttribute('aria-pressed', 'true')
   await expect(transactionRow(page, purchaseDescription).getByText('-80,000원', { exact: true })).toBeVisible()
   const refundRow = transactionRow(page, refundDescription)
@@ -136,7 +144,7 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await expect(refundRow.getByText('집계 제외', { exact: true })).toBeVisible()
   await refundRow.getByRole('link', { name: new RegExp(`${refundDescription}.*거래 상세.*환불.*\\+30,000원`) }).click()
   await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
-  await expect(page.getByText('카드 환불은 원 구매와 결제 계좌 반환 내역을 함께 관리해요.')).toBeVisible()
+  await expect(page.getByRole('button', { name: '기록 삭제' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: '원 카드 구매 보기' })).toBeVisible()
 
   await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
@@ -205,13 +213,13 @@ test('카드 구매 기록 정정은 저장 확인 dialog 뒤 변경된 구매�
 
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
   await expect(page.getByRole('status')).toContainText('카드 구매 기록을 정정했어요.')
-  await expect(page.getByText('구매 날짜', { exact: true }).locator('..')).toContainText(correctedDate)
-  await expect(page.getByText('구매 금액', { exact: true }).locator('..')).toContainText('65,000원')
+  await expect(page.getByRole('region', { name: '원 구매', exact: true }).locator('time')).toHaveAttribute('datetime', correctedDate)
+  await expect(page.getByText('-65,000원', { exact: true })).toBeVisible()
   await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('65,000원')
-  await expect(page.getByText('내용', { exact: true }).locator('..')).toContainText(correctedDescription)
+  await expect(page.getByText(correctedDescription, { exact: true })).toBeVisible()
   await expect(page.getByText('달력·통계', { exact: true }).locator('..')).toContainText('집계 제외')
 
-  await page.getByRole('link', { name: '가계부로 돌아가기' }).click()
+  await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
   await expect(transactionRow(page, originalDescription)).toHaveCount(0)
   const correctedRow = transactionRow(page, correctedDescription)
   await expect(correctedRow.getByText('-65,000원', { exact: true })).toBeVisible()

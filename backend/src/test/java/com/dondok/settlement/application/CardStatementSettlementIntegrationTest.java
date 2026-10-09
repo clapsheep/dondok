@@ -103,6 +103,7 @@ class CardStatementSettlementIntegrationTest {
         assertThat(calendar.days()).anySatisfy(day -> {
             assertThat(day.date()).isEqualTo(today);
             assertThat(day.cardPaymentWon()).isEqualTo(90_000);
+            assertThat(day.transactionCount()).isEqualTo(1);
         });
         assertThatThrownBy(() -> statements.payManually(fixture.userId(), statementId, "different-key", command))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.getStatus().value()).isEqualTo(412));

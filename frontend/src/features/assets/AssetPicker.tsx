@@ -178,7 +178,7 @@ export function AssetPicker({
           {!showAllAssets && selectedOutsideOwnAssets ? (
             <button
               type="button"
-              className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-2 text-left text-xs text-[var(--muted)] transition-colors hover:bg-forest-50 hover:text-forest-800 dark:hover:bg-forest-950 dark:hover:text-forest-100"
+              className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-2 text-left text-xs text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-forest-800 dark:hover:text-forest-100"
               onClick={() => changeAssetScope(true)}
             >
               <span>현재 선택은 다른 구성원 자산이에요.</span>
@@ -200,7 +200,7 @@ export function AssetPicker({
                 <PopoverClose
                   render={<button
                     type="button"
-                    className="flex min-h-14 w-full items-center gap-2 border-y border-[var(--line)] px-2 py-2 text-left hover:bg-forest-50 dark:hover:bg-forest-950"
+                    className="flex min-h-14 w-full items-center gap-2 border-y border-[var(--line)] px-2 py-2 text-left hover:bg-[var(--surface-hover)]"
                     data-asset-option
                     data-asset-id={missingSelected.assetId}
                     aria-label={`${missingSelected.name}, 현재 목록에 없음`}
@@ -243,7 +243,7 @@ function AssetTriggerValue({ asset, members }: { asset: Asset; members: LedgerMe
   const brandName = bankRelated ? financialInstitutionName(asset.financialInstitutionCode, financialInstitutionUsageFor(asset.systemCode)) : cardRelated ? cardIssuer(asset.cardIssuerCode).name : undefined
   return (
     <>
-      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : cardRelated ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : <span className="grid size-7 shrink-0 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
+      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : cardRelated ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : <span className="grid size-7 shrink-0 place-items-center bg-[var(--surface-selected)] text-forest-700 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold leading-4" title={asset.name}>{asset.name}</span>
         <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{brandName ? `${brandName} · ` : ''}{asset.assetTypeName} · {owner.label}</span></span>
@@ -268,7 +268,7 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
     <PopoverClose
       render={<button
         type="button"
-        className={`grid min-h-14 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-[var(--line)] px-2 py-1.5 text-left transition-colors hover:bg-forest-50 dark:hover:bg-forest-950 md:border-r ${active ? 'bg-forest-50 text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'bg-[var(--surface)]'}`}
+        className={`grid min-h-14 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-[var(--line)] px-2 py-1.5 text-left transition-colors hover:bg-[var(--surface-hover)] md:border-r ${active ? 'bg-[var(--surface-selected)] text-forest-800 dark:text-forest-100' : 'bg-[var(--surface)]'}`}
         data-asset-option
         data-asset-id={asset.assetId}
         data-asset-system-code={asset.systemCode}
@@ -277,7 +277,7 @@ function AssetOption({ asset, members, active, onSelect }: { asset: Asset; membe
       />}
       onClick={() => onSelect(asset.assetId)}
     >
-      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : cardRelated ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : <span className="grid size-7 place-items-center bg-forest-50 text-forest-700 dark:bg-forest-950 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
+      {bankRelated ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} /> : cardRelated ? <CardIssuerAvatar code={asset.cardIssuerCode} /> : <span className="grid size-7 place-items-center bg-[var(--surface-selected)] text-forest-700 dark:text-forest-100"><Icon size={16} aria-hidden="true" /></span>}
       <span className="min-w-0">
         <span className="flex min-w-0 items-baseline gap-2 leading-4"><span className="min-w-0 flex-1 truncate text-sm font-semibold" title={asset.name}>{asset.name}</span><span className="shrink-0 text-[0.6875rem] font-semibold tabular-nums text-[var(--muted)]">{assetPickerAmountLabel(asset)}</span></span>
         <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-4 text-[var(--muted)]"><OwnerAvatar owner={owner} /><span className="min-w-0 truncate">{brandName ? `${brandName} · ` : ''}{asset.assetTypeName} · {owner.label}</span></span>

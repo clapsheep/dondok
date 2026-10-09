@@ -52,3 +52,17 @@ test('아직 기준일까지 내려오지 않은 cursor 페이지에는 기준�
 
   assert.deepEqual(groups.flatMap((group) => group.items).map((entry) => entry.kind), ['TRANSACTION'])
 })
+
+test('페이지 경계의 같은 날짜를 합치고 기준일 잔액을 당일 거래 뒤에 한 번만 둔다', () => {
+  const firstPage = [transaction('newer', '2026-08-05', 50_000), transaction('anchor-last', '2026-08-03', -5_000)]
+  const secondPage = [transaction('anchor-first', '2026-08-03', -5_000), transaction('older', '2026-08-02', -20_000)]
+  const partial = buildAssetLedgerTimeline(firstPage, asset, true)
+  assert.deepEqual(partial.map((group) => group.date), ['2026-08-05', '2026-08-03'])
+  const groups = buildAssetLedgerTimeline([...firstPage, ...secondPage], asset, false)
+  assert.deepEqual(groups.map((group) => group.date), ['2026-08-05', '2026-08-03', '2026-08-02'])
+  assert.deepEqual(groups[1].items.map((entry) => entry.kind === 'TRANSACTION'
+    ? [entry.transaction.transactionId, entry.balanceAfterWon]
+    : ['opening', entry.balanceAfterWon]), [
+    ['anchor-last', 290_000], ['anchor-first', 295_000], ['opening', 300_000],
+  ])
+})

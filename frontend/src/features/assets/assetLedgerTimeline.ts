@@ -1,10 +1,11 @@
 import type { Transaction } from '../transactions/api'
+import { groupTransactionsByDate } from '../transactions/groupTransactionsByDate.ts'
 import type { Asset } from './api'
 
 export type AssetLedgerTransactionEntry = {
   kind: 'TRANSACTION'
   transaction: Transaction
-  balanceAfterWon: number
+  balanceAfterWon: number | null
 }
 
 export type AssetLedgerOpeningEntry = {
@@ -15,8 +16,8 @@ export type AssetLedgerOpeningEntry = {
 
 export type AssetLedgerEntry = AssetLedgerTransactionEntry | AssetLedgerOpeningEntry
 
-export type AssetLedgerMonthGroup = {
-  month: string
+export type AssetLedgerDayGroup = {
+  date: string
   items: AssetLedgerEntry[]
 }
 
@@ -24,7 +25,7 @@ export function buildAssetLedgerTimeline(
   transactions: Transaction[],
   asset: Pick<Asset, 'assetId' | 'openedOn' | 'openingBalanceWon' | 'currentBalanceWon'>,
   hasNextPage: boolean,
-): AssetLedgerMonthGroup[] {
+): AssetLedgerDayGroup[] {
   let runningBalanceWon = asset.currentBalanceWon
   const entries: AssetLedgerEntry[] = transactions.map((transaction) => {
     const entry: AssetLedgerTransactionEntry = {
@@ -46,15 +47,7 @@ export function buildAssetLedgerTimeline(
     })
   }
 
-  const groups = new Map<string, AssetLedgerEntry[]>()
-  for (const entry of entries) {
-    const occurredOn = entry.kind === 'TRANSACTION' ? entry.transaction.occurredOn : entry.occurredOn
-    const month = occurredOn.slice(0, 7)
-    const group = groups.get(month)
-    if (group) group.push(entry)
-    else groups.set(month, [entry])
-  }
-  return [...groups].map(([month, items]) => ({ month, items }))
+  return groupTransactionsByDate(entries, (entry) => entry.kind === 'TRANSACTION' ? entry.transaction.occurredOn : entry.occurredOn)
 }
 
 function postingDeltaForAsset(transaction: Transaction, assetId: string) {

@@ -1,3 +1,4 @@
+import { expectRecordActions } from './support/record-actions'
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { submitQuickAsset } from './support/assets'
 import { selectAsset } from './support/asset-picker'
@@ -9,6 +10,7 @@ test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보�
   const suffix = `${test.info().workerIndex}-${Date.now().toString().slice(-6)}`
   const assetName = `모바일 원장 계좌 ${suffix}`
   const latestDescription = `QC 자산 최신 ${suffix}`
+  const sameDayDescription = `QC 자산 같은 날 ${suffix}`
   const olderDescription = `QC 자산 이전 ${suffix}`
   const quickDescription = `QC 원장 바로 기록 ${suffix}`
 
@@ -24,6 +26,7 @@ test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보�
     expectedAmount: '300,000원',
   })
   const seeded = await seedAssetLedgerTransactions(page, assetName, [
+    { occurredOn: '2026-08-12', amountWon: 2_000, description: sameDayDescription },
     { occurredOn: '2026-08-12', amountWon: 18_000, description: latestDescription },
     { occurredOn: '2026-07-28', amountWon: 7_000, description: olderDescription },
   ])
@@ -35,18 +38,53 @@ test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보�
   const backToAssets = page.getByRole('link', { name: mobile ? '자산 목록으로' : '자산 현황으로', exact: true })
   await expect(backToAssets).toBeVisible()
   await expect(backToAssets).toHaveAttribute('href', '/assets')
-  await expect(page.getByRole('heading', { name: '2026년 8월', exact: true })).toHaveCount(1)
-  await expect(page.getByRole('heading', { name: '2026년 7월', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: '2026년 8월 12일 수', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: '2026년 7월 28일 화', exact: true })).toHaveCount(1)
   const openingBalance = page.locator('[data-opening-balance]')
   await expect(openingBalance).toContainText('기준일 잔액')
   await expect(openingBalance).toContainText('300,000원')
   await expect(transactionRow(page, latestDescription)).toContainText('잔액 300,000원')
-  await expect(transactionRow(page, olderDescription)).toContainText('잔액 318,000원')
+  await expect(transactionRow(page, sameDayDescription)).toContainText('잔액 318,000원')
+  await expect(transactionRow(page, olderDescription)).toContainText('잔액 320,000원')
+  const dayGroup = page.getByRole('region', { name: '2026년 8월 12일 수', exact: true })
+  await expect(dayGroup.getByRole('listitem')).toHaveCount(2)
+  await expect(dayGroup.locator('header')).toHaveCSS('border-top-width', '1px')
+  const addRecord = page.getByRole('button', { name: '기록 추가', exact: true })
+  await expect(addRecord).toHaveText('')
+  await expectTouchTarget(addRecord, '기록 추가')
+  const addBox = await addRecord.boundingBox()
+  const settingsBox = await page.getByRole('link', { name: '자산 편집', exact: true }).boundingBox()
+  expect(addBox).not.toBeNull()
+  expect(settingsBox).not.toBeNull()
+  expect(Math.abs(addBox!.y - settingsBox!.y)).toBeLessThan(2)
+  expect(addBox!.x + addBox!.width).toBeLessThanOrEqual(settingsBox!.x + 2)
+  await expect(dayGroup.getByText('2건', { exact: true })).toBeVisible()
+  await expect(dayGroup.locator('time')).toHaveCount(1)
+  const listLayout = await dayGroup.getByRole('list').evaluate((list) => ({
+    indent: parseFloat(getComputedStyle(list).paddingLeft),
+    rowBorders: Array.from(list.children).map((row) => getComputedStyle(row).borderBottomWidth),
+  }))
+  expect(listLayout.indent).toBeGreaterThanOrEqual(12)
+  expect(listLayout.rowBorders).toEqual(['0px', '0px'])
+  await page.screenshot({ path: test.info().outputPath('asset-date-groups.png'), fullPage: true })
   const editAsset = page.getByRole('link', { name: '자산 편집' })
   await expectTouchTarget(editAsset, '자산 편집')
   expect(await hasPageOverflow(page)).toBe(false)
 
   const ledgerUrl = page.url()
+  await page.goto('/?view=daily&month=2026-08')
+  const homeDay = page.getByRole('region', { name: '2026년 8월 12일 수', exact: true })
+  await expect(homeDay).toHaveCount(1)
+  await expect(homeDay.getByRole('listitem')).toHaveCount(2)
+  await expect(homeDay.getByRole('listitem').first()).toHaveCSS('border-bottom-width', '0px')
+  await expect(homeDay.getByRole('list')).toHaveCSS('padding-left', `${listLayout.indent}px`)
+  await page.screenshot({ path: test.info().outputPath('home-date-groups.png'), fullPage: true })
+  await page.goto('/?month=2026-08&date=2026-08-12&detail=day')
+  const dayDetail = page.getByRole('region', { name: '2026-08-12 거래 상세', exact: true })
+  await expect(dayDetail.getByRole('listitem')).toHaveCount(2)
+  await expect(dayDetail.getByRole('listitem').first()).toHaveCSS('border-bottom-width', '0px')
+  await expect(dayDetail.getByRole('list')).toHaveCSS('padding-left', `${listLayout.indent}px`)
+  await page.goto(ledgerUrl)
   await page.getByRole('button', { name: '기록 추가', exact: true }).click()
   const recordDialog = page.getByRole('dialog', { name: '거래 기록' })
   await expect(recordDialog).toBeVisible()
@@ -72,12 +110,146 @@ test('자산 상세는 돌아가기·기준일 잔액·거래 후 잔액을 보�
   await page.getByRole('link', { name: `${latestDescription} 거래 상세` }).click()
   await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
   await expect(page.getByText('-18,000원', { exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: '기록 편집' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '기록 삭제' })).toBeVisible()
+  await expectRecordActions(page, '거래 상세', ['기록 편집'])
+  await page.screenshot({ path: test.info().outputPath('transaction-detail-actions.png'), fullPage: true })
+  await expect(page.getByRole('button', { name: '기록 삭제' })).toHaveCount(0)
   await page.getByRole('link', { name: mobile ? '거래 목록으로' : '목록으로 돌아가기', exact: true }).click()
   await editAsset.click()
   await expect(page).toHaveURL(new RegExp(`/assets/${seeded.assetId}/edit$`))
   await expect(page.getByRole('heading', { name: mobile ? '자산 편집' : '자산 정보 수정', exact: true })).toBeVisible()
+})
+
+test('자산 거래 검색과 기간·종류 필터는 전체 이력을 조회하고 상세 복귀·회전에 유지된다', async ({ page, request }, testInfo) => {
+  const consoleMessages: string[] = []
+  const network: Array<{ path: string; status: number; requestId?: string }> = []
+  page.on('console', (message) => { if (message.type() === 'error') consoleMessages.push(message.text()) })
+  page.on('pageerror', (error) => consoleMessages.push(error.message))
+  page.on('response', (response) => {
+    const url = new URL(response.url())
+    if (url.pathname.startsWith('/api/')) network.push({ path: url.pathname, status: response.status(), requestId: response.headers()['x-request-id'] })
+  })
+  try {
+  await registerAndLogin(page, request, `검색 QC ${Date.now()}`)
+  await prepareLedgerWithBank(page)
+  const seeded = await seedAssetLedgerTransactions(page, '거래 관리 계좌', [
+    { occurredOn: '2026-07-01', amountWon: 100, description: '오래된 Coffee 10%_' },
+    ...Array.from({ length: 32 }, (_, index) => ({ occurredOn: '2026-08-12', amountWon: 100, description: `일상 거래 ${index}` })),
+  ])
+  await testInfo.attach('search-seed-manifest', { body: JSON.stringify({ assetId: seeded.assetId, count: 33 }), contentType: 'application/json' })
+  await page.goto(`/assets/${seeded.assetId}`)
+  await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toHaveCSS('font-size', '14px')
+  await expect(page.getByText('최신순', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /오래된 Coffee/ })).toHaveCount(0)
+  await page.getByRole('button', { name: '거래 검색', exact: true }).click()
+  await page.getByRole('textbox', { name: '거래 검색어' }).fill('coffee')
+  await page.getByRole('button', { name: '검색', exact: true }).click()
+  const old = page.getByRole('link', { name: /오래된 Coffee/ })
+  await expect(old).toBeVisible()
+  await expect(old).not.toContainText('잔액')
+  await expect(page.locator('[data-opening-balance]')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /일상 거래/ })).toHaveCount(0)
+  const filteredUrl = page.url()
+  await old.click()
+  await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
+  await expect(page).toHaveURL(filteredUrl)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: '거래 검색어' })).toHaveValue('coffee')
+  if (await page.getByRole('button', { name: '거래 필터', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '거래 필터', exact: true }).click()
+  const dialog = page.getByRole('group', { name: '거래 필터', exact: true })
+  await expect(page.getByRole('dialog', { name: '거래 필터', exact: true })).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(page.getByRole('button', { name: '거래 필터', exact: true })).toHaveText('')
+  const initialViewport = page.viewportSize()!
+  for (const width of [320, 768, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath(`compact-filters-${width}.png`) })
+  }
+  await page.setViewportSize(initialViewport)
+  const controlTops = await dialog.locator('input, select, button').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top))
+  expect(Math.max(...controlTops) - Math.min(...controlTops)).toBeLessThanOrEqual(1)
+
+  await dialog.getByLabel('거래 종류', { exact: true }).selectOption('EXPENSE')
+  await dialog.getByRole('button', { name: '조회 기간', exact: true }).click()
+  await showPeriodMonth(page, '2026-07')
+  await page.getByRole('button', { name: '2026-07-31', exact: true }).click()
+  await expect(page.getByLabel('선택한 시작일', { exact: true })).toHaveText('2026-07-31')
+  await expect(page.getByRole('button', { name: '기간 적용', exact: true })).toBeDisabled()
+  for (const width of [320, 768, 1024, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(page.getByLabel('선택한 시작일', { exact: true })).toHaveText('2026-07-31')
+    expect(await hasPageOverflow(page)).toBe(false)
+  }
+  await page.getByRole('button', { name: '기간 다음 달', exact: true }).click()
+  await page.getByRole('button', { name: '2026-08-02', exact: true }).click()
+  await expect(page.getByLabel('선택한 종료일', { exact: true })).toHaveText('2026-08-02')
+  await expect(page.getByRole('gridcell').filter({ has: page.getByRole('button', { name: '2026-08-01', exact: true }) })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('button', { name: '기간 적용', exact: true }).click()
+  await expect(page).toHaveURL(/from=2026-07-31.*toExclusive=2026-08-03/)
+  await expect(old).toHaveCount(0)
+  await dialog.getByRole('button', { name: '조회 기간', exact: true }).click()
+  await page.getByRole('button', { name: '2026년 7월 전체 선택', exact: true }).click()
+  await expect(page.getByLabel('선택한 시작일', { exact: true })).toHaveText('2026-07-01')
+  await expect(page.getByLabel('선택한 종료일', { exact: true })).toHaveText('2026-07-31')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: testInfo.outputPath('period-whole-month.png') })
+  await page.getByRole('button', { name: '기간 적용', exact: true }).click()
+  await expect(page).toHaveURL(/from=2026-07-01.*toExclusive=2026-08-01/)
+  await expect(old).toBeVisible()
+  const monthUrl = page.url()
+  await dialog.getByRole('button', { name: '조회 기간', exact: true }).click()
+  await showPeriodMonth(page, '2028-02')
+  await page.getByRole('button', { name: '2028년 2월 전체 선택', exact: true }).click()
+  await expect(page.getByLabel('선택한 종료일', { exact: true })).toHaveText('2028-02-29')
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL(monthUrl)
+  await expect(dialog).toBeVisible()
+  await page.getByRole('button', { name: '거래 필터', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText('“coffee”', { exact: false })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('asset-search-filtered.png'), fullPage: true })
+  if (await page.getByRole('button', { name: '거래 필터', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '거래 필터', exact: true }).click()
+  await dialog.getByLabel('거래 종류', { exact: true }).selectOption('INCOME')
+  await expect(page.getByText('조건에 맞는 거래가 없어요.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '전체 거래 보기' }).click()
+  await expect(page.getByRole('link', { name: /일상 거래/ })).toHaveCount(30)
+  await expect(page.getByRole('textbox', { name: '거래 검색어' })).toHaveValue('')
+  await page.goto('/?view=daily&month=2026-08')
+  await page.getByRole('button', { name: '거래 검색', exact: true }).click()
+  await page.getByRole('textbox', { name: '거래 검색어' }).fill('coffee')
+  await page.getByRole('button', { name: '검색', exact: true }).click()
+  await expect(old).toBeVisible()
+  await expect(page.getByRole('link', { name: /일상 거래/ })).toHaveCount(0)
+  const dailyUrl = page.url()
+  await old.click()
+  await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
+  await expect(page).toHaveURL(dailyUrl)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: '거래 검색어' })).toHaveValue('coffee')
+  if (await page.getByRole('button', { name: '거래 필터', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '거래 필터', exact: true }).click()
+  await dialog.getByLabel('거래 종류', { exact: true }).selectOption('EXPENSE')
+  await dialog.getByRole('button', { name: '조회 기간', exact: true }).click()
+  await showPeriodMonth(page, '2026-07')
+  await page.getByRole('button', { name: '2026-07-03', exact: true }).click()
+  await page.getByRole('button', { name: '2026-07-01', exact: true }).click()
+  await expect(page.getByLabel('선택한 시작일', { exact: true })).toHaveText('2026-07-01')
+  await expect(page.getByLabel('선택한 종료일', { exact: true })).toHaveText('2026-07-03')
+  await page.getByRole('button', { name: '2026-07-01', exact: true }).click()
+  await page.getByRole('button', { name: '2026-07-01', exact: true }).click()
+  await expect(page.getByLabel('선택한 종료일', { exact: true })).toHaveText('2026-07-01')
+  await page.getByRole('button', { name: '기간 적용', exact: true }).click()
+  await dialog.getByLabel('구성원', { exact: true }).selectOption('')
+  await expect(old).toBeVisible()
+  if (await page.getByRole('button', { name: '거래 필터', exact: true }).getAttribute('aria-expanded') !== 'true') await page.getByRole('button', { name: '거래 필터', exact: true }).click()
+  await dialog.getByLabel('거래 종류', { exact: true }).selectOption('INCOME')
+  await expect(page.getByText('조건에 맞는 거래가 없어요.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '전체 거래 보기' }).click()
+  await expect(page.getByRole('link', { name: /일상 거래/ })).toHaveCount(32)
+  expect(consoleMessages).toEqual([])
+  } finally {
+    await testInfo.attach('search-console', { body: JSON.stringify(consoleMessages), contentType: 'application/json' })
+    await testInfo.attach('search-network', { body: JSON.stringify(network), contentType: 'application/json' })
+  }
 })
 
 test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계에서 삭제할 수 있다', { tag: '@pr' }, async ({ page, request }) => {
@@ -116,10 +288,12 @@ test('일반 거래는 종류를 바꾸지 않고 수정한 뒤 잔액과 통계
   await updatedRow.getByRole('link', { name: `${after} 거래 상세` }).click()
   await expect(page.getByRole('heading', { name: '거래 상세' })).toBeVisible()
   await expect(page.getByText('-24,000원', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '기록 삭제' })).toHaveCount(0)
+  await page.getByRole('link', { name: '기록 편집' }).click()
   await page.getByRole('button', { name: '기록 삭제' }).click()
-  await expect(page.getByRole('heading', { name: '이 거래를 삭제할까요?' })).toBeVisible()
-  await expect(page.getByText('자산 잔액을 되돌리고 달력과 통계에서도 제거합니다.', { exact: true })).toBeVisible()
-  const deleteButton = page.getByRole('button', { name: '삭제하기', exact: true })
+  await expect(page.getByText('이 거래를 삭제할까요?', { exact: true })).toBeVisible()
+  await expect(page.getByText('자산 잔액을 되돌리고 해당 월의 수입·지출 통계에서 제외합니다.', { exact: true })).toBeVisible()
+  const deleteButton = page.getByRole('button', { name: '거래 삭제', exact: true })
   await expectTouchTarget(deleteButton, '거래 삭제')
   await deleteButton.click()
 
@@ -395,4 +569,16 @@ async function expectTouchTarget(locator: Locator, label: string) {
 
 async function hasPageOverflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+}
+
+async function showPeriodMonth(page: Page, target: string) {
+  const heading = page.getByRole('button', { name: /^\d{4}년 \d{1,2}월 전체 선택$/ })
+  for (let step = 0; step < 36; step++) {
+    const label = await heading.getAttribute('aria-label')
+    const [, year, month] = label!.match(/^(\d{4})년 (\d{1,2})월/)!
+    const current = `${year}-${month.padStart(2, '0')}`
+    if (current === target) return
+    await page.getByRole('button', { name: current < target ? '기간 다음 달' : '기간 이전 달', exact: true }).click()
+  }
+  throw new Error(`기간 달력 월 이동 실패: ${target}`)
 }

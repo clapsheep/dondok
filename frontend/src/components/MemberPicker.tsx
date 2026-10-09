@@ -41,7 +41,7 @@ export function MemberPicker({ id, label, members, value, onChange, error, disab
             <label
               key={member.memberId}
               htmlFor={optionId}
-              className={`flex min-h-12 min-w-0 items-center gap-2.5 rounded-md border px-3 py-2 text-sm transition-colors focus-within:ring-3 focus-within:ring-[var(--ring)]/30 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${selected ? 'border-forest-700 bg-forest-50 text-forest-800 dark:border-forest-300 dark:bg-forest-950 dark:text-forest-100' : 'border-[var(--line)] bg-[var(--surface)] text-ink-900 hover:border-forest-600 hover:bg-forest-50 dark:text-white dark:hover:bg-forest-950 dark:hover:text-forest-100'}`}
+              className={`flex min-h-12 min-w-0 items-center gap-2.5 rounded-md border px-3 py-2 text-sm transition-colors focus-within:ring-3 focus-within:ring-[var(--ring)]/30 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${selected ? 'border-forest-700 bg-[var(--surface-selected)] text-forest-800 dark:border-forest-300 dark:text-forest-100' : 'border-[var(--line)] bg-[var(--surface)] text-ink-900 hover:border-forest-600 hover:bg-[var(--surface-hover)] dark:text-white dark:hover:text-forest-100'}`}
             >
               <MemberAvatar displayName={member.displayName} memberId={member.memberId} size="md" className={selected ? 'ring-2 ring-forest-700 ring-offset-1 ring-offset-[var(--surface)] dark:ring-forest-100' : undefined} />
               <span className="min-w-0 flex-1 truncate font-medium" title={member.displayName}>{member.displayName}</span>

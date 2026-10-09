@@ -5,6 +5,7 @@ export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER'
 export type TransactionManagementType = 'GENERAL' | 'CARD_PURCHASE' | 'CARD_REFUND' | 'SYSTEM'
 
 export type CalendarDay = {
+  transactionCount: number
   cardPaymentWon: number
   date: string
   incomeWon: number
@@ -184,11 +185,13 @@ export type CardPurchaseRefundResult = {
   accountReturns: CardPurchaseAccountReturn[]
 }
 
+export type TransactionFilters = { q?: string; from?: string; toExclusive?: string; type?: TransactionType; performedByMemberId?: string }
+
 export const transactionKeys = {
   all: ['transactions'] as const,
   calendar: (month: string, performedByMemberId?: string) => ['transactions', 'calendar', month, performedByMemberId ?? 'all'] as const,
-  list: (from: string, toExclusive: string, performedByMemberId?: string) => ['transactions', 'list', from, toExclusive, performedByMemberId ?? 'all'] as const,
-  assetList: (assetId: string) => ['transactions', 'asset-list', assetId] as const,
+  list: (from?: string, toExclusive?: string, performedByMemberId?: string, filters: Pick<TransactionFilters, 'q' | 'type'> = {}) => ['transactions', 'list', from, toExclusive, performedByMemberId ?? 'all', filters] as const,
+  assetList: (assetId: string, filters: TransactionFilters = {}) => ['transactions', 'asset-list', assetId, filters] as const,
   detail: (transactionId: string) => ['transactions', 'detail', transactionId] as const,
   cardPurchaseManagement: (transactionId: string) => ['transactions', 'card-purchase-management', transactionId] as const,
 }
@@ -199,14 +202,15 @@ export const transactionApi = {
     if (performedByMemberId) params.set('performedByMemberId', performedByMemberId)
     return api<MonthlyCalendar>(`/api/transactions/calendar?${params}`)
   },
-  list: ({ from, toExclusive, cursor, limit = 50, performedByMemberId }: { from: string; toExclusive: string; cursor?: string | null; limit?: number; performedByMemberId?: string }) => {
-    const params = new URLSearchParams({ from, toExclusive, limit: String(limit) })
+  list: ({ cursor, limit = 50, ...filters }: TransactionFilters & { cursor?: string | null; limit?: number }) => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value)
     if (cursor) params.set('cursor', cursor)
-    if (performedByMemberId) params.set('performedByMemberId', performedByMemberId)
     return api<TransactionPage>(`/api/transactions?${params}`)
   },
-  listForAsset: ({ assetId, cursor, limit = 30 }: { assetId: string; cursor?: string | null; limit?: number }) => {
+  listForAsset: ({ assetId, cursor, limit = 30, ...filters }: { assetId: string; cursor?: string | null; limit?: number } & TransactionFilters) => {
     const params = new URLSearchParams({ limit: String(limit) })
+    for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value)
     if (cursor) params.set('cursor', cursor)
     return api<TransactionPage>(`/api/assets/${assetId}/transactions?${params}`)
   },

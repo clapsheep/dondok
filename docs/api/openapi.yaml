@@ -554,11 +554,29 @@ paths:
         schema: { type: string, format: uuid }
     get:
       summary: 자산과 연결된 거래 cursor 목록
-      description: 자산을 직접 선택한 거래와 해당 자산 잔액을 바꾼 posting을 최신 날짜 우선으로 한 번씩 반환한다. 사용 종료 자산의 과거 거래도 조회할 수 있다.
+      description: 자산을 직접 선택한 거래와 해당 자산 잔액을 바꾼 posting을 최신 날짜 우선으로 한 번씩 반환한다. 사용 종료 자산의 과거 거래도 조회할 수 있다. 검색·필터는 전체 자산 이력에 적용한 뒤 cursor로 반환하며 조건을 바꾸면 cursor를 초기화한다. 잘못된 검색어·기간은 TRANSACTION_FILTER_INVALID로 거부한다.
       operationId: getAssetTransactions
       tags: [Transaction]
       security: [{ cookieAuth: [] }]
       parameters:
+        - name: q
+          in: query
+          description: 내용·분류 이름의 대소문자 구분 없는 부분 검색. 공백 제거 후 최대 100자, %, _도 문자 그대로 검색한다.
+          schema: { type: string, maxLength: 100 }
+        - name: from
+          in: query
+          description: 시작일 포함
+          schema: { type: string, format: date }
+        - name: toExclusive
+          in: query
+          description: 종료일 제외. 시작일보다 뒤여야 한다.
+          schema: { type: string, format: date }
+        - name: type
+          in: query
+          schema: { type: string, enum: [INCOME, EXPENSE, TRANSFER] }
+        - name: performedByMemberId
+          in: query
+          schema: { type: string, format: uuid }
         - name: cursor
           in: query
           required: false
@@ -1015,18 +1033,26 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
   /api/transactions:
     get:
-      summary: 기간 내 거래 cursor 목록
+      summary: 거래 검색·필터 cursor 목록
+      description: 자산 목록과 동일한 내용·분류 검색 및 종류·구성원·선택 기간 필터를 적용한다. 날짜를 생략하면 전체 기간이며 상한은 제외한다. 조회 기간의 길이와 관계없이 cursor와 페이지 크기로 조회량을 제한한다. 잘못된 검색어·기간은 TRANSACTION_FILTER_INVALID로 거부한다.
       operationId: getTransactions
       tags: [Transaction]
       security: [{ cookieAuth: [] }]
       parameters:
+        - name: q
+          in: query
+          description: 내용·분류 부분 검색. 앞뒤 공백 제거 후 최대 100자이며 %, _도 문자 그대로 검색한다.
+          schema: { type: string, maxLength: 100 }
+        - name: type
+          in: query
+          schema: { type: string, enum: [INCOME, EXPENSE, TRANSFER] }
         - name: from
           in: query
-          required: true
+          required: false
           schema: { type: string, format: date }
         - name: toExclusive
           in: query
-          required: true
+          required: false
           schema: { type: string, format: date }
         - name: performedByMemberId
           in: query
@@ -2374,7 +2400,7 @@ components:
         deletedVersion: { type: integer, format: int64, minimum: 1 }
     TransactionDaySummary:
       type: object
-      required: [date, incomeWon, expenseWon, netWon, cardPaymentWon]
+      required: [date, incomeWon, expenseWon, netWon, cardPaymentWon, transactionCount]
       properties:
         date: { type: string, format: date }
         incomeWon: { type: integer, format: int64 }
@@ -2385,6 +2411,11 @@ components:
           format: int64
           minimum: 0
           description: 해당 날짜 카드 정산·선결제 금액 합계. 수입·지출·순액에는 포함하지 않으며 카드 명의자의 기록으로 조회한다.
+        transactionCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 해당 날짜 달력 합계에 반영되는 수입·지출·환불·카드결제의 거래 건수. 거래당 한 건으로 세며 일반 이체·집계 제외·삭제·기준일 잔액 기록은 제외한다. 금액과 같은 구성원 필터를 적용한다.
     TransactionCalendar:
       type: object
       required: [month, totalIncomeWon, totalExpenseWon, netWon, days]

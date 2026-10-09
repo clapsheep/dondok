@@ -1,5 +1,6 @@
 import { Input as InputPrimitive } from '@base-ui/react/input'
 import type { ComponentProps, MouseEvent } from 'react'
+import { controlSize, controlSurface } from './controlStyles'
 import { cn } from '../../lib/cn'
 
 export function Input({ className, type, onClick, ...props }: ComponentProps<'input'>) {
@@ -18,7 +19,7 @@ export function Input({ className, type, onClick, ...props }: ComponentProps<'in
     <InputPrimitive
       data-slot="input"
       className={cn(
-        'min-h-11 min-w-0 w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 text-base text-ink-900 outline-none transition-colors placeholder:text-[#8b9691] focus-visible:border-[var(--ring)] focus-visible:ring-3 focus-visible:ring-[var(--ring)]/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red-700 aria-invalid:ring-3 aria-invalid:ring-red-700/20 dark:text-white dark:aria-invalid:border-[#ff9d93]',
+        controlSurface, controlSize, 'min-w-0 w-full',
         className,
       )}
       type={type}

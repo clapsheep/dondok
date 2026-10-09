@@ -16,6 +16,7 @@ import { CardPurchaseManagementPage, type CardPurchaseAction } from './features/
 import { ledgerExitReasonAfterCurrentRead, replaceLedgerClientState, type LedgerNavigationState } from './features/membership/ledgerLifecycle'
 import { MobileLedgerNavigation } from './components/AppShell'
 
+const CardPaymentPage = lazy(() => import('./features/card-statements/CardPaymentPage').then((module) => ({ default: module.CardPaymentPage })))
 const CardStatementPage = lazy(() => import('./features/card-statements/CardStatementPage').then((module) => ({ default: module.CardStatementPage })))
 const StatisticsPage = lazy(() => import('./features/statistics/StatisticsPage').then((module) => ({ default: module.StatisticsPage })))
 const AssetFormPage = lazy(() => import('./features/assets/AssetFormPage').then((module) => ({ default: module.AssetFormPage })))
@@ -89,7 +90,7 @@ function LedgerLifecycleBoundary({ children }: { children: ReactNode }) {
     <>
       <div inert={blocked ? true : undefined} aria-hidden={blocked || undefined}>{children}</div>
       {blocked ? (
-        <div ref={recoveryPanel} className="fixed inset-0 z-50 grid min-h-dvh place-items-center bg-cream-100 p-6 text-center outline-none dark:bg-[#101714]" tabIndex={-1} role={checking ? 'status' : 'alert'}>
+        <div ref={recoveryPanel} className="fixed inset-0 z-50 grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-center outline-none" tabIndex={-1} role={checking ? 'status' : 'alert'}>
           {checking ? <p className="text-sm text-[var(--muted)]">현재 가계부 상태를 확인하는 중…</p> : <div><p>현재 가계부 상태를 확인하지 못했어요. 기존 데이터는 지우지 않았습니다.</p><Button className="mt-4" type="button" variant="secondary" onClick={recoverCurrentLedger}>다시 확인</Button></div>}
         </div>
       ) : null}
@@ -97,7 +98,7 @@ function LedgerLifecycleBoundary({ children }: { children: ReactNode }) {
   )
 }
 
-function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 'join' | 'settings' | 'categories' | 'assets' | 'asset-ledger' | 'asset-form' | 'transaction-detail' | 'transaction-form' | 'card-purchase' | 'card-statement' | 'statistics'; cardPurchaseAction?: CardPurchaseAction }) {
+function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 'join' | 'settings' | 'categories' | 'assets' | 'asset-ledger' | 'asset-form' | 'transaction-detail' | 'transaction-form' | 'card-purchase' | 'card-statement' | 'card-payment' | 'statistics'; cardPurchaseAction?: CardPurchaseAction }) {
   const location = useLocation()
   const [me, current] = useQueries({ queries: [
     {
@@ -123,7 +124,7 @@ function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 
     const next = `${location.pathname}${location.search}`
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
   }
-  if (current.isError || !current.data) return <main className="grid min-h-dvh place-items-center bg-cream-100 p-6 text-center dark:bg-[#101714]"><div><p role="alert">가계부 정보를 불러오지 못했어요.</p><Button className="mt-4" onClick={() => current.refetch()}>다시 불러오기</Button></div></main>
+  if (current.isError || !current.data) return <main className="grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-center"><div><p role="alert">가계부 정보를 불러오지 못했어요.</p><Button className="mt-4" onClick={() => current.refetch()}>다시 불러오기</Button></div></main>
   const currentLedger = current.data as CurrentLedgerBook
   if (page === 'join') return currentLedger.ledger ? <Navigate to="/" replace /> : <JoinPage />
   if (page === 'settings') return currentLedger.ledger ? <SettingsPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
@@ -134,6 +135,7 @@ function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 
   if (page === 'transaction-detail') return currentLedger.ledger ? <TransactionDetailPage /> : <Navigate to="/" replace />
   if (page === 'transaction-form') return currentLedger.ledger ? <TransactionFormPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
   if (page === 'card-purchase') return currentLedger.ledger ? <CardPurchaseManagementPage ledger={currentLedger.ledger} action={cardPurchaseAction} /> : <Navigate to="/" replace />
+  if (page === 'card-payment') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">카드 대금 결제 화면을 여는 중…</main>}><CardPaymentPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   if (page === 'card-statement') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">카드 명세 화면을 여는 중…</main>}><CardStatementPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   if (page === 'statistics') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">통계 화면을 여는 중…</main>}><StatisticsPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   return <HomePage current={currentLedger} />
@@ -168,6 +170,7 @@ export default function App() {
         <Route path="/join" element={<ProtectedApp page="join" />} />
         <Route path="/assets" element={<ProtectedApp page="assets" />} />
         <Route path="/assets/new" element={<ProtectedApp page="asset-form" />} />
+        <Route path="/assets/:assetId/card-payment" element={<ProtectedApp page="card-payment" />} />
         <Route path="/assets/:assetId/card-statements/:statementId" element={<ProtectedApp page="card-statement" />} />
         <Route path="/assets/:assetId/edit" element={<ProtectedApp page="asset-form" />} />
         <Route path="/assets/:assetId" element={<ProtectedApp page="asset-ledger" />} />

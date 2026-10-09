@@ -12,6 +12,8 @@ export function applyTheme(theme: Theme) {
   const dark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
   document.documentElement.classList.toggle('dark', dark)
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+  const background = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', background)
 }
 
 export function saveTheme(theme: Theme) {

@@ -185,7 +185,7 @@ function ExistingAssetContent({ asset, assetId, assets, backgroundError, ledger,
 
 function AssetDesktopList({ assets, selectedAssetId }: { assets: Asset[]; selectedAssetId: string }) {
   return (
-    <aside className="sticky top-6 mt-5 hidden max-h-[calc(100dvh-3rem)] overflow-y-auto border-y border-[var(--line)] py-3 lg:block" aria-label="자산 목록">
+    <aside className="sticky top-[calc(var(--app-header-height,0px)+1.5rem)] mt-5 hidden max-h-[calc(100dvh-var(--app-header-height,0px)-3rem)] overflow-y-auto border-y border-[var(--line)] py-3 lg:block" aria-label="자산 목록">
       <div className="flex items-center justify-between gap-2 px-2 py-2"><h2 className="font-semibold">자산 목록</h2><Button asChild variant="ghost" size="icon"><Link to="/assets/new" aria-label="자산 추가"><WalletCards size={18} /></Link></Button></div>
       <nav className="mt-1 divide-y divide-[var(--line)] border-t border-[var(--line)]">
         {assets.map((asset) => {
@@ -419,7 +419,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
                   <Button
                     key={type.assetTypeId}
                     variant="secondary"
-                    className={`min-h-11 min-w-0 whitespace-normal break-words rounded-md border px-1.5 py-1.5 text-sm leading-tight font-semibold transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 ${selected ? 'border-forest-700 bg-forest-50 text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'border-[var(--line)] bg-transparent text-ink-900 hover:border-forest-600 hover:bg-forest-50 dark:text-white dark:hover:bg-forest-950'}`}
+                    className={`min-h-11 min-w-0 whitespace-normal break-words rounded-md border px-1.5 py-1.5 text-sm leading-tight font-semibold transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 ${selected ? 'border-forest-700 bg-[var(--surface-selected)] text-forest-800 dark:text-forest-100' : 'border-[var(--line)] bg-transparent text-ink-900 hover:border-forest-600 hover:bg-[var(--surface-hover)] dark:text-white'}`}
                     type="button"
                     aria-pressed={selected}
                     autoFocus={!editing && selected}

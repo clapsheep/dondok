@@ -169,6 +169,69 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
+    void assetSearchFiltersBeforePaginationAndKeepsLedgerBoundaries() {
+        Fixture fixture = fixture();
+        UUID partner = addMember(fixture.bookId(), "검색 구성원");
+        var bank = createStandardAsset(fixture, "BANK", "검색 계좌", 0, "search-bank");
+        var other = createStandardAsset(fixture, "BANK", "다른 계좌", 0, "search-other");
+        UUID food = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+        UUID income = category(fixture.userId(), CategoryKind.INCOME, "OTHER");
+        LocalDate day = LocalDate.of(2026, 7, 10);
+        var old = transactionService.create(fixture.userId(), "search-old", new TransactionService.CreateExpense(
+                day, 100, food, bank.assetId(), partner, "Coffee 10%_", 1));
+        var recent = transactionService.create(fixture.userId(), "search-recent", new TransactionService.CreateExpense(
+                day.plusDays(1), 200, food, bank.assetId(), fixture.memberId(), "COFFEE", 1));
+        transactionService.create(fixture.userId(), "search-unrelated", new TransactionService.CreateExpense(
+                day.plusDays(2), 300, food, other.assetId(), partner, "Coffee 10%_", 1));
+        transactionService.create(fixture.userId(), "search-income", new TransactionService.CreateIncome(
+                day.plusDays(3), 400, income, bank.assetId(), partner, "환급"));
+        var first = transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), null, 1,
+                " coffee ", null, null, null, null);
+        assertThat(first.items()).extracting(TransactionService.TransactionView::transactionId).containsExactly(recent.transactionId());
+        assertThat(first.nextCursor()).isNotNull();
+        var second = transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), first.nextCursor(), 1,
+                "coffee", null, null, null, null);
+        assertThat(second.items()).extracting(TransactionService.TransactionView::transactionId).containsExactly(old.transactionId());
+        assertThat(second.nextCursor()).isNull();
+        assertThat(transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), null, 10,
+                "%_", day, day.plusDays(1), TransactionType.EXPENSE, partner).items())
+                .extracting(TransactionService.TransactionView::transactionId).containsExactly(old.transactionId());
+        assertThat(transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), null, 10,
+                "식비", null, null, TransactionType.EXPENSE, null).items()).hasSize(2);
+        assertThat(transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), null, 10,
+                "coffee", null, null, TransactionType.INCOME, null).items()).isEmpty();
+        var global = transactionService.transactions(fixture.userId(), null, null, null, 1, null, "coffee", TransactionType.EXPENSE);
+        assertThat(global.items()).hasSize(1);
+        assertThat(global.nextCursor()).isNotNull();
+        assertThat(transactionService.transactions(fixture.userId(), null, null, global.nextCursor(), 10, null, "coffee", TransactionType.EXPENSE).items())
+                .extracting(TransactionService.TransactionView::transactionId).containsExactly(recent.transactionId(), old.transactionId());
+        assertThat(transactionService.transactions(fixture.userId(), day, day.plusDays(1), null, 10, partner, "%_", TransactionType.EXPENSE).items())
+                .extracting(TransactionService.TransactionView::transactionId).containsExactly(old.transactionId());
+        assertThat(transactionService.transactions(fixture.userId(), null, null, null, 10, null, "식비", null).items()).hasSize(3);
+        assertThat(transactionService.transactions(fixture.userId(), null, null, null, 10, null, "coffee", TransactionType.INCOME).items()).isEmpty();
+        assertThatThrownBy(() -> transactionService.transactions(fixture.userId(), day, day, null, 10, null, null, null))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.getErrorCode()).isEqualTo("TRANSACTION_FILTER_INVALID"));
+        assertThatThrownBy(() -> transactionService.transactions(fixture.userId(), null, null, null, 10, null, "x".repeat(101), null))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.getErrorCode()).isEqualTo("TRANSACTION_FILTER_INVALID"));
+        Fixture outsider = fixture();
+        assertThat(transactionService.transactions(outsider.userId(), null, null, null, 10, null, "coffee", null).items()).isEmpty();
+        assertThatThrownBy(() -> transactionService.transactions(fixture.userId(), null, null, null, 10, outsider.memberId(), null, null))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.getErrorCode()).isEqualTo("TRANSACTION_PERFORMER_INVALID"));
+        assertThatThrownBy(() -> transactionService.transactionsForAsset(outsider.userId(), bank.assetId(), null, 10,
+                "coffee", null, null, null, null)).isInstanceOfSatisfying(ApiException.class,
+                exception -> assertThat(exception.getErrorCode()).isEqualTo("ASSET_NOT_FOUND"));
+        assertThatThrownBy(() -> transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), null, 10,
+                null, null, null, null, outsider.memberId())).isInstanceOfSatisfying(ApiException.class,
+                exception -> assertThat(exception.getErrorCode()).isEqualTo("TRANSACTION_PERFORMER_INVALID"));
+        assertThatThrownBy(() -> transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), null, 10,
+                null, day, day, null, null)).isInstanceOfSatisfying(ApiException.class,
+                exception -> assertThat(exception.getErrorCode()).isEqualTo("TRANSACTION_FILTER_INVALID"));
+        assertThatThrownBy(() -> transactionService.transactionsForAsset(fixture.userId(), bank.assetId(), null, 10,
+                "a".repeat(101), null, null, null, null)).isInstanceOfSatisfying(ApiException.class,
+                exception -> assertThat(exception.getErrorCode()).isEqualTo("TRANSACTION_FILTER_INVALID"));
+    }
+
+    @Test
     void calendarAndLedgerRowsCanBeFilteredByEconomicPerformer() {
         Fixture fixture = fixture();
         UUID partnerMemberId = addMember(fixture.bookId(), "함께 쓰는 사람");
@@ -1078,6 +1141,49 @@ class TransactionServiceIntegrationTest {
                 fixture.userId(), YearMonth.of(2026, 7));
         assertThat(calendar.totalExpenseWon()).isEqualTo(23_000);
         assertThat(calendar.netWon()).isEqualTo(-23_000);
+    }
+
+    @Test
+    void calendarCountsIncludedTransactionsOnceAcrossPaginationAndPerformerBoundaries() {
+        Fixture fixture = fixture();
+        UUID partner = addMember(fixture.bookId(), "달력 상대");
+        var bank = createStandardAsset(fixture, "BANK", "달력 계좌", 100_000, "count-bank");
+        var otherBank = createStandardAsset(fixture, "BANK", "이체 계좌", 0, "count-other-bank");
+        UUID category = category(fixture.userId(), CategoryKind.EXPENSE, "FOOD");
+        LocalDate date = LocalDate.of(2026, 8, 9);
+        for (int index = 0; index < 35; index++) {
+            transactionService.create(fixture.userId(), "count-expense-" + index,
+                    new TransactionService.CreateExpense(date, 100, category, bank.assetId(),
+                            fixture.memberId(), "달력 건수", 1));
+        }
+        transactionService.create(fixture.userId(), "count-partner",
+                new TransactionService.CreateExpense(date, 200, category, bank.assetId(), partner, "대신 입력", 1));
+        transactionService.create(fixture.userId(), "count-excluded",
+                new TransactionService.CreateExpense(date, 300, category, bank.assetId(),
+                        fixture.memberId(), "집계 제외", 1, true));
+        transactionService.create(fixture.userId(), "count-transfer",
+                new TransactionService.CreateTransfer(date, 400, bank.assetId(), otherBank.assetId(),
+                        fixture.memberId(), "집계 제외 이체"));
+        var deleted = transactionService.create(fixture.userId(), "count-deleted",
+                new TransactionService.CreateExpense(date, 500, category, bank.assetId(),
+                        fixture.memberId(), "삭제할 기록", 1));
+        transactionService.delete(fixture.userId(), deleted.transactionId(), deleted.version());
+        transactionService.create(fixture.userId(), "count-other-month",
+                new TransactionService.CreateExpense(date.plusMonths(1), 600, category, bank.assetId(),
+                        fixture.memberId(), "다른 달", 1));
+
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.from(date), fixture.memberId()).days())
+                .singleElement().satisfies(day -> {
+                    assertThat(day.date()).isEqualTo(date);
+                    assertThat(day.expenseWon()).isEqualTo(3_500);
+                    assertThat(day.transactionCount()).isEqualTo(35);
+                });
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.from(date), partner).days())
+                .singleElement().satisfies(day -> assertThat(day.transactionCount()).isEqualTo(1));
+        assertThat(transactionService.calendar(fixture.userId(), YearMonth.from(date)).days())
+                .singleElement().satisfies(day -> assertThat(day.transactionCount()).isEqualTo(36));
+        Fixture anotherBook = fixture();
+        assertThat(transactionService.calendar(anotherBook.userId(), YearMonth.from(date)).days()).isEmpty();
     }
 
     private Fixture fixture() {

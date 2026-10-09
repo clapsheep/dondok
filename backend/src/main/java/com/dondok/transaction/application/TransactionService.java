@@ -31,7 +31,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -45,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class TransactionService {
     private static final String CREATE_SCOPE = "POST:/api/transactions";
     private static final int MAX_PAGE_SIZE = 100;
-    private static final int MAX_RANGE_DAYS = 366;
     private static final int MAX_INSTALLMENTS = 60;
     private static final Set<String> TRANSFER_ASSET_SYSTEM_CODES = Set.of("BANK", "SAVINGS", "INVESTMENT");
 
@@ -104,7 +102,7 @@ public class TransactionService {
         List<DaySummary> days = transactions.calendar(
                         member.getBookId(), from, toExclusive, performedByMemberId).stream()
                 .map(row -> new DaySummary(row.date(), row.incomeWon(), row.expenseWon(),
-                        row.incomeWon() - row.expenseWon(), row.cardPaymentWon()))
+                        row.incomeWon() - row.expenseWon(), row.cardPaymentWon(), row.transactionCount()))
                 .toList();
         long income = days.stream().mapToLong(DaySummary::incomeWon).sum();
         long expense = days.stream().mapToLong(DaySummary::expenseWon).sum();
@@ -123,7 +121,15 @@ public class TransactionService {
             UUID userId, LocalDate from, LocalDate toExclusive, String encodedCursor, int limit,
             UUID performedByMemberId
     ) {
-        requireRange(from, toExclusive);
+        return transactions(userId, from, toExclusive, encodedCursor, limit, performedByMemberId, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TransactionPage transactions(
+            UUID userId, LocalDate from, LocalDate toExclusive, String encodedCursor, int limit,
+            UUID performedByMemberId, String query, TransactionType type
+    ) {
+        String search = validateFilters(query, from, toExclusive);
         if (limit < 1 || limit > MAX_PAGE_SIZE) {
             throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_PAGE_INVALID", "페이지 크기를 확인해 주세요.");
         }
@@ -135,8 +141,9 @@ public class TransactionService {
         }
         LedgerMemberEntity member = currentMember(userId);
         requireOptionalPerformer(member.getBookId(), performedByMemberId);
-        TransactionJdbcRepository.PageRows page = transactions.page(
-                member.getBookId(), from, toExclusive, cursor, limit, performedByMemberId);
+        TransactionJdbcRepository.PageRows page = transactions.filteredPage(
+                member.getBookId(), null, cursor, limit, search, from, toExclusive,
+                type == null ? null : type.name(), performedByMemberId);
         return new TransactionPage(page.items().stream().map(this::toView).toList(), page.nextCursor());
     }
 
@@ -144,6 +151,15 @@ public class TransactionService {
     public TransactionPage transactionsForAsset(
             UUID userId, UUID assetId, String encodedCursor, int limit
     ) {
+        return transactionsForAsset(userId, assetId, encodedCursor, limit, null, null, null, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TransactionPage transactionsForAsset(
+            UUID userId, UUID assetId, String encodedCursor, int limit, String query,
+            LocalDate from, LocalDate toExclusive, TransactionType type, UUID performedByMemberId
+    ) {
+        String search = validateFilters(query, from, toExclusive);
         if (limit < 1 || limit > MAX_PAGE_SIZE) {
             throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_PAGE_INVALID", "페이지 크기를 확인해 주세요.");
         }
@@ -156,8 +172,10 @@ public class TransactionService {
         LedgerMemberEntity member = currentMember(userId);
         assets.findByIdAndBookId(assetId, member.getBookId())
                 .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "ASSET_NOT_FOUND", "자산을 찾을 수 없습니다."));
-        TransactionJdbcRepository.PageRows page = transactions.pageForAsset(
-                member.getBookId(), assetId, cursor, limit);
+        requireOptionalPerformer(member.getBookId(), performedByMemberId);
+        TransactionJdbcRepository.PageRows page = transactions.filteredPage(
+                member.getBookId(), assetId, cursor, limit, search, from, toExclusive,
+                type == null ? null : type.name(), performedByMemberId);
         return new TransactionPage(page.items().stream().map(this::toView).toList(), page.nextCursor());
     }
 
@@ -577,12 +595,12 @@ public class TransactionService {
         return error(HttpStatus.NOT_FOUND, "TRANSACTION_NOT_FOUND", "거래를 찾을 수 없습니다.");
     }
 
-    private void requireRange(LocalDate from, LocalDate toExclusive) {
-        long days = ChronoUnit.DAYS.between(from, toExclusive);
-        if (days < 1 || days > MAX_RANGE_DAYS) {
-            throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_RANGE_INVALID",
-                    "거래 조회 기간은 1일 이상 366일 이하여야 합니다.");
+    private String validateFilters(String query, LocalDate from, LocalDate toExclusive) {
+        String search = query == null ? "" : query.strip();
+        if (search.length() > 100 || (from != null && toExclusive != null && !from.isBefore(toExclusive))) {
+            throw error(HttpStatus.BAD_REQUEST, "TRANSACTION_FILTER_INVALID", "검색어와 조회 기간을 확인해 주세요.");
         }
+        return search;
     }
 
     private ApiException installmentInvalid() {
@@ -736,7 +754,8 @@ public class TransactionService {
         CARD_REFUND,
         SYSTEM
     }
-    public record DaySummary(LocalDate date, long incomeWon, long expenseWon, long netWon, long cardPaymentWon) {
+    public record DaySummary(LocalDate date, long incomeWon, long expenseWon, long netWon, long cardPaymentWon,
+                             long transactionCount) {
     }
     public record CalendarView(YearMonth month, long totalIncomeWon, long totalExpenseWon,
                                long netWon, List<DaySummary> days) {

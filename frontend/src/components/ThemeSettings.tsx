@@ -32,7 +32,7 @@ export function ThemeSettings() {
             <label
               key={value}
               htmlFor={optionId}
-              className={`relative flex min-h-16 cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2 text-center text-sm transition-colors focus-within:z-10 focus-within:ring-3 focus-within:ring-inset focus-within:ring-[var(--ring)] ${selected ? 'bg-forest-50 font-semibold text-forest-800 dark:bg-forest-950 dark:text-forest-100' : 'bg-[var(--surface)] text-[var(--muted)] hover:bg-forest-50 hover:text-forest-800 dark:hover:bg-forest-950 dark:hover:text-forest-100'}`}
+              className={`relative flex min-h-16 cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2 text-center text-sm transition-colors focus-within:z-10 focus-within:ring-3 focus-within:ring-inset focus-within:ring-[var(--ring)] ${selected ? 'bg-[var(--surface-selected)] font-semibold text-forest-800 dark:text-forest-100' : 'bg-[var(--surface)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-forest-800 dark:hover:text-forest-100'}`}
             >
               <span className="flex items-center gap-1.5">
                 <Icon size={18} aria-hidden="true" />

@@ -301,8 +301,9 @@ test('수입·지출·이체를 기록하고 월간 합계와 cursor 일별 목�
   const today = todayInSeoul()
   const calendarCell = page.getByRole('gridcell', { name: new RegExp(`수입 \\+200,000원, 지출 -50,000원`) })
   await expect(calendarCell).toBeVisible()
-  await expect(calendarCell.getByTitle('수입 +200,000원')).toHaveCSS('color', await cssVariableColor(page, '--income'))
-  await expect(calendarCell.getByTitle('지출 -50,000원')).toHaveCSS('color', await cssVariableColor(page, '--expense'))
+  await expect(calendarCell.getByTitle('수입 +200,000원')).toHaveCSS('color', await cssVariableColor(page, '--calendar-income'))
+  await expect(calendarCell.getByTitle('지출 -50,000원')).toHaveCSS('color', await cssVariableColor(page, '--calendar-expense'))
+  await expect(calendarCell.getByTitle('합산 거래 2건')).toHaveText('2건')
   await expect(calendarCell).toHaveCSS('border-radius', '0px')
   const calendarAmounts = calendarCell.locator('[title^="수입 "], [title^="지출 "]')
   await expect(calendarAmounts).toHaveCount(2)
@@ -668,7 +669,7 @@ async function attachSeedEvidence(testInfo: TestInfo, loginId: string, seed: See
   })
 }
 
-async function cssVariableColor(page: Page, name: '--income' | '--expense') {
+async function cssVariableColor(page: Page, name: '--calendar-income' | '--calendar-expense') {
   return page.evaluate((variable) => {
     const value = getComputedStyle(document.documentElement).getPropertyValue(variable).trim()
     const probe = document.createElement('span')

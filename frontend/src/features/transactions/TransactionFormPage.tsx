@@ -1,3 +1,4 @@
+import { TransactionDetail } from './TransactionDetailPage'
 import { suggestedTransferPurpose, transferPurposeLabels, type TransferPurpose } from './transferPurpose'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Check, Copy, LoaderCircle, RotateCcw, Save, Trash2 } from 'lucide-react'
@@ -31,6 +32,7 @@ import { performerPersonLabel, performerQuestionLabel, performerSelectionError }
 import { transferAssetLabel, transferEligibleAssets } from './transferAssets'
 import { CategoryPicker } from './CategoryPicker'
 import { readLastExpenseAssetId, rememberLastExpenseAsset } from './lastExpenseAsset'
+import { readLastTransactionDate, rememberLastTransactionDate } from './lastTransactionDate'
 import { PerformerPicker } from './PerformerPicker'
 import { RepresentativePaymentFields } from './RepresentativePaymentFields'
 import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
@@ -81,6 +83,7 @@ export function TransactionFormPage({ ledger }: { ledger: LedgerBook }) {
   }
   if (transaction.data?.managementType === 'CARD_PURCHASE') return <Navigate to={`/transactions/${transaction.data.transactionId}/card-purchase`} replace state={location.state} />
   if (transaction.data?.managementType === 'CARD_REFUND' && transaction.data.relatedPurchaseTransactionId) return <Navigate to={`/transactions/${transaction.data.relatedPurchaseTransactionId}/card-purchase`} replace state={location.state} />
+  if (transaction.data?.managementType === 'SYSTEM' && transaction.data.cardPayment) return <TransactionDetail transaction={transaction.data} returnTo={safeReturnTo(location.state, transaction.data.occurredOn)} editing />
   if (transaction.data && transaction.data.managementType !== 'GENERAL') return <ManagedTransaction transaction={transaction.data} returnTo={safeReturnTo(location.state)} />
   if (assets.isPending) return <AppShell ledgerNavigation><LoadingState /></AppShell>
   if (assets.isError && !assets.data) return <AppShell ledgerNavigation><LoadError message="거래에 사용할 자산을 불러오지 못했어요." onRetry={() => assets.refetch()} /></AppShell>
@@ -142,10 +145,14 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   const online = useOnlineStatus()
   const editing = Boolean(transaction)
   const currentMemberId = ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? ''
+  const [defaultDate] = useState(() => transaction || initialDraft ? undefined : initialDate ?? readLastTransactionDate({
+    ledgerId: ledger.ledgerId,
+    memberId: ledger.members.find((member) => member.currentUser)?.memberId ?? '',
+  }))
   const [pristineDraft, setPristineDraft] = useState<Draft>(() => transaction
     ? draftFromTransaction(transaction)
-    : validNavigationDraft(treatInitialDraftAsPristine ? initialDraft : undefined, currentMemberId, initialDate, initialAssetId, initialSourceAssetId))
-  const [draft, setDraft] = useState<Draft>(() => transaction ? draftFromTransaction(transaction) : validNavigationDraft(initialDraft, currentMemberId, initialDate, initialAssetId, initialSourceAssetId))
+    : validNavigationDraft(treatInitialDraftAsPristine ? initialDraft : undefined, currentMemberId, defaultDate, initialAssetId, initialSourceAssetId))
+  const [draft, setDraft] = useState<Draft>(() => transaction ? draftFromTransaction(transaction) : validNavigationDraft(initialDraft, currentMemberId, defaultDate, initialAssetId, initialSourceAssetId))
   const allowNavigation = useRef(false)
   const [baseVersion, setBaseVersion] = useState(transaction?.version ?? 0)
   const [errors, setErrors] = useState<FieldErrors>({})
@@ -215,6 +222,12 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   })
 
   async function finishMutation(saved: Transaction, status: 'transactionSaved' | 'transactionUpdated') {
+    if (status === 'transactionSaved') {
+      rememberLastTransactionDate({
+        ledgerId: ledger.ledgerId,
+        memberId: ledger.members.find((member) => member.currentUser)?.memberId ?? '',
+      }, saved.occurredOn)
+    }
     // 이 화면에서 활성화된 상세 query가 먼저 재조회되면 일반 거래를 카드 구매로
     // 바꾼 직후 전용 상세 redirect가 목록 복귀보다 앞설 수 있다. 이동할 화면에서
     // 최신 데이터를 읽도록 stale 처리만 하고 현재 route에서는 refetch하지 않는다.
@@ -439,7 +452,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
             {mutationError && !(mutationError instanceof ApiError && [404, 412].includes(mutationError.status)) ? <p className="mt-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{mutationError instanceof Error ? mutationError.message : '거래를 저장하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
           </div>
 
-          <aside className={embedded ? 'mt-5 border-t border-[var(--line)] pt-5' : 'mt-5 border-t border-[var(--line)] pt-5 lg:sticky lg:top-8 lg:mt-0 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-7'}>
+          <aside className={embedded ? 'mt-5 border-t border-[var(--line)] pt-5' : 'mt-5 border-t border-[var(--line)] pt-5 lg:sticky lg:top-[calc(var(--app-header-height,0px)+2rem)] lg:mt-0 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-7'}>
             <div className={embedded ? 'hidden' : 'hidden lg:block'} data-transaction-desktop-summary>
               <p className="text-xs font-semibold tracking-[.08em] text-[var(--muted)]">현재 입력</p>
               <TransactionDraftSummary draft={resolvedDraft} assets={assets} categories={categories.data ?? []} ledger={ledger} />

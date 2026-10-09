@@ -50,14 +50,16 @@ public class TransactionController {
     @GetMapping
     TransactionService.TransactionPage transactions(
             @AuthenticationPrincipal DondokPrincipal principal,
-            @RequestParam LocalDate from,
-            @RequestParam LocalDate toExclusive,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate toExclusive,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit,
-            @RequestParam(required = false) UUID performedByMemberId
+            @RequestParam(required = false) UUID performedByMemberId,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) TransactionType type
     ) {
         return transactionService.transactions(
-                principal.userId(), from, toExclusive, cursor, limit, performedByMemberId);
+                principal.userId(), from, toExclusive, cursor, limit, performedByMemberId, q, type);
     }
 
     @GetMapping("/{transactionId}")
