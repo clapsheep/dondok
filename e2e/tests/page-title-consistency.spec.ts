@@ -8,7 +8,7 @@ test('주요 메뉴의 대제목은 같은 크기와 굵기를 유지한다', as
 
   const titleStyles = []
   const homeHeading = page.getByRole('heading', { name: '가계부', level: 1, exact: true })
-  await expect(homeHeading).toHaveClass(/sr-only/)
+  await expect(homeHeading).toBeVisible()
 
   for (const [path, title] of [
     ['/assets', '자산 현황'],

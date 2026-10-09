@@ -4,6 +4,7 @@ export type LedgerMember = {
   memberId: string
   displayName: string
   joinedAt: string
+  withdrawn?: boolean
   currentUser: boolean
 }
 

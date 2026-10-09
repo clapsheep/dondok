@@ -1,11 +1,14 @@
+import { LandingPage } from './features/auth/LandingPage'
+import { LegalPage } from './features/legal/LegalPages'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { ApiError, api, clearCsrfToken, subscribeLedgerNotFound, type SessionUser } from './lib/api'
+import { ApiError, api, clearCsrfToken, subscribeLedgerNotFound, subscribeSessionExpired, type SessionUser } from './lib/api'
 import { CheckEmailPage, ForgotPasswordPage, LoginPage, ResetPasswordPage, SignUpPage, VerifyEmailPage } from './features/auth/AuthPages'
 import { HomePage } from './features/home/HomePage'
 import { JoinPage } from './features/membership/JoinPage'
 import { membershipApi, membershipKeys, type CurrentLedgerBook } from './features/membership/api'
+import { PasswordChangePage } from './features/settings/PasswordChangePage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import { Button } from './components/ui/Button'
@@ -85,6 +88,14 @@ function LedgerLifecycleBoundary({ children }: { children: ReactNode }) {
     recoverCurrentLedger()
   }), [queryClient, recoverCurrentLedger])
 
+  useEffect(() => subscribeSessionExpired(() => {
+    if (!queryClient.getQueryData(['session'])) return
+    clearCsrfToken()
+    void queryClient.cancelQueries()
+    queryClient.clear()
+    navigate('/login', { replace: true })
+  }), [navigate, queryClient])
+
   const blocked = checking || recoveryError
   return (
     <>
@@ -98,7 +109,7 @@ function LedgerLifecycleBoundary({ children }: { children: ReactNode }) {
   )
 }
 
-function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 'join' | 'settings' | 'categories' | 'assets' | 'asset-ledger' | 'asset-form' | 'transaction-detail' | 'transaction-form' | 'card-purchase' | 'card-statement' | 'card-payment' | 'statistics'; cardPurchaseAction?: CardPurchaseAction }) {
+function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 'join' | 'settings' | 'password-change' | 'categories' | 'assets' | 'asset-ledger' | 'asset-form' | 'transaction-detail' | 'transaction-form' | 'card-purchase' | 'card-statement' | 'card-payment' | 'statistics'; cardPurchaseAction?: CardPurchaseAction }) {
   const location = useLocation()
   const [me, current] = useQueries({ queries: [
     {
@@ -121,13 +132,15 @@ function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 
 
   if (me.isPending || current.isPending) return <main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">가계부를 여는 중…</main>
   if (!me.data) {
+    if (page === 'home') return <LandingPage />
     const next = `${location.pathname}${location.search}`
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
   }
   if (current.isError || !current.data) return <main className="grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-center"><div><p role="alert">가계부 정보를 불러오지 못했어요.</p><Button className="mt-4" onClick={() => current.refetch()}>다시 불러오기</Button></div></main>
   const currentLedger = current.data as CurrentLedgerBook
   if (page === 'join') return currentLedger.ledger ? <Navigate to="/" replace /> : <JoinPage />
-  if (page === 'settings') return currentLedger.ledger ? <SettingsPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
+  if (page === 'password-change') return <PasswordChangePage ledgerNavigation={Boolean(currentLedger.ledger)} />
+  if (page === 'settings') return <SettingsPage ledger={currentLedger.ledger} user={me.data} />
   if (page === 'categories') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">분류 설정을 여는 중…</main>}><CategorySettingsPage /></Suspense> : <Navigate to="/" replace />
   if (page === 'assets') return currentLedger.ledger ? <AssetsPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
   if (page === 'asset-ledger') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">자산 거래를 여는 중…</main>}><AssetLedgerPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
@@ -136,7 +149,7 @@ function ProtectedApp({ page, cardPurchaseAction = 'detail' }: { page: 'home' | 
   if (page === 'transaction-form') return currentLedger.ledger ? <TransactionFormPage ledger={currentLedger.ledger} /> : <Navigate to="/" replace />
   if (page === 'card-purchase') return currentLedger.ledger ? <CardPurchaseManagementPage ledger={currentLedger.ledger} action={cardPurchaseAction} /> : <Navigate to="/" replace />
   if (page === 'card-payment') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">카드 대금 결제 화면을 여는 중…</main>}><CardPaymentPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
-  if (page === 'card-statement') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">카드 명세 화면을 여는 중…</main>}><CardStatementPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
+  if (page === 'card-statement') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">카드 결제 내역 화면을 여는 중…</main>}><CardStatementPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   if (page === 'statistics') return currentLedger.ledger ? <Suspense fallback={<main className="grid min-h-dvh place-items-center text-sm text-[var(--muted)]">통계 화면을 여는 중…</main>}><StatisticsPage ledger={currentLedger.ledger} /></Suspense> : <Navigate to="/" replace />
   return <HomePage current={currentLedger} />
 }
@@ -166,6 +179,8 @@ export default function App() {
   return (
     <LedgerLifecycleBoundary>
       <Routes>
+        <Route path="/legal/terms" element={<LegalPage kind="terms" />} />
+        <Route path="/legal/privacy" element={<LegalPage kind="privacy" />} />
         <Route path="/" element={<ProtectedApp page="home" />} />
         <Route path="/join" element={<ProtectedApp page="join" />} />
         <Route path="/assets" element={<ProtectedApp page="assets" />} />
@@ -182,6 +197,7 @@ export default function App() {
         <Route path="/transactions/:transactionId" element={<ProtectedApp page="transaction-detail" />} />
         <Route path="/statistics" element={<ProtectedApp page="statistics" />} />
         <Route path="/settings" element={<ProtectedApp page="settings" />} />
+        <Route path="/settings/password" element={<ProtectedApp page="password-change" />} />
         <Route path="/settings/categories" element={<ProtectedApp page="categories" />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/sign-up" element={<SignUpPage />} />

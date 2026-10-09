@@ -1,3 +1,4 @@
+import { fillRecordField, showCardPaymentStep } from './support/record-steps'
 import { expectRecordActions } from './support/record-actions'
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { balanceAssetRow, cardAssetRow, expectCardPaymentAmounts } from './support/assets'
@@ -71,10 +72,11 @@ test('카드 대금 결제 페이지에서 진입·선택 결제·부분 금액�
   const excluded = section.getByRole('checkbox', { name: '선택 제외 내역 1/1회차 선택' })
   await expect(excluded).toBeChecked()
   await excluded.uncheck()
-  await expect(section.getByRole('button', { name: '70,000원 결제 기록', exact: true })).toBeEnabled()
+  await expect(section.getByRole('button', { name: '70,000원 결제 기록', exact: true, includeHidden: true })).toBeEnabled()
   await selectAsset(page, '출금 계좌', '선택 출금 계좌')
   const paidOn = monthsAgoInSeoul(1)
   await selectDate(page, '실제 결제일', paidOn)
+  await showCardPaymentStep(page, 1)
   await section.getByRole('tab', { name: '부분 금액 결제' }).click()
   await section.getByLabel('결제할 금액', { exact: true }).fill('25000')
   await page.getByLabel('결제할 금액', { exact: true }).press('Escape')
@@ -85,6 +87,7 @@ test('카드 대금 결제 페이지에서 진입·선택 결제·부분 금액�
     expect(await hasPageOverflow(page)).toBe(false)
     await testInfo.attach(`item-payment-${viewport.width}`, { body: await page.screenshot({ path: testInfo.outputPath(`partial-${viewport.width}.png`) }), contentType: 'image/png' })
   }
+  await showCardPaymentStep(page, 1)
   await section.getByRole('tab', { name: '내역 선택 결제' }).click()
   await expect(excluded).not.toBeChecked()
   await section.screenshot({ path: testInfo.outputPath('selection-desktop.png') })
@@ -92,7 +95,7 @@ test('카드 대금 결제 페이지에서 진입·선택 결제·부분 금액�
   expect(await hasPageOverflow(page)).toBe(false)
   await section.screenshot({ path: testInfo.outputPath('selection-mobile.png') })
   const responsePromise = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/card-payments'))
-  await section.getByRole('button', { name: '70,000원 결제 기록', exact: true }).click()
+  await recordCardPayment(page, '70,000원')
   const response = await responsePromise
   expect(response.status()).toBe(201)
   const saved = await response.json()
@@ -104,13 +107,14 @@ test('카드 대금 결제 페이지에서 진입·선택 결제·부분 금액�
   await page.goto(`/assets/${assets.cardAssetId}/card-statements/${saved.payments[0].statementId}`)
   await page.getByRole('button', { name: '수동 결제 취소', exact: true }).click()
   await page.getByRole('dialog', { name: '수동 결제를 취소할까요?' }).getByRole('button', { name: '수동 결제 취소', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('결제 계좌와 카드 잔액을 되돌렸어요.')
+  await expect(page.getByRole('status').filter({ hasText: '결제 계좌와 카드 잔액을 되돌렸어요.' })).toBeVisible()
   await page.goto(`/assets/${assets.cardAssetId}/card-payment`)
   await expect(section.getByRole('checkbox', { name: '선택 결제 내역 1/1회차 선택' })).toBeChecked()
+  await showCardPaymentStep(page, 1)
   await section.getByRole('tab', { name: '부분 금액 결제' }).click()
   await section.getByLabel('결제할 금액', { exact: true }).fill('25000')
   await page.getByLabel('결제할 금액', { exact: true }).press('Escape')
-  await section.getByRole('button', { name: '25,000원 결제 기록', exact: true }).click()
+  await recordCardPayment(page, '25,000원')
   await expect(section.getByRole('status')).toContainText('25,000원 결제를 기록했어요.')
   expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: -25000, [assets.cardAssetId]: -75000 })
 })
@@ -125,13 +129,13 @@ test('결제 완료 후 추가한 과거 사용분은 다시 미결제로 기본
   await createCardPurchase(page, { amount: '100000', occurredOn: monthsAgoInSeoul(2), description: '기존 카드 사용', cardName })
   await page.goto(`/assets/${assets.cardAssetId}/card-payment`)
   const section = page.getByRole('region', { name: '카드 대금 결제', exact: true })
-  await section.getByRole('button', { name: '100,000원 결제 기록', exact: true }).click()
-  await expect(section).toContainText('미결제 카드 대금이 없어요.')
+  await recordCardPayment(page, '100,000원')
+  await expect(section).toContainText('정산된 미결제 내역이 없어요.')
   await createCardPurchase(page, { amount: '20000', occurredOn: monthsAgoInSeoul(2), description: '뒤늦게 추가한 카드 사용', cardName })
   await page.goto(`/assets/${assets.cardAssetId}/card-payment`)
   await expect(section.getByRole('checkbox', { name: '뒤늦게 추가한 카드 사용 1/1회차 선택' })).toBeChecked()
-  await section.getByRole('button', { name: '20,000원 결제 기록', exact: true }).click()
-  await expect(section).toContainText('미결제 카드 대금이 없어요.')
+  await recordCardPayment(page, '20,000원')
+  await expect(section).toContainText('정산된 미결제 내역이 없어요.')
   expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: -120000, [assets.cardAssetId]: 0 })
 })
 
@@ -149,24 +153,25 @@ test('두 세션의 오래된 선택 결제는 전체 거부하고 날짜·금�
   try {
     for (const target of [page, other.page]) {
       await target.goto(`/assets/${assets.cardAssetId}/card-payment`)
-      await expect(target.getByRole('button', { name: '80,000원 결제 기록', exact: true })).toBeEnabled()
+      await expect(target.getByRole('button', { name: '80,000원 결제 기록', exact: true, includeHidden: true })).toBeEnabled()
     }
-    await other.page.getByRole('tab', { name: '부분 금액 결제' }).click()
+    await showCardPaymentStep(other.page, 1)
+  await other.page.getByRole('tab', { name: '부분 금액 결제' }).click()
     await other.page.getByLabel('결제할 금액', { exact: true }).fill('40000')
     await other.page.getByLabel('결제할 금액', { exact: true }).press('Escape')
     const paidOn = monthsAgoInSeoul(1)
     await selectDate(other.page, '실제 결제일', paidOn)
-    await page.getByRole('button', { name: '80,000원 결제 기록', exact: true }).click()
-    await expect(page.getByText('미결제 카드 대금이 없어요.', { exact: true })).toBeVisible()
+    await recordCardPayment(page, '80,000원')
+    await expect(page.getByText('정산된 미결제 내역이 없어요.', { exact: true })).toBeVisible()
     const responsePromise = other.page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/card-payments'))
-    await other.page.getByRole('button', { name: '40,000원 결제 기록', exact: true }).click()
+    await recordCardPayment(other.page, '40,000원')
     const response = await responsePromise
     expect(response.status()).toBe(412)
     await attachConflictEvidence(testInfo, response, await response.json())
     await other.page.getByRole('button', { name: '최신 내역 확인' }).click()
     await expect(other.page.getByLabel('결제할 금액', { exact: true })).toHaveValue('40,000')
     await expect(other.page.getByLabel('실제 결제일', { exact: true })).toHaveAttribute('data-value', paidOn)
-    await expect(other.page.getByRole('button', { name: '40,000원 결제 기록', exact: true })).toBeDisabled()
+    await expect(other.page.getByRole('button', { name: '40,000원 결제 기록', exact: true, includeHidden: true })).toBeDisabled()
     expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: -80000, [assets.cardAssetId]: 0 })
   } finally { await other.context.close() }
 })
@@ -187,7 +192,7 @@ test('과거 결제일 카드도 자동으로 결제하지 않고 자동 정산 
   expect(await assetBalances(page, [assets.accountAssetId, assets.cardAssetId])).toEqual({ [assets.accountAssetId]: 0, [assets.cardAssetId]: -100000 })
 })
 
-test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남은 결제·통계 제외를 확인한다', { tag: '@pr' }, async ({ page, request }, testInfo) => {
+test('같은 카드 결제 내역에 두 번 부분 선결제하고 음수 계좌·남은 결제·통계 제외를 확인한다', { tag: '@pr' }, async ({ page, request }, testInfo) => {
   const month = currentMonthInSeoul()
   const purchaseDate = todayInSeoul()
   const purchaseDescription = `QC 복수 선결제 ${Date.now().toString().slice(-6)}`
@@ -215,7 +220,7 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(preview).toBeVisible()
   await expect(preview.getByRole('heading', { name: '선결제 영향' })).toBeFocused()
   await expect(preview.getByText('적용일', { exact: true }).locator('..')).toContainText(todayInSeoul())
-  await expect(preview.getByText('명세 남은 결제', { exact: true }).locator('..')).toContainText('120,000원 → 90,000원')
+  await expect(preview.getByText('남은 결제 금액', { exact: true }).locator('..')).toContainText('120,000원 → 90,000원')
   await expect(preview.getByText('계좌 장부', { exact: true }).locator('..')).toContainText('0원 → -30,000원')
   await expect(preview.getByText('수입·지출 통계', { exact: true }).locator('..')).toContainText('변화 없음')
   await expectTouchTarget(preview.getByRole('button', { name: '선결제 기록' }), '선결제 기록')
@@ -225,16 +230,16 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   await expect(page.getByLabel('선결제 금액')).toBeDisabled()
   await expect(preview.getByRole('button', { name: '선결제 기록' })).toBeDisabled()
   releaseApply()
-  await expect(page.getByRole('status')).toContainText('30,000원을')
+  await expect(page.getByRole('status').filter({ hasText: '30,000원을' })).toBeVisible()
   await expectStatementSummary(page, { gross: '120,000원', paid: '30,000원', remaining: '90,000원' })
 
   await page.getByLabel('선결제 금액').fill('40,000')
   await page.getByRole('button', { name: '결제 영향 확인' }).click()
   preview = page.getByRole('region', { name: '선결제 영향' })
-  await expect(preview.getByText('명세 남은 결제', { exact: true }).locator('..')).toContainText('90,000원 → 50,000원')
+  await expect(preview.getByText('남은 결제 금액', { exact: true }).locator('..')).toContainText('90,000원 → 50,000원')
   await expect(preview.getByText('계좌 장부', { exact: true }).locator('..')).toContainText('-30,000원 → -70,000원')
   await preview.getByRole('button', { name: '선결제 기록' }).click()
-  await expect(page.getByRole('status')).toContainText('40,000원을')
+  await expect(page.getByRole('status').filter({ hasText: '40,000원을' })).toBeVisible()
   await expectStatementSummary(page, { gross: '120,000원', paid: '70,000원', remaining: '50,000원' })
 
   const history = page.getByRole('region', { name: '결제 기록' })
@@ -261,12 +266,13 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
   const cancellation = page.getByRole('dialog', { name: '선결제를 취소할까요?' })
   await expect(cancellation).toContainText('결제 계좌 잔액은 복원되고 카드 미결제 금액은 다시 늘어납니다.')
   await cancellation.getByRole('button', { name: '선결제 취소', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('선결제를 취소하고')
+  await expect(page.getByRole('status').filter({ hasText: '선결제를 취소하고' })).toBeVisible()
   await page.goto(statementUrl)
   await expectStatementSummary(page, { gross: '120,000원', paid: '30,000원', remaining: '90,000원' })
   await expect(page.getByRole('region', { name: '결제 기록' }).getByRole('listitem')).toHaveCount(1)
 
-  await page.getByRole('link', { name: '카드 자산으로 돌아가기' }).click()
+  await page.getByRole('link', { name: '카드 대금으로 돌아가기', exact: true }).click()
+  await page.getByRole('link', { name: '카드 자산으로 돌아가기', exact: true }).click()
   await expect(page.getByRole('heading', { name: '거래 내역', exact: true })).toBeVisible()
   await page.getByRole('link', { name: '자산', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
@@ -275,9 +281,9 @@ test('같은 카드 명세에 두 번 부분 선결제하고 음수 계좌·남�
 
   await page.goto(`/?view=calendar&month=${month}`)
   await expect(page.getByRole('heading', { name: '가계부', exact: true })).toBeVisible()
-  await expect(page.getByTitle('-120,000원', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
   await expect(page.getByTitle('+0원', { exact: true })).toHaveCount(0)
-  await expect(page.getByTitle('0원', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('region', { name: '이번 달 요약' }).getByText('수입', { exact: true }).locator('..').getByText('0원', { exact: true })).toBeVisible()
   await expect(page.getByRole('gridcell', { name: /카드 대금 결제 30,000원/ })).toBeVisible()
   await page.getByRole('button', { name: '일별 보기' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: '카드 선결제' })).toHaveCount(1)
@@ -301,7 +307,7 @@ test('완료된 선결제의 출금 계좌를 바꾸면 명세는 유지하고 �
   await page.getByLabel('선결제 금액').fill('60,000')
   await page.getByRole('button', { name: '결제 영향 확인' }).click()
   await page.getByRole('region', { name: '선결제 영향' }).getByRole('button', { name: '선결제 기록' }).click()
-  await expect(page.getByRole('status')).toContainText('60,000원을')
+  await expect(page.getByRole('status').filter({ hasText: '60,000원을' })).toBeVisible()
   await expectStatementSummary(page, { gross: '100,000원', paid: '60,000원', remaining: '40,000원' })
 
   const history = page.getByRole('region', { name: '결제 기록' })
@@ -322,7 +328,7 @@ test('완료된 선결제의 출금 계좌를 바꾸면 명세는 유지하고 �
     expectedVersion: expect.any(Number),
   })
 
-  await expect(page.getByRole('status')).toContainText(`출금 계좌를 ${correctedAccountName}(으)로 변경했어요.`)
+  await expect(page.getByRole('status').filter({ hasText: `출금 계좌를 ${correctedAccountName}(으)로 변경했어요.` })).toBeVisible()
   await expect(paymentRow).toContainText(correctedAccountName)
   await expectStatementSummary(page, { gross: '100,000원', paid: '60,000원', remaining: '40,000원' })
   const balances = await assetBalances(page, [statement.accountAssetId, correctedAccount.assetId])
@@ -361,7 +367,7 @@ test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 
   if (evidence) trackPage(other.page, evidence, 'stale-writer')
   try {
     await other.page.goto(statement.url)
-    await expect(other.page.getByRole('heading', { name: /카드 명세$/ })).toBeVisible()
+    await expect(other.page.getByRole('heading', { name: /카드 결제 내역$/ })).toBeVisible()
     await other.page.getByLabel('선결제 금액').fill('60,000')
     await other.page.getByRole('button', { name: '결제 영향 확인' }).click()
     await expect(other.page.getByRole('region', { name: '선결제 영향' })).toBeVisible()
@@ -369,7 +375,7 @@ test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 
     await page.getByLabel('선결제 금액').fill('70,000')
     await page.getByRole('button', { name: '결제 영향 확인' }).click()
     await page.getByRole('region', { name: '선결제 영향' }).getByRole('button', { name: '선결제 기록' }).click()
-    await expect(page.getByRole('status')).toContainText('70,000원을')
+    await expect(page.getByRole('status').filter({ hasText: '70,000원을' })).toBeVisible()
 
     const staleResponsePromise = other.page.waitForResponse((response) => {
       const url = new URL(response.url())
@@ -383,7 +389,7 @@ test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 
     expect(problem.errorCode).toBe('CARD_STATEMENT_PREVIEW_STALE')
     await attachConflictEvidence(testInfo, staleResponse, problem)
 
-    const conflict = other.page.getByRole('alert').filter({ has: other.page.getByRole('heading', { name: '다른 구성원이 이 명세를 먼저 결제했어요' }) })
+    const conflict = other.page.getByRole('alert').filter({ has: other.page.getByRole('heading', { name: '다른 구성원이 이 결제 내역을 먼저 결제했어요' }) })
     await expect(conflict).toBeVisible()
     await expect(conflict).toContainText('최신 남은 금액 30,000원')
     await expect(other.page.getByLabel('선결제 금액')).toHaveValue('60,000')
@@ -394,7 +400,7 @@ test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 
     await other.page.getByLabel('선결제 금액').fill('20,000')
     await conflict.getByRole('button', { name: '최신값으로 영향 다시 계산' }).click()
     const rebasedPreview = other.page.getByRole('region', { name: '선결제 영향' })
-    await expect(rebasedPreview.getByText('명세 남은 결제', { exact: true }).locator('..')).toContainText('30,000원 → 10,000원')
+    await expect(rebasedPreview.getByText('남은 결제 금액', { exact: true }).locator('..')).toContainText('30,000원 → 10,000원')
     await rebasedPreview.getByRole('button', { name: '선결제 기록' }).click()
     await expect(other.page.getByRole('status')).toContainText('20,000원을')
     await expectStatementSummary(other.page, { gross: '100,000원', paid: '90,000원', remaining: '10,000원' })
@@ -405,17 +411,18 @@ test('두 세션의 오래된 선결제 preview는 거부되고 금액 draft를 
 
 async function createCardPurchase(page: Page, purchase: { amount: string; occurredOn: string; description: string; cardName?: string }) {
   await page.goto('/transactions/new')
-  await expect(page.getByRole('heading', { name: '거래 기록' })).toBeVisible()
-  await page.getByLabel('금액').fill(purchase.amount)
+  await expect(page.getByRole('heading', { name: /^(기록|어떤 거래인가요\?)$/ })).toBeVisible()
   await selectDate(page, '날짜', purchase.occurredOn)
   const category = transactionCategoryTrigger(page)
-  await expect(category).toContainText('식비')
   await selectTransactionCategory(page, '식비')
+  await expect(category).toContainText('식비')
   await selectAsset(page, '결제 자산', purchase.cardName ?? '신용카드')
+  await fillRecordField(page, '금액', purchase.amount)
+  await page.locator('summary').filter({ hasText: '카드 결제' }).click()
   await page.getByLabel('할부 개월').fill('1')
-  await page.getByLabel('내용 (선택)').fill(purchase.description)
+  await fillRecordField(page, '내용 (선택)', purchase.description)
   await page.getByRole('button', { name: '기록 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 기록했어요.' })).toBeVisible()
 }
 
 async function createAutomaticSettlementCard(page: Page, name: string, openedOn: string, autoSettlementEnabled = true) {
@@ -507,10 +514,11 @@ async function openDefaultCardStatement(page: Page) {
   await cardLink.click()
   await page.getByRole('link', { name: '자산 편집' }).click()
   await expect(page.getByRole('heading', { name: '자산 정보 수정' })).toBeVisible()
+  await page.getByRole('link', { name: '카드 결제 내역 보기', exact: true }).click()
   const list = page.getByRole('region', { name: '카드 결제 내역' })
   await expect(list).toBeVisible()
-  await list.getByRole('link', { name: /카드 명세 보기$/ }).first().click()
-  await expect(page.getByRole('heading', { name: /카드 명세$/ })).toBeVisible()
+  await list.getByRole('link', { name: /카드 결제 내역 보기$/ }).first().click()
+  await expect(page.getByRole('heading', { name: /카드 결제 내역$/ })).toBeVisible()
   const url = page.url()
   return {
     url,
@@ -572,7 +580,7 @@ async function assetBalances(page: Page, assetIds: string[]) {
 }
 
 async function expectStatementSummary(page: Page, expected: { gross: string; paid: string; remaining: string }) {
-  const summary = page.getByRole('region', { name: '명세 요약' })
+  const summary = page.getByRole('region', { name: '결제 내역 요약' })
   await expect(summary.getByText('청구 금액', { exact: true }).locator('..')).toContainText(expected.gross)
   await expect(summary.getByText('결제 완료', { exact: true }).locator('..')).toContainText(expected.paid)
   await expect(summary.getByText('남은 결제', { exact: true }).locator('..')).toContainText(expected.remaining)
@@ -709,4 +717,18 @@ async function delayNextRequest(page: Page, url: string) {
     await route.continue()
   }, { times: 1 })
   return release
+}
+
+async function recordCardPayment(page: Page, amount: string) {
+  const section = page.getByRole('region', { name: '카드 대금 결제', exact: true })
+  await expect(section).toBeVisible()
+  await expect(section.getByRole('button', { name: `${amount} 결제 기록`, exact: true, includeHidden: true })).toBeEnabled()
+  const next = section.getByRole('button', { name: '다음', exact: true })
+  if(await next.isVisible()) await next.click()
+  const mobile = section.getByRole('button', { name: '결제 기록', exact: true })
+  const response = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/card-payments'))
+  await (await mobile.isVisible() ? mobile : section.getByRole('button', { name: `${amount} 결제 기록`, exact: true })).click()
+  const result = await response
+  const previous = section.getByRole('button', { name: '이전 결제 단계', exact: true })
+  if(result.ok() && await previous.isVisible()) { await expect(previous).toBeEnabled(); await previous.click() }
 }

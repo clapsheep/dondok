@@ -1,5 +1,6 @@
+import { AssetIcon } from './AssetIcon'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Archive, ArrowLeft, Link2, LoaderCircle, RotateCcw, Save, Trash2, WalletCards, X } from 'lucide-react'
+import { ChevronRight, AlertTriangle, Archive, ArrowLeft, Link2, LoaderCircle, RotateCcw, Save, Trash2, WalletCards, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
@@ -7,6 +8,7 @@ import { MemberPicker } from '../../components/MemberPicker'
 import { Button } from '../../components/ui/Button'
 import { Checkbox } from '../../components/ui/Checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
+import { DatePickerField } from '../../components/ui/DatePickerField'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
 import { SelectField } from '../../components/ui/SelectField'
@@ -15,7 +17,6 @@ import { TextareaField } from '../../components/ui/TextareaField'
 import { ApiError } from '../../lib/api'
 import { hasFieldErrors } from '../../lib/formErrors'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
-import { CardStatementListSection } from '../card-statements/CardStatementListSection'
 import type { LedgerBook } from '../membership/api'
 import { transactionKeys } from '../transactions/api'
 import {
@@ -33,10 +34,6 @@ import {
   type UpdateAssetInput,
 } from './api'
 import { AssetPicker } from './AssetPicker'
-import { CardIssuerAvatar, CardIssuerPicker } from './CardIssuerPicker'
-import { cardIssuer, type CardIssuerCode } from './cardIssuers'
-import { FinancialInstitutionAvatar, FinancialInstitutionPicker } from './FinancialInstitutionPicker'
-import { financialInstitution, financialInstitutionName, financialInstitutionSupportsUsage, financialInstitutionUsageFor, type FinancialInstitutionCode } from './financialInstitutions'
 import { resolveAssetName } from './assetName'
 import { formatPaymentDueDate, formatWon, todayInSeoul } from './format'
 import { blockingLinkKindLabel, removalActionLabel, removalDescription, removalTitle, removalWarnings } from './removal'
@@ -47,8 +44,6 @@ const archivedAtFormat = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium',
 type AssetDraft = {
   assetTypeId: string
   ownerMemberId: string
-  financialInstitutionCode: FinancialInstitutionCode
-  cardIssuerCode: CardIssuerCode
   name: string
   openedOn: string
   memo: string
@@ -70,12 +65,10 @@ type FieldErrors = Partial<Record<keyof AssetDraft, string>>
 type SaveCommand = { kind: 'create'; input: CreateAssetInput; idempotencyKey: string } | { kind: 'update'; input: UpdateAssetInput }
 type PaymentSourceTarget = 'settlementAssetId' | 'debitCardPaymentAssetId' | 'savingsTransferAssetId'
 
-const CREATE_VISIBLE_FIELDS = new Set<keyof AssetDraft>(['assetTypeId', 'financialInstitutionCode', 'cardIssuerCode', 'name', 'openingBalanceWon', 'openedOn'])
+const CREATE_VISIBLE_FIELDS = new Set<keyof AssetDraft>(['assetTypeId', 'name', 'openingBalanceWon', 'openedOn'])
 const EDIT_VISIBLE_FIELDS = new Set<keyof AssetDraft>([
   'assetTypeId',
   'ownerMemberId',
-  'financialInstitutionCode',
-  'cardIssuerCode',
   'name',
   'openedOn',
   'memo',
@@ -113,17 +106,17 @@ export function AssetFormPage({ ledger }: { ledger: LedgerBook }) {
 
   return (
     <AppShell ledgerNavigation mobileHeader={editing && assetId ? { title: '자산 편집', backTo: `/assets/${assetId}`, backLabel: '자산 거래 내역으로' } : undefined}>
-      <section className="py-5 md:py-8">
+      <section className="asset-editor py-5 md:py-8">
         <Button asChild variant="ghost" className={editing ? 'hidden md:inline-flex' : undefined}><Link to={editing && assetId ? `/assets/${assetId}` : '/assets'}><ArrowLeft size={17} />{editing ? '자산 거래 내역' : '자산 목록'}</Link></Button>
         {pending ? (
           <div className="grid min-h-[28rem] place-items-center text-center"><div><LoaderCircle className="mx-auto animate-spin text-forest-600 dark:text-forest-100" size={34} /><p className="mt-3 text-sm text-[var(--muted)]">자산 정보를 준비하는 중…</p></div></div>
         ) : unavailable || !types.data || !assets.data || (editing && !detail.data) ? (
-          <div className="mt-6 border-y border-[var(--line)] py-10 text-center">
+          <div className="mt-6 ui-soft-panel py-10 text-center">
             <p role="alert">자산 정보를 불러오지 못했어요.</p>
             <Button className="mt-4" variant="secondary" onClick={() => { types.refetch(); assets.refetch(); if (editing) detail.refetch() }}>다시 불러오기</Button>
           </div>
         ) : !editing && assets.data.length >= ASSET_LIMIT ? (
-          <div className="mt-6 border-y border-[var(--line)] py-10 text-center"><p className="font-semibold">활성 자산을 50개까지 모두 등록했어요.</p><p className="mt-2 text-sm text-[var(--muted)]">기존 자산을 삭제하거나 사용 종료한 뒤 다시 등록해 주세요.</p><Button asChild className="mt-5" variant="secondary"><Link to="/assets">목록으로 돌아가기</Link></Button></div>
+          <div className="mt-6 ui-soft-panel py-10 text-center"><p className="font-semibold">활성 자산을 50개까지 모두 등록했어요.</p><p className="mt-2 text-sm text-[var(--muted)]">기존 자산을 삭제하거나 사용 종료한 뒤 다시 등록해 주세요.</p><Button asChild className="mt-5" variant="secondary"><Link to="/assets">목록으로 돌아가기</Link></Button></div>
         ) : editing && assetId && detail.data ? (
           <ExistingAssetContent
             key={assetId}
@@ -185,16 +178,13 @@ function ExistingAssetContent({ asset, assetId, assets, backgroundError, ledger,
 
 function AssetDesktopList({ assets, selectedAssetId }: { assets: Asset[]; selectedAssetId: string }) {
   return (
-    <aside className="sticky top-[calc(var(--app-header-height,0px)+1.5rem)] mt-5 hidden max-h-[calc(100dvh-var(--app-header-height,0px)-3rem)] overflow-y-auto border-y border-[var(--line)] py-3 lg:block" aria-label="자산 목록">
+    <aside className="sticky top-[calc(var(--app-header-height,0px)+1.5rem)] mt-5 hidden max-h-[calc(100dvh-var(--app-header-height,0px)-3rem)] overflow-y-auto ui-soft-panel py-3 lg:block" aria-label="자산 목록">
       <div className="flex items-center justify-between gap-2 px-2 py-2"><h2 className="font-semibold">자산 목록</h2><Button asChild variant="ghost" size="icon"><Link to="/assets/new" aria-label="자산 추가"><WalletCards size={18} /></Link></Button></div>
-      <nav className="mt-1 divide-y divide-[var(--line)] border-t border-[var(--line)]">
+      <nav className="mt-3 grid gap-2">
         {assets.map((asset) => {
-          const institution = financialInstitutionUsageFor(asset.systemCode) ? financialInstitution(asset.financialInstitutionCode) : undefined
-          const institutionName = institution ? financialInstitutionName(asset.financialInstitutionCode, financialInstitutionUsageFor(asset.systemCode)) : undefined
-          const issuer = asset.systemCode === 'CREDIT_CARD' || asset.systemCode === 'DEBIT_CARD' ? cardIssuer(asset.cardIssuerCode) : undefined
           return (
-          <Link key={asset.assetId} to={`/assets/${asset.assetId}/edit`} aria-current={asset.assetId === selectedAssetId ? 'page' : undefined} className={`block border-l-2 px-3 py-3 text-sm transition-colors ${asset.assetId === selectedAssetId ? 'border-forest-600 text-forest-800 dark:text-forest-100' : 'border-transparent text-[var(--muted)] hover:text-forest-800 dark:hover:text-white'}`}>
-            <span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-2">{institution ? <FinancialInstitutionAvatar code={asset.financialInstitutionCode} size="sm" /> : issuer ? <CardIssuerAvatar code={asset.cardIssuerCode} size="sm" /> : null}<span className="min-w-0"><span className="block truncate font-semibold">{asset.name}</span><span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{institutionName ?? issuer?.name ? `${institutionName ?? issuer?.name} · ` : ''}{asset.assetTypeName}</span></span></span><span className="shrink-0 font-semibold tabular-nums">{formatWon(asset.currentBalanceWon)}</span></span>
+          <Link key={asset.assetId} to={`/assets/${asset.assetId}/edit`} aria-current={asset.assetId === selectedAssetId ? 'page' : undefined} className={`ui-choice block px-3 py-3 text-sm transition-colors ${asset.assetId === selectedAssetId ? 'bg-[var(--selection-surface)] text-[var(--selection)]' : 'border-transparent text-[var(--muted)] hover:text-forest-800 dark:hover:text-white'}`}>
+            <span className="flex items-center justify-between gap-2"><span className="flex min-w-0 items-center gap-2"><AssetIcon systemCode={asset.systemCode}/><span className="min-w-0"><span className="block truncate font-semibold">{asset.name}</span><span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{asset.assetTypeName}</span></span></span><span className="shrink-0 font-semibold tabular-nums">{formatWon(asset.currentBalanceWon)}</span></span>
           </Link>
           )
         })}
@@ -234,9 +224,6 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   const isCreditCard = selectedType?.behavior === 'CREDIT_CARD'
   const isDebitCard = selectedType?.behavior === 'DEBIT_CARD'
   const isSavings = selectedType?.behavior === 'SAVINGS'
-  const financialInstitutionUsage = financialInstitutionUsageFor(selectedType?.systemCode)
-  const usesFinancialInstitution = Boolean(financialInstitutionUsage)
-  const usesCardIssuer = selectedType?.systemCode === 'CREDIT_CARD' || selectedType?.systemCode === 'DEBIT_CARD'
   const fallbackAssetName = resolveAssetName({
     draftName: '',
     typeName: selectedType?.name ?? '',
@@ -246,7 +233,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   const resolvedAssetName = draft.name.trim() || fallbackAssetName
   const selectedTypeDisplayName = selectedType?.name ?? '선택한 자산 종류'
   const amountLabel = selectedType?.systemCode === 'LOAN' ? '기준일 대출 잔액' : '기준일 잔액'
-  const paymentSourceCandidates = assets.filter((asset) => asset.paymentSourceCapable && asset.assetId !== initialAsset?.assetId)
+  const paymentSourceCandidates = assets.filter((asset) => asset.paymentSourceCapable && asset.ownerMemberId === draft.ownerMemberId && asset.assetId !== initialAsset?.assetId)
   const ownerChanged = Boolean(initialAsset)
     && initialAsset?.ownerMemberId !== draft.ownerMemberId
 
@@ -284,7 +271,9 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
   function update<K extends keyof AssetDraft>(key: K, value: AssetDraft[K]) {
     setRebased(false)
     setFieldErrors((current) => ({ ...current, [key]: undefined }))
-    setDraft((current) => ({ ...current, [key]: value }))
+    setDraft((current) => ({ ...current, [key]: value, ...(key === 'ownerMemberId' ? {
+      settlementAssetId: '', debitCardPaymentAssetId: '', savingsTransferAssetId: '',
+    } : {}) }))
   }
 
   function openPaymentSourceDialog(target: PaymentSourceTarget, trigger: HTMLButtonElement) {
@@ -328,14 +317,9 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
       savingsTransferAssetId: undefined,
       savingsTransferDay: undefined,
     }))
-    const nextType = types.find((type) => type.assetTypeId === assetTypeId)
-    const nextUsage = financialInstitutionUsageFor(nextType?.systemCode)
     setDraft((current) => ({
       ...current,
       assetTypeId,
-      financialInstitutionCode: nextUsage && financialInstitutionSupportsUsage(current.financialInstitutionCode, nextUsage)
-        ? current.financialInstitutionCode
-        : 'OTHER',
     }))
   }
 
@@ -393,21 +377,21 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
     <div className="mx-auto mt-4 max-w-[48rem]">
       <h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '자산 정보 수정' : '자산 등록'}</h1>
       {initialAsset ? (
-        <dl className="mt-4 grid gap-x-5 gap-y-2 border-y border-[var(--line)] py-3 text-sm min-[30rem]:grid-cols-2">
+        <dl className="mt-4 grid gap-x-5 gap-y-2 ui-soft-panel py-3 text-sm min-[30rem]:grid-cols-2">
           <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">현재 장부 잔액</dt><dd className="font-semibold tabular-nums">{formatWon(initialAsset.currentBalanceWon)}</dd></div>
           {initialAsset.behavior === 'CREDIT_CARD' ? <div className="flex justify-between gap-3"><dt className="text-[var(--muted)]">{initialAsset.nearestCardPaymentDueOn ? `${formatPaymentDueDate(initialAsset.nearestCardPaymentDueOn)} 결제` : '결제 예정'}</dt><dd className="font-semibold tabular-nums">{initialAsset.nearestCardPaymentDueOn ? formatWon(initialAsset.nearestCardPaymentDueWon) : '없음'}</dd></div> : null}
         </dl>
       ) : null}
-      {initialAsset?.behavior === 'CREDIT_CARD' ? <CardStatementListSection cardAsset={initialAsset} assets={assets} /> : null}
+      {initialAsset?.behavior === 'CREDIT_CARD' ? <Button asChild className="mt-4" variant="ghost"><Link to={`/assets/${initialAsset.assetId}/card-payment?history=1`}>카드 결제 내역 보기<ChevronRight size={17} /></Link></Button> : null}
 
-      <form className={initialAsset?.behavior === 'CREDIT_CARD' ? 'mt-8 border-t border-[var(--line)] pt-5' : 'mt-4'} onSubmit={submit} noValidate>
+      <form className={initialAsset?.behavior === 'CREDIT_CARD' ? 'mt-8 ui-page-section pt-5' : 'mt-4'} onSubmit={submit} noValidate>
         {initialAsset?.behavior === 'CREDIT_CARD' ? <h2 className="mb-4 text-lg font-semibold">자산 설정</h2> : null}
-        {hasFieldErrors(fieldErrors) ? <p ref={errorSummary} className="mb-4 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요. 표시된 내용을 확인해 주세요.</p> : null}
+        {hasFieldErrors(fieldErrors) ? <p ref={errorSummary} className="mb-4 ui-notice px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요. 표시된 내용을 확인해 주세요.</p> : null}
         <div className="grid gap-4">
           <div>
             <p id="asset-type-label" className="text-sm font-semibold">자산 종류</p>
             <div
-              className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5"
+              className="asset-type-options mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-5"
               role="group"
               aria-labelledby="asset-type-label"
               aria-invalid={Boolean(fieldErrors.assetTypeId)}
@@ -419,7 +403,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
                   <Button
                     key={type.assetTypeId}
                     variant="secondary"
-                    className={`min-h-11 min-w-0 whitespace-normal break-words rounded-md border px-1.5 py-1.5 text-sm leading-tight font-semibold transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 ${selected ? 'border-forest-700 bg-[var(--surface-selected)] text-forest-800 dark:text-forest-100' : 'border-[var(--line)] bg-transparent text-ink-900 hover:border-forest-600 hover:bg-[var(--surface-hover)] dark:text-white'}`}
+                    className="ui-choice min-w-0 whitespace-normal break-words text-sm font-semibold"
                     type="button"
                     aria-pressed={selected}
                     autoFocus={!editing && selected}
@@ -428,15 +412,13 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
                       event.currentTarget.focus()
                     }}
                   >
-                    {type.name}
+                    <AssetIcon systemCode={type.systemCode} size={20} />{type.name}
                   </Button>
                 )
               })}
             </div>
             {fieldErrors.assetTypeId ? <p id="asset-type-error" className="mt-2 text-sm text-red-700 dark:text-[#ff9d93]" role="alert">{fieldErrors.assetTypeId}</p> : null}
           </div>
-          {usesFinancialInstitution ? <FinancialInstitutionPicker usage={financialInstitutionUsage} value={draft.financialInstitutionCode} onChange={(value) => update('financialInstitutionCode', value)} error={fieldErrors.financialInstitutionCode} /> : null}
-          {usesCardIssuer ? <CardIssuerPicker value={draft.cardIssuerCode} onChange={(value) => update('cardIssuerCode', value)} error={fieldErrors.cardIssuerCode} /> : null}
           <Field
             id="assetName"
             name="assetName"
@@ -451,7 +433,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
           {editing ? <>
             <MemberPicker id="ownerMember" label="소유자" members={ledger.members} value={draft.ownerMemberId} onChange={(value) => update('ownerMemberId', value)} error={fieldErrors.ownerMemberId} />
             {ownerChanged ? (
-              <label className="flex min-h-11 cursor-pointer items-start gap-3 border-y border-[var(--line)] px-1 py-3" htmlFor="reassignTransactionsToNewOwner">
+              <label className="flex min-h-11 cursor-pointer items-start gap-3 ui-soft-panel px-1 py-3" htmlFor="reassignTransactionsToNewOwner">
                 <Checkbox id="reassignTransactionsToNewOwner" className="mt-1" checked={draft.reassignTransactionsToNewOwner} onCheckedChange={(checked) => update('reassignTransactionsToNewOwner', checked)} />
                 <span><span className="block text-sm font-semibold">기존 수입·지출의 구성원도 변경</span><span className="mt-1 block text-xs leading-5 text-[var(--muted)]">이 자산에 연결된 기존 기록도 새 소유자의 수입·지출로 바꿔요. 이체는 바꾸지 않아요.</span></span>
               </label>
@@ -459,7 +441,7 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
           </> : null}
           <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
             <MoneyField id="openingBalanceWon" name="openingBalanceWon" label={amountLabel} hint="이 날짜가 시작될 때 실제로 있던 금액이에요. 비우면 0원, 부채는 - 금액으로 등록해요." value={draft.openingBalanceWon} onValueChange={(value) => update('openingBalanceWon', value)} placeholder="0" error={fieldErrors.openingBalanceWon} allowNegative />
-            <Field id="openedOn" name="openedOn" label="잔액 기준일" hint="이 날짜보다 앞선 기록은 통계에는 남지만 현재 잔액을 바꾸지 않아요." value={draft.openedOn} onChange={(event) => update('openedOn', event.target.value)} type="date" error={fieldErrors.openedOn} required />
+            <DatePickerField id="openedOn" label="잔액 기준일" hint="이 날짜보다 앞선 기록은 통계에는 남지만 현재 잔액을 바꾸지 않아요." value={draft.openedOn} onChange={(value) => update('openedOn', value)} error={fieldErrors.openedOn} required />
           </div>
           {editing ? <TextareaField id="assetMemo" name="assetMemo" label="메모 (선택)" value={draft.memo} onChange={(value) => update('memo', value)} maxLength={1000} error={fieldErrors.memo} /> : null}
         </div>
@@ -468,18 +450,18 @@ function AssetEditor({ ledger, types, assets, initialAsset, preferredSystemCode,
         {isDebitCard ? <DebitCardSettingsFields draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} members={ledger.members} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('debitCardPaymentAssetId', trigger)} /> : null}
         {isSavings ? <SavingsSettingsFields draft={draft} update={update} errors={fieldErrors} candidates={paymentSourceCandidates} members={ledger.members} onCreatePaymentSource={(trigger) => openPaymentSourceDialog('savingsTransferAssetId', trigger)} /> : null}
 
-        {!online ? <p className="mt-6 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">인터넷 연결을 확인해 주세요. 입력은 그대로 두었고 연결되면 저장할 수 있어요.</p> : null}
-        {remoteDeleted ? <p className="mt-6 border-l-4 border-red-600 px-4 py-2 text-sm leading-6 text-red-800 dark:text-[#ffd5cf]" role="alert">이 자산을 더 이상 찾을 수 없어요. 작성 중인 입력은 이 화면에 그대로 두었지만 저장할 수는 없습니다. 필요한 내용을 확인한 뒤 자산 목록으로 돌아가 주세요.</p> : remoteArchived ? <p className="mt-6 border-l-4 border-amber-500 px-4 py-2 text-sm leading-6 text-amber-950 dark:text-[#ffe3a3]" role="alert">다른 구성원이 이 자산의 사용을 종료했어요. 작성 중인 입력은 그대로 두었지만 저장할 수 없습니다. 필요한 내용을 확인한 뒤 자산 목록으로 돌아가 주세요.</p> : backgroundError && !conflict ? <p className="mt-6 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">최신값을 확인하지 못했어요. 작성 중인 입력은 그대로 두었습니다.</p> : null}
+        {!online ? <p className="mt-6 ui-notice px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">인터넷 연결을 확인해 주세요. 입력은 그대로 두었고 연결되면 저장할 수 있어요.</p> : null}
+        {remoteDeleted ? <p className="mt-6 ui-notice px-4 py-2 text-sm leading-6 text-red-800 dark:text-[#ffd5cf]" role="alert">이 자산을 더 이상 찾을 수 없어요. 작성 중인 입력은 이 화면에 그대로 두었지만 저장할 수는 없습니다. 필요한 내용을 확인한 뒤 자산 목록으로 돌아가 주세요.</p> : remoteArchived ? <p className="mt-6 ui-notice px-4 py-2 text-sm leading-6 text-amber-950 dark:text-[#ffe3a3]" role="alert">다른 구성원이 이 자산의 사용을 종료했어요. 작성 중인 입력은 그대로 두었지만 저장할 수 없습니다. 필요한 내용을 확인한 뒤 자산 목록으로 돌아가 주세요.</p> : backgroundError && !conflict ? <p className="mt-6 ui-notice px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">최신값을 확인하지 못했어요. 작성 중인 입력은 그대로 두었습니다.</p> : null}
         {conflict ? <ConflictPanel latest={conflictLatest} loading={conflictLoading} loadError={conflictLoadError} draft={draft} draftName={resolvedAssetName} draftTypeName={selectedTypeDisplayName} draftBehavior={selectedType?.behavior} ledger={ledger} assets={assets} onRetry={() => void loadConflictLatest()} onApply={applyDraftToLatest} onReset={useLatestValues} /> : null}
-        {rebased ? <p className="mt-6 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">최신 버전에 내 입력을 적용할 준비가 됐어요. 내용을 확인하고 변경 저장을 눌러 주세요.</p> : null}
-        {saveAsset.error && !conflict ? <p className="mt-6 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{saveAsset.error instanceof Error ? saveAsset.error.message : '자산을 저장하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
-        <div className="mt-5 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4 sm:flex sm:justify-end">
+        {rebased ? <p className="mt-6 ui-notice px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">최신 버전에 내 입력을 적용할 준비가 됐어요. 내용을 확인하고 변경 저장을 눌러 주세요.</p> : null}
+        {saveAsset.error && !conflict ? <p className="mt-6 ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{saveAsset.error instanceof Error ? saveAsset.error.message : '자산을 저장하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
+        <div className="mt-5 grid grid-cols-2 gap-2 ui-page-section pt-4 sm:flex sm:justify-end">
           <Button asChild variant="secondary"><Link to="/assets">취소</Link></Button>
           <Button type="submit" disabled={saveAsset.isPending || !online || remoteDeleted || remoteArchived || conflict}>{saveAsset.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}{editing ? '변경 저장' : '자산 등록'}</Button>
         </div>
       </form>
       {initialAsset ? <AssetRemovalSection asset={initialAsset} disabled={remoteDeleted || remoteArchived || conflict || saveAsset.isPending} /> : null}
-      {paymentSourceTarget ? <PaymentSourceDialog target={paymentSourceTarget} bankType={types.find((type) => type.systemCode === 'BANK')} assets={assets} ownerMemberId={ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? ''} onCreated={selectCreatedPaymentSource} onRequestClose={closePaymentSourceDialog} /> : null}
+      {paymentSourceTarget ? <PaymentSourceDialog target={paymentSourceTarget} bankType={types.find((type) => type.systemCode === 'BANK')} assets={assets} ownerMemberId={draft.ownerMemberId} onCreated={selectCreatedPaymentSource} onRequestClose={closePaymentSourceDialog} /> : null}
     </div>
   )
 }
@@ -499,11 +481,11 @@ function ArchivedAssetDetail({ asset, assets, ledger }: { asset: Asset; assets: 
   })
   return (
     <div className="mx-auto mt-4 max-w-[40rem]">
-      <header className="border-b border-[var(--line)] pb-4">
+      <header className="ui-page-section pb-4">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-brass-500">사용 종료</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-[-.025em]">{asset.name}</h1></div><Button type="button" variant="secondary" disabled={!online || restore.isPending} onClick={() => { restore.reset(); setConfirmRestore(true) }}><RotateCcw size={17} />다시 사용</Button></div>
         <p className="mt-2 text-sm leading-6 text-[var(--muted)]">과거 거래와 잔액을 확인할 수 있어요. 새 거래와 연결 계좌 선택에서는 제외됩니다.</p>
       </header>
-      <dl className="grid gap-x-6 gap-y-4 border-b border-[var(--line)] py-5 text-sm min-[30rem]:grid-cols-2" aria-label="사용 종료 자산 정보">
+      <dl className="grid gap-x-6 gap-y-4 ui-page-section py-5 text-sm min-[30rem]:grid-cols-2" aria-label="사용 종료 자산 정보">
         <ReadOnlyAssetValue label="종류" value={asset.assetTypeName} />
         <ReadOnlyAssetValue label="소유" value={ownerLabel(asset.ownerMemberId, ledger)} />
         <ReadOnlyAssetValue label="잔액 기준일" value={asset.openedOn} />
@@ -514,13 +496,13 @@ function ArchivedAssetDetail({ asset, assets, ledger }: { asset: Asset; assets: 
         {asset.memo ? <ReadOnlyAssetValue label="메모" value={asset.memo} className="min-[30rem]:col-span-2" /> : null}
       </dl>
       <ArchivedAssetSettings asset={asset} assets={assets} />
-      {asset.behavior === 'CREDIT_CARD' ? <CardStatementListSection cardAsset={asset} assets={assets} /> : null}
-      <p className="mt-6 border-l-4 border-forest-600 px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">사용 종료 중에는 읽기 전용이며, 카드는 예약 결제와 새 선결제가 중단돼요. 다시 사용하면 거래 입력과 연결 자산 선택에 나타납니다.</p>
+      {asset.behavior === 'CREDIT_CARD' ? <Button asChild className="mt-4" variant="ghost"><Link to={`/assets/${asset.assetId}/card-payment?history=1`}>카드 결제 내역 보기<ChevronRight size={17} /></Link></Button> : null}
+      <p className="mt-6 ui-notice px-4 py-2 text-sm text-forest-800 dark:text-forest-100" role="status">사용 종료 중에는 읽기 전용이며, 카드는 예약 결제와 새 선결제가 중단돼요. 다시 사용하면 거래 입력과 연결 자산 선택에 나타납니다.</p>
       <Dialog open={confirmRestore} onOpenChange={(open) => { if (!restore.isPending) setConfirmRestore(open) }}>
         <DialogContent className="max-w-md">
           <DialogTitle>이 자산을 다시 사용할까요?</DialogTitle>
           <DialogDescription className="mt-2"><strong className="font-semibold text-current">{asset.name}</strong>을 활성 자산으로 복원해요. 기존 거래와 잔액은 그대로 유지됩니다.</DialogDescription>
-          {restore.error ? <p className="mt-4 border-l-4 border-red-600 px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{restore.error.message}</p> : null}
+          {restore.error ? <p className="mt-4 ui-notice px-3 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{restore.error.message}</p> : null}
           <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" disabled={restore.isPending} onClick={() => setConfirmRestore(false)}>취소</Button><Button type="button" disabled={!online || restore.isPending} onClick={() => restore.mutate()}>{restore.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}다시 사용</Button></div>
         </DialogContent>
       </Dialog>
@@ -530,7 +512,7 @@ function ArchivedAssetDetail({ asset, assets, ledger }: { asset: Asset; assets: 
 
 function ArchivedAssetSettings({ asset, assets }: { asset: Asset; assets: Asset[] }) {
   if (asset.cardSettings) return (
-    <section className="border-b border-[var(--line)] py-5" aria-labelledby="archived-card-settings-title">
+    <section className="ui-page-section py-5" aria-labelledby="archived-card-settings-title">
       <h2 id="archived-card-settings-title" className="text-lg font-semibold">카드 설정</h2>
       <dl className="mt-3 grid gap-x-6 gap-y-4 text-sm min-[30rem]:grid-cols-2">
         <ReadOnlyAssetValue label="정산일" value={`${asset.cardSettings.statementClosingDay}일`} />
@@ -539,8 +521,8 @@ function ArchivedAssetSettings({ asset, assets }: { asset: Asset; assets: Asset[
       </dl>
     </section>
   )
-  if (asset.debitCardSettings) return <section className="border-b border-[var(--line)] py-5" aria-labelledby="archived-debit-settings-title"><h2 id="archived-debit-settings-title" className="text-lg font-semibold">체크카드 설정</h2><dl className="mt-3 text-sm"><ReadOnlyAssetValue label="결제 계좌" value={assetNameForSetting(asset.debitCardSettings.paymentAssetId, assets)} /></dl></section>
-  if (asset.savingsSettings) return <section className="border-b border-[var(--line)] py-5" aria-labelledby="archived-savings-settings-title"><h2 id="archived-savings-settings-title" className="text-lg font-semibold">적금 설정</h2><dl className="mt-3 grid gap-x-6 gap-y-4 text-sm min-[30rem]:grid-cols-2"><ReadOnlyAssetValue label="자동이체 계좌" value={assetNameForSetting(asset.savingsSettings.transferAssetId, assets)} /><ReadOnlyAssetValue label="자동이체일" value={`${asset.savingsSettings.transferDay}일`} /></dl></section>
+  if (asset.debitCardSettings) return <section className="ui-page-section py-5" aria-labelledby="archived-debit-settings-title"><h2 id="archived-debit-settings-title" className="text-lg font-semibold">체크카드 설정</h2><dl className="mt-3 text-sm"><ReadOnlyAssetValue label="결제 계좌" value={assetNameForSetting(asset.debitCardSettings.paymentAssetId, assets)} /></dl></section>
+  if (asset.savingsSettings) return <section className="ui-page-section py-5" aria-labelledby="archived-savings-settings-title"><h2 id="archived-savings-settings-title" className="text-lg font-semibold">적금 설정</h2><dl className="mt-3 grid gap-x-6 gap-y-4 text-sm min-[30rem]:grid-cols-2"><ReadOnlyAssetValue label="자동이체 계좌" value={assetNameForSetting(asset.savingsSettings.transferAssetId, assets)} /><ReadOnlyAssetValue label="자동이체일" value={`${asset.savingsSettings.transferDay}일`} /></dl></section>
   return null
 }
 
@@ -571,7 +553,7 @@ function AssetRemovalSection({ asset, disabled }: { asset: Asset; disabled: bool
   const navigateToBlockingAsset = useCallback((assetId: string) => navigate(`/assets/${assetId}/edit`), [navigate])
 
   return (
-    <section className="mt-10 border-t border-[var(--line)] pt-6" aria-labelledby="asset-removal-title">
+    <section className="mt-10 ui-page-section pt-6" aria-labelledby="asset-removal-title">
       <h2 id="asset-removal-title" className="text-lg font-semibold">자산 삭제 또는 사용 종료</h2>
       <p className="mt-1 text-sm leading-6 text-[var(--muted)]">실제 거래 이력이 없으면 삭제하고, 이력이 있으면 과거 기록을 유지한 채 사용만 종료해요.</p>
       <Button className="mt-3" type="button" variant="ghost" disabled={disabled || !online} onClick={(event) => { trigger.current = event.currentTarget; setOpen(true) }}><Archive size={17} />처리 방법 확인</Button>
@@ -682,7 +664,7 @@ function AssetRemovalDialog({ assetId, onRequestClose, onApplied, onNavigateToAs
       aria-describedby="asset-removal-dialog-description"
     >
       <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6">
-        <header className="flex items-start justify-between gap-4 border-b border-[var(--line)] pb-4">
+        <header className="flex items-start justify-between gap-4 ui-page-section pb-4">
           <div><DialogTitle id="asset-removal-dialog-title">{value ? removalTitle(value.disposition) : '처리 방법 확인'}</DialogTitle><DialogDescription id="asset-removal-dialog-description" className="mt-2">{value ? `‘${value.name}’ 자산의 현재 상태를 기준으로 확인합니다.` : '서버에서 자산의 거래와 연결 상태를 확인하고 있어요.'}</DialogDescription></div>
           <Button className="shrink-0" type="button" size="icon" variant="ghost" aria-label="자산 삭제 또는 사용 종료 창 닫기" disabled={removeAsset.isPending} onClick={requestClose}><X size={19} /></Button>
         </header>
@@ -691,21 +673,21 @@ function AssetRemovalDialog({ assetId, onRequestClose, onApplied, onNavigateToAs
           {preview.isPending ? <p className="inline-flex min-h-24 items-center gap-2 text-sm text-[var(--muted)]" role="status"><LoaderCircle className="animate-spin" size={18} />처리 방법을 확인하는 중…</p> : preview.isError && !value ? <div role="alert"><p>{preview.error instanceof ApiError && preview.error.status === 404 ? '이 자산을 더 이상 찾을 수 없어요.' : '처리 방법을 불러오지 못했어요.'}</p><Button className="mt-3" type="button" variant="secondary" onClick={() => preview.refetch()}><RotateCcw size={17} />다시 확인</Button></div> : value ? (
             <>
               <p className="font-semibold">{removalDescription(value.disposition)}</p>
-              <dl className="mt-4 grid gap-2 border-y border-[var(--line)] py-3 text-sm min-[28rem]:grid-cols-2">
+              <dl className="mt-4 grid gap-2 ui-soft-panel py-3 text-sm min-[28rem]:grid-cols-2">
                 <div><dt className="text-[var(--muted)]">현재 잔액</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(value.currentBalanceWon)}</dd></div>
                 <div><dt className="text-[var(--muted)]">연결된 거래 이력</dt><dd className="mt-1 font-semibold tabular-nums">{value.historyTransactionCount}건</dd></div>
               </dl>
-              {warnings.length ? <ul className="mt-4 grid gap-2 text-sm" aria-label="자산 삭제 또는 사용 종료 주의사항">{warnings.map((warning) => <li className="border-l-4 border-amber-500 px-3 py-1" key={warning}>{warning}</li>)}</ul> : null}
-              {blocked ? <section className="mt-5 border-t border-[var(--line)] pt-4" aria-labelledby="asset-removal-blocked-title"><h3 id="asset-removal-blocked-title" className="font-semibold">먼저 연결을 변경해 주세요</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">아래 자산에서 이 자산을 결제·이체 계좌로 사용 중이에요. 연결 설정을 바꾼 뒤 다시 확인해 주세요.</p><ul className="mt-3 divide-y divide-[var(--line-subtle)] border-y border-[var(--line)]">{value.blockingLinks.map((link) => <li key={`${link.kind}-${link.assetId}`}><Link className="flex min-h-11 items-center gap-2 py-2 text-sm transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100" to={`/assets/${link.assetId}/edit`} onClick={(event) => navigateToAsset(event, link.assetId)}><Link2 className="shrink-0 text-[var(--muted)]" size={17} /><span className="min-w-0"><strong className="block break-words">{link.assetName}</strong><span className="text-xs text-[var(--muted)]">{blockingLinkKindLabel(link.kind)} · 설정 열기</span></span></Link></li>)}</ul></section> : null}
-              {applyIssue === 'PREVIEW_STALE' ? <div ref={applyIssueAlert} className="mt-5 border-l-4 border-amber-500 px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">처리 방법이 달라졌어요</p><p className="mt-1 text-sm leading-6">작성 중인 자산 정보는 그대로 두었습니다. 최신 내용을 확인한 뒤 다시 실행해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 내용 다시 확인</Button></div> : null}
-              {applyIssue === 'NEW_BLOCKER' ? <div ref={applyIssueAlert} className="mt-5 border-l-4 border-amber-500 px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">새 연결이 생겨 자산을 삭제하거나 사용 종료할 수 없어요</p><p className="mt-1 text-sm leading-6">다른 자산이 이 자산을 결제·이체 계좌로 사용하기 시작했어요. 최신 연결을 확인하고 먼저 변경해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 연결 확인</Button></div> : null}
-              {!online ? <p className="mt-5 border-l-4 border-amber-500 px-4 py-2 text-sm" role="status">오프라인 상태예요. 연결되면 처리 방법을 다시 확인하고 실행할 수 있어요.</p> : null}
+              {warnings.length ? <ul className="mt-4 grid gap-2 text-sm" aria-label="자산 삭제 또는 사용 종료 주의사항">{warnings.map((warning) => <li className="ui-notice px-3 py-1" key={warning}>{warning}</li>)}</ul> : null}
+              {blocked ? <section className="mt-5 ui-page-section pt-4" aria-labelledby="asset-removal-blocked-title"><h3 id="asset-removal-blocked-title" className="font-semibold">먼저 연결을 변경해 주세요</h3><p className="mt-1 text-sm leading-6 text-[var(--muted)]">아래 자산에서 이 자산을 결제·이체 계좌로 사용 중이에요. 연결 설정을 바꾼 뒤 다시 확인해 주세요.</p><ul className="mt-3 space-y-3">{value.blockingLinks.map((link) => <li key={`${link.kind}-${link.assetId}`}><Link className="flex min-h-11 items-center gap-2 py-2 text-sm transition-colors hover:text-forest-800 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[var(--ring)] dark:hover:text-forest-100" to={`/assets/${link.assetId}/edit`} onClick={(event) => navigateToAsset(event, link.assetId)}><Link2 className="shrink-0 text-[var(--muted)]" size={17} /><span className="min-w-0"><strong className="block break-words">{link.assetName}</strong><span className="text-xs text-[var(--muted)]">{blockingLinkKindLabel(link.kind)} · 설정 열기</span></span></Link></li>)}</ul></section> : null}
+              {applyIssue === 'PREVIEW_STALE' ? <div ref={applyIssueAlert} className="mt-5 ui-notice px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">처리 방법이 달라졌어요</p><p className="mt-1 text-sm leading-6">작성 중인 자산 정보는 그대로 두었습니다. 최신 내용을 확인한 뒤 다시 실행해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 내용 다시 확인</Button></div> : null}
+              {applyIssue === 'NEW_BLOCKER' ? <div ref={applyIssueAlert} className="mt-5 ui-notice px-4 py-2 outline-none" role="alert" tabIndex={-1}><p className="font-semibold">새 연결이 생겨 자산을 삭제하거나 사용 종료할 수 없어요</p><p className="mt-1 text-sm leading-6">다른 자산이 이 자산을 결제·이체 계좌로 사용하기 시작했어요. 최신 연결을 확인하고 먼저 변경해 주세요.</p><Button className="mt-3" type="button" variant="secondary" disabled={preview.isFetching || !online} onClick={() => void refreshPreview()}>{preview.isFetching ? <LoaderCircle className="animate-spin" size={17} /> : <RotateCcw size={17} />}최신 연결 확인</Button></div> : null}
+              {!online ? <p className="mt-5 ui-notice px-4 py-2 text-sm" role="status">오프라인 상태예요. 연결되면 처리 방법을 다시 확인하고 실행할 수 있어요.</p> : null}
               {applyError ? <p className="mt-5 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{applyError instanceof Error ? applyError.message : '자산을 삭제하거나 사용 종료하지 못했어요.'}</p> : null}
             </>
           ) : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4 sm:flex sm:justify-end">
+        <div className="grid grid-cols-2 gap-2 ui-page-section pt-4 sm:flex sm:justify-end">
           <Button type="button" variant="secondary" disabled={removeAsset.isPending} onClick={requestClose}>취소</Button>
           {value && !blocked && !applyIssue ? <Button type="button" variant={value.disposition === 'DELETE' ? 'destructive' : 'primary'} disabled={removeAsset.isPending || preview.isFetching || !online} onClick={() => removeAsset.mutate(value)}>{removeAsset.isPending ? <LoaderCircle className="animate-spin" size={17} /> : value.disposition === 'DELETE' ? <Trash2 size={17} /> : <Archive size={17} />}{removalActionLabel(value.disposition)}</Button> : null}
         </div>
@@ -725,7 +707,7 @@ function CardSettingsFields({ draft, update, errors, candidates, members, onCrea
   onCreatePaymentSource: (trigger: HTMLButtonElement) => void
 }) {
   return (
-    <fieldset className="mt-5 border-t border-[var(--line)] pt-4" aria-label="신용카드 설정">
+    <fieldset className="mt-5 ui-page-section pt-4" aria-label="신용카드 설정">
       <legend className="pr-3 text-sm font-semibold">카드 설정</legend>
       <div className="mt-3 grid gap-4 md:grid-cols-[minmax(10rem,.65fr)_minmax(0,1.35fr)] md:gap-5">
         <Field id="statementClosingDay" name="statementClosingDay" label="정산일" hint="1일부터 31일까지" value={draft.statementClosingDay} onChange={(event) => update('statementClosingDay', event.target.value)} type="number" min={1} max={31} inputMode="numeric" error={errors.statementClosingDay} required />
@@ -749,7 +731,7 @@ function DebitCardSettingsFields({ draft, update, errors, candidates, members, o
   onCreatePaymentSource: (trigger: HTMLButtonElement) => void
 }) {
   return (
-    <fieldset className="mt-5 border-t border-[var(--line)] pt-4" aria-label="체크카드 설정">
+    <fieldset className="mt-5 ui-page-section pt-4" aria-label="체크카드 설정">
       <legend className="pr-3 text-sm font-semibold">체크카드 설정</legend>
       <div className="mt-3">
         <AssetPicker id="debitCardPaymentAsset" label="결제 계좌" assets={candidates} members={members} value={draft.debitCardPaymentAssetId} onChange={(value) => update('debitCardPaymentAssetId', value)} error={errors.debitCardPaymentAssetId} placeholder="결제 계좌를 선택해 주세요" required />
@@ -768,9 +750,9 @@ function SavingsSettingsFields({ draft, update, errors, candidates, members, onC
   onCreatePaymentSource: (trigger: HTMLButtonElement) => void
 }) {
   return (
-    <fieldset className="mt-5 border-t border-[var(--line)] pt-4" aria-label="적금 설정">
+    <fieldset className="mt-5 ui-page-section pt-4" aria-label="적금 설정">
       <legend className="pr-3 text-sm font-semibold">적금 설정</legend>
-      <div className="mt-3 flex min-h-11 items-start gap-3 border-y border-[var(--line)] px-1 py-3">
+      <div className="mt-3 flex min-h-11 items-start gap-3 ui-soft-panel px-1 py-3">
         <Switch
           id="savingsAutoTransferEnabled"
           className="mt-0.5"
@@ -819,7 +801,6 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
   const [name, setName] = useState('')
   const [openingBalanceWon, setOpeningBalanceWon] = useState('')
   const [openedOn, setOpenedOn] = useState(todayInSeoul())
-  const [financialInstitutionCode, setFinancialInstitutionCode] = useState<FinancialInstitutionCode>('OTHER')
   const [errors, setErrors] = useState<FieldErrors>({})
   const fallbackName = resolveAssetName({ draftName: '', typeName: bankType?.name ?? '계좌', assets })
 
@@ -883,8 +864,8 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
       assetTypeId: bankType.assetTypeId,
       ownershipScope: 'PERSONAL',
       ownerMemberId,
-      financialInstitutionCode,
-      cardIssuerCode: null,
+
+
       name: resolveAssetName({ draftName: name, typeName: bankType.name, assets }),
       openedOn,
       memo: null,
@@ -910,26 +891,26 @@ function PaymentSourceDialog({ target, bankType, assets, ownerMemberId, onCreate
       aria-describedby="payment-source-dialog-description"
     >
       <div className="flex flex-col pb-[max(.75rem,env(safe-area-inset-bottom))] pl-[max(.75rem,env(safe-area-inset-left))] pr-[max(.75rem,env(safe-area-inset-right))] pt-[max(.75rem,env(safe-area-inset-top))] sm:px-6 sm:py-5">
-        <header className="flex items-start justify-between gap-3 border-b border-[var(--line)] pb-2 sm:gap-4 sm:pb-4">
+        <header className="flex items-start justify-between gap-3 ui-page-section pb-2 sm:gap-4 sm:pb-4">
           <div><DialogTitle id="payment-source-dialog-title" className="text-lg tracking-[-.02em] sm:text-xl">계좌 바로 만들기</DialogTitle><DialogDescription id="payment-source-dialog-description" className="mt-1 text-xs leading-5 sm:mt-2 sm:text-sm">{contextDescription}</DialogDescription></div>
           <Button className="shrink-0" type="button" size="icon" variant="ghost" aria-label="계좌 만들기 닫기" disabled={createAccount.isPending} onClick={requestClose}><X size={19} /></Button>
         </header>
 
         <form onSubmit={submit} noValidate>
           <div className="grid gap-2 py-2 sm:gap-4 sm:py-5">
-            <FinancialInstitutionPicker value={financialInstitutionCode} onChange={setFinancialInstitutionCode} compact />
+
             <Field id="paymentSourceName" name="paymentSourceName" label="자산 이름 (선택)" value={name} onChange={(event) => updateName(event.target.value)} maxLength={100} placeholder={fallbackName} error={errors.name} autoFocus />
             <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
               <MoneyField id="paymentSourceOpeningBalance" name="paymentSourceOpeningBalance" label="기준일 잔액" value={openingBalanceWon} onValueChange={updateOpeningBalance} placeholder="0" error={errors.openingBalanceWon} allowNegative />
-              <Field id="paymentSourceOpenedOn" name="paymentSourceOpenedOn" label="잔액 기준일" value={openedOn} onChange={(event) => updateOpenedOn(event.target.value)} type="date" error={errors.openedOn} required />
+              <DatePickerField id="paymentSourceOpenedOn" label="잔액 기준일" value={openedOn} onChange={updateOpenedOn} error={errors.openedOn} required />
             </div>
           </div>
 
-          {!bankType ? <p className="border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">계좌 종류 정보를 찾지 못해 지금은 등록할 수 없어요.</p> : null}
-          {!online ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">오프라인 상태예요. 입력은 유지되며 연결 후 등록할 수 있어요.</p> : null}
-          {createAccount.error ? <p className="border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{createAccount.error instanceof Error ? createAccount.error.message : '계좌를 등록하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
+          {!bankType ? <p className="ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">계좌 종류 정보를 찾지 못해 지금은 등록할 수 없어요.</p> : null}
+          {!online ? <p className="ui-notice px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">오프라인 상태예요. 입력은 유지되며 연결 후 등록할 수 있어요.</p> : null}
+          {createAccount.error ? <p className="ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{createAccount.error instanceof Error ? createAccount.error.message : '계좌를 등록하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
 
-          <div className="grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-2 sm:flex sm:justify-end sm:pt-4">
+          <div className="grid grid-cols-2 gap-2 ui-page-section pt-2 sm:flex sm:justify-end sm:pt-4">
             <Button type="button" variant="secondary" disabled={createAccount.isPending} onClick={requestClose}>취소</Button>
             <Button type="submit" disabled={!online || !bankType || createAccount.isPending}>{createAccount.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}계좌 등록</Button>
           </div>
@@ -994,7 +975,7 @@ function ConflictPanel({ latest, loading, loadError, draft, draftName, draftType
   const visibleRows = changedRows.length ? changedRows : comparisonRows
 
   return (
-    <section className="mt-6 border-l-4 border-amber-500 px-4 py-2 text-amber-950 dark:text-[#ffe3a3]" role="alert" aria-labelledby="asset-conflict-title">
+    <section className="mt-6 ui-notice px-4 py-2 text-amber-950 dark:text-[#ffe3a3]" role="alert" aria-labelledby="asset-conflict-title">
       <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 shrink-0" size={21} /><div><h2 id="asset-conflict-title" className="font-semibold">다른 구성원이 먼저 수정했어요</h2><p className="mt-1 text-sm leading-6">내 입력은 그대로 보관했습니다. 최신값을 확인한 뒤 다시 적용하거나 최신값으로 되돌려 주세요.</p></div></div>
       {loading ? <p className="mt-4 inline-flex items-center gap-2 text-sm" role="status"><LoaderCircle className="animate-spin" size={17} />서버 최신값을 다시 확인하는 중…</p> : loadError ? <div className="mt-4"><p className="text-sm">최신값을 불러오지 못해 아직 다시 저장할 수 없어요.</p><Button className="mt-3" type="button" variant="secondary" onClick={onRetry}>최신값 다시 확인</Button></div> : latest ? <>
         <p className="mt-4 text-xs font-semibold">{changedRows.length ? `달라진 항목 ${changedRows.length}개` : '표시된 항목에서 차이를 찾지 못했어요'}</p>
@@ -1009,7 +990,7 @@ function ConflictPanel({ latest, loading, loadError, draft, draftName, draftType
 }
 
 function ConflictValues({ title, rows }: { title: string; rows: { id: string; label: string; value: string }[] }) {
-  return <div className="border-t border-current/25 pt-3"><h3 className="text-sm font-semibold">{title}</h3><dl className="mt-2 grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 text-xs">{rows.map((row) => <div className="contents" key={row.id}><dt className="opacity-70">{row.label}</dt><dd className="break-words tabular-nums">{row.value}</dd></div>)}</dl></div>
+  return <div className="rounded-xl bg-[var(--surface)] p-4"><h3 className="text-sm font-semibold">{title}</h3><dl className="mt-2 grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 text-xs">{rows.map((row) => <div className="contents" key={row.id}><dt className="opacity-70">{row.label}</dt><dd className="break-words tabular-nums">{row.value}</dd></div>)}</dl></div>
 }
 
 function assetNameForSetting(assetId: string | null | undefined, assets: Asset[]) {
@@ -1033,8 +1014,8 @@ function newDraft(types: AssetType[], ledger: LedgerBook, preferredSystemCode: s
   return {
     assetTypeId: types.find((type) => type.systemCode === preferredSystemCode)?.assetTypeId ?? types[0]?.assetTypeId ?? '',
     ownerMemberId: ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? '',
-    financialInstitutionCode: 'OTHER',
-    cardIssuerCode: 'OTHER',
+
+
     name: '',
     openedOn: todayInSeoul(),
     memo: '',
@@ -1057,8 +1038,8 @@ function draftFromAsset(asset: Asset): AssetDraft {
   return {
     assetTypeId: asset.assetTypeId,
     ownerMemberId: asset.ownerMemberId ?? '',
-    financialInstitutionCode: asset.financialInstitutionCode ?? 'OTHER',
-    cardIssuerCode: asset.cardIssuerCode ?? 'OTHER',
+
+
     name: asset.name,
     openedOn: asset.openedOn,
     memo: asset.memo ?? '',
@@ -1119,12 +1100,6 @@ function parseDraft(draft: AssetDraft, selectedType: AssetType | undefined, reso
       assetTypeId: draft.assetTypeId,
       ownershipScope: 'PERSONAL',
       ownerMemberId: draft.ownerMemberId,
-      financialInstitutionCode: financialInstitutionUsageFor(selectedType?.systemCode)
-        ? draft.financialInstitutionCode
-        : null,
-      cardIssuerCode: selectedType?.systemCode === 'CREDIT_CARD' || selectedType?.systemCode === 'DEBIT_CARD'
-        ? draft.cardIssuerCode
-        : null,
       name,
       openedOn: draft.openedOn,
       memo: memo || null,
@@ -1140,8 +1115,8 @@ function fieldErrorsFromApi(error: ApiError, editing: boolean, input: CreateAsse
   const fieldNames: Partial<Record<string, keyof AssetDraft>> = {
     assetTypeId: 'assetTypeId',
     ownerMemberId: 'ownerMemberId',
-    financialInstitutionCode: 'financialInstitutionCode',
-    cardIssuerCode: 'cardIssuerCode',
+
+
     name: 'name',
     openedOn: 'openedOn',
     memo: 'memo',

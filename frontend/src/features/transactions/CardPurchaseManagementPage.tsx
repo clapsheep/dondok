@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, LoaderCircle, Pencil, RotateCcw, Save, Undo2 } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, CreditCard, LoaderCircle, Pencil, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
@@ -8,13 +8,16 @@ import { Button } from '../../components/ui/Button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
-import { SelectField } from '../../components/ui/SelectField'
-import { TextareaField } from '../../components/ui/TextareaField'
+import { DatePickerField } from '../../components/ui/DatePickerField'
+import { StepIndicator } from '../../components/ui/StepIndicator'
+import { Switch } from '../../components/ui/Switch'
+import { CategoryPicker } from './CategoryPicker'
+import './record-layout.css'
+import './card-record-layout.css'
 import { ApiError } from '../../lib/api'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { assetApi, assetKeys, type Asset } from '../assets/api'
 import { AssetPicker } from '../assets/AssetPicker'
-import { formatDate } from '../assets/format'
 import { categoryApi, categoryKeys, type Category } from '../categories/api'
 import type { LedgerBook } from '../membership/api'
 import {
@@ -30,9 +33,7 @@ import {
 } from './api'
 import { performerPersonLabel, performerQuestionLabel, performerSelectionError } from './performerLabels'
 import { PerformerPicker } from './PerformerPicker'
-import { RepresentativePaymentFields } from './RepresentativePaymentFields'
-import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
-import { TransactionActionLink, TransactionDetailLayout, TransactionDetailRow } from './TransactionDetailLayout'
+import { TransactionActionLink, TransactionDetailLayout, TransactionDetailRow, TransactionHero, TransactionReflection, TransactionAudit } from './TransactionDetailLayout'
 
 export type CardPurchaseAction = 'detail' | 'correction' | 'refund'
 
@@ -123,23 +124,19 @@ function CardPurchaseDetail({ management, returnTo, state }: { management: CardP
   const purchase = management.purchase
   const navigation = state as NavigationState | null
   const status = navigation?.cardPurchaseCorrected
-    ? '카드 구매 기록을 정정했어요. 관련 명세와 계좌 장부도 다시 맞췄어요.'
+    ? '카드 구매 기록을 정정했어요. 관련 결제 내역과 계좌 장부도 다시 맞췄어요.'
     : navigation?.cardPurchaseRefunded
       ? '환불을 기록했어요. 미결제 금액과 원 결제 계좌 장부를 다시 맞췄어요.'
       : undefined
   return (
     <TransactionDetailLayout title="카드 구매 상세" returnTo={returnTo} actions={<div className="flex items-center" aria-label="기록 관리">
       <TransactionActionLink to={`/transactions/${purchase.transactionId}/card-purchase/correction`} returnTo={returnTo} label="기록 정정" icon={Pencil} />
-      {management.refundableAmountWon > 0 ? <TransactionActionLink to={`/transactions/${purchase.transactionId}/card-purchase/refund`} returnTo={returnTo} label="환불 처리" icon={Undo2} /> : null}
     </div>}>
-      <header className="border-b border-[var(--line-subtle)] pb-5">
-        <p className="text-sm font-semibold text-[var(--muted)]">카드 지출</p>
-        <p className="mt-2 text-3xl font-semibold tracking-[-.04em] text-[var(--expense)] tabular-nums md:text-4xl">-{formatWon(purchase.amountWon)}</p>
-        <p className="mt-3 break-words text-base font-semibold">{purchase.description || purchase.category?.name || '카드 구매'}</p>
-      </header>
+      <TransactionHero transaction={purchase} />
       {status ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">{status}</p> : null}
-      <PurchaseSummary management={management} />
-      <BillingDetails management={management} />
+      <div className="td-columns"><PurchaseSummary management={management} /><TransactionReflection transaction={purchase}/></div>
+      <BillingDetails management={management} returnTo={returnTo} />
+      <TransactionAudit transaction={purchase}/>
     </TransactionDetailLayout>
   )
 }
@@ -157,6 +154,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
+  const { step, setStep, goToStep, stepTitle } = useCardRecordSteps(3)
   const purchase = management.purchase
   const [draft, setDraft] = useState<CorrectionDraft>(() => correctionDraft(management))
   const [baseVersion, setBaseVersion] = useState(purchase.version)
@@ -223,6 +221,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
     const parsed = parseCorrection(draft, expectedVersion)
     setErrors(parsed.errors)
     if (!parsed.input) {
+      goToStep(parsed.errors.occurredOn ? 1 : parsed.errors.categoryId || parsed.errors.cardAssetId ? 2 : 3)
       requestAnimationFrame(() => errorSummary.current?.focus())
       return
     }
@@ -257,16 +256,17 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
 
   const cardAssets = assets.filter((asset) => asset.behavior === 'CREDIT_CARD')
   const originalCardMissing = !cardAssets.some((asset) => asset.assetId === draft.cardAssetId)
-  const originalCategoryMissing = !categories.some((category) => category.categoryId === draft.categoryId)
   const pending = previewMutation.isPending || applyMutation.isPending
   return (
     <AppShell ledgerNavigation>
-      <section className="mx-auto max-w-[52rem] py-5 md:py-8">
-        <Button asChild variant="ghost"><Link to={`/transactions/${purchase.transactionId}/card-purchase`} state={{ returnTo }}><ArrowLeft size={17} />카드 구매 상세</Link></Button>
-        <header className="mt-4 border-b border-[var(--line)] pb-4">
+      <section className="transaction-record card-record-editor" data-record-step={step}>
+        <Button asChild className="hidden md:inline-flex" variant="ghost"><Link to={`/transactions/${purchase.transactionId}/card-purchase`} state={{ returnTo }}><ArrowLeft size={17} />카드 구매 상세</Link></Button>
+        <header className="tr-desktop-title mt-4">
           <h1 className="text-2xl font-semibold tracking-[-.025em]">카드 구매 기록 정정</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">입력한 구매 기록이 잘못되었을 때 사용합니다. 실제로 환불받았다면 환불 처리를 이용해 주세요.</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">금액·날짜·분류 등 잘못 입력한 내용을 바로잡아요.</p>
         </header>
+        <CardRecordProgress step={step} total={3} title="카드 구매 기록 정정" goToStep={goToStep} purchaseId={purchase.transactionId} returnTo={returnTo} disabled={pending}/>
+        <h1 ref={stepTitle} tabIndex={-1} className="tr-mobile-title">{step===1?'구매 날짜를 확인해요':step===2?'분류와 카드를 확인해요':'금액과 내용을 바로잡아요'}</h1>
         <CompactPurchaseLine purchase={purchase} />
         {dependenciesPending ? <LoadingLine label="정정에 필요한 자산과 분류를 불러오는 중…" /> : null}
         {dependenciesError ? <InlineError message="자산 또는 분류를 불러오지 못했어요." action="다시 불러오기" onAction={onRetryDependencies} /> : null}
@@ -276,34 +276,28 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
         </ConflictPanel>
         <form className="mt-5" onSubmit={(event) => { event.preventDefault(); requestPreview() }} noValidate>
           {Object.values(errors).some(Boolean) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
-          <div className="grid gap-4 border-b border-[var(--line)] pb-5 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
-            <MoneyField id="correctionAmount" label="금액" value={draft.amountWon} onValueChange={(value) => updateDraft('amountWon', value)} error={errors.amountWon} disabled={pending} required />
-            <Field id="correctionDate" label="구매 날짜" type="date" value={draft.occurredOn} onChange={(event) => updateDraft('occurredOn', event.target.value)} error={errors.occurredOn} disabled={pending} required />
-          </div>
-          <div className="grid items-start gap-4 border-b border-[var(--line)] py-5 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(8rem,.55fr)] lg:gap-5">
-            <SelectField id="correctionCategory" label="분류" value={draft.categoryId} onChange={(value) => updateDraft('categoryId', value)} error={errors.categoryId} disabled={pending}>
-              {originalCategoryMissing && purchase.category ? <option value={purchase.category.categoryId}>{purchase.category.name} (현재 목록에 없음)</option> : null}
-              {categories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.name}</option>)}
-            </SelectField>
+          <section className="tr-panel" data-record-panel="1" onFocusCapture={()=>setStep(1)} aria-label="거래 종류와 날짜">
+            <p className="tr-fixed-type inline-flex items-center gap-2"><CreditCard size={17}/>카드 지출 <span className="text-[var(--muted)]">· 기록 정정</span></p>
+            <DatePickerField id="correctionDate" label="구매 날짜" value={draft.occurredOn} onChange={value=>updateDraft('occurredOn',value)} error={errors.occurredOn} disabled={pending} required/>
+          </section>
+          <section className="tr-panel" data-record-panel="2" onFocusCapture={()=>setStep(2)} aria-label="분류와 카드">
+            <CategoryPicker kind="EXPENSE" categories={categories} value={draft.categoryId} missingName={purchase.category?.name} onChange={value=>updateDraft('categoryId',value)} error={errors.categoryId} disabled={pending || dependenciesPending || dependenciesError} online={online}/>
             <AssetPicker id="correctionCard" label="결제 카드" assets={cardAssets} members={ledger.members} value={draft.cardAssetId} onChange={(value) => updateDraft('cardAssetId', value)} missingSelection={originalCardMissing ? { assetId: draft.cardAssetId, name: management.billingSnapshot.cardAssetName, assetTypeName: '신용카드' } : undefined} error={errors.cardAssetId} disabled={pending} required />
-            <Field id="correctionInstallments" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} inputMode="numeric" value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} error={errors.installmentCount} disabled={pending} required />
-            <div className="md:col-span-2 lg:col-span-3"><PerformerPicker id="correctionPerformer" label={performerQuestionLabel('EXPENSE')} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending} /></div>
-          </div>
-          <TextAreaField id="correctionDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} error={errors.description} disabled={pending} />
-          <RepresentativePaymentFields
-            checked={draft.representativePayment}
-            statisticsAmountWon={draft.statisticsAmountWon}
-            onCheckedChange={(checked) => updateDraft('representativePayment', checked)}
-            onStatisticsAmountChange={(value) => updateDraft('statisticsAmountWon', value)}
-            error={errors.statisticsAmountWon}
-            disabled={pending}
-          />
-          <StatisticsExclusionSwitch type="EXPENSE" checked={draft.excludedFromStatistics} onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)} disabled={pending} />
+          </section>
+          <section className="tr-panel" data-record-panel="3" onFocusCapture={()=>setStep(3)} aria-label="금액과 내용">
+            <MoneyField id="correctionAmount" label="금액" value={draft.amountWon} onValueChange={value=>updateDraft('amountWon',value)} error={errors.amountWon} inputClassName="tr-amount" maxLength={13} disabled={pending} required/>
+            <div className="tr-inline-options"><label><Switch aria-label="대표로 결제했어요" checked={draft.representativePayment} onCheckedChange={value=>updateDraft('representativePayment',value)} disabled={pending}/><span aria-hidden="true">대표 결제</span></label><label><Switch aria-label="지출에 포함하지 않기" checked={draft.excludedFromStatistics} onCheckedChange={value=>updateDraft('excludedFromStatistics',value)} disabled={pending}/><span aria-hidden="true">지출에 포함하지 않기</span></label></div>
+            {draft.representativePayment ? <div className="tr-representative"><MoneyField id="correctionStatisticsAmount" label="지출로 반영할 금액" value={draft.statisticsAmountWon} onValueChange={value=>updateDraft('statisticsAmountWon',value)} inputClassName="tr-amount" maxLength={13} error={errors.statisticsAmountWon} disabled={pending} required hint="0원부터 실제 결제 금액까지 입력할 수 있어요."/></div>:null}
+            <details className="tr-installment" key={errors.installmentCount ? 'invalid' : 'valid'} open={errors.installmentCount ? true : undefined}><summary>카드 결제 · {draft.installmentCount==='1'?'일시불':`${draft.installmentCount}개월 할부`}<ChevronDown size={14}/></summary><Field id="correctionInstallments" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} inputMode="numeric" value={draft.installmentCount} onChange={event=>updateDraft('installmentCount',event.target.value)} error={errors.installmentCount} disabled={pending} required/></details>
+            <CardDescription id="correctionDescription" value={draft.description} onChange={value=>updateDraft('description',value)} error={errors.description} disabled={pending}/>
+          </section>
           <OfflineNotice online={online} />
           <MutationError error={previewMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="변경 영향을 계산하지 못했어요." />
-          <div className="mt-5 flex justify-end">
-            <Button type="submit" size="large" disabled={!online || pending || remoteMissing || Boolean(conflict) || dependenciesPending || dependenciesError}>{previewMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}정정 저장</Button>
-          </div>
+          <footer className="tr-footer">
+            <details className="tr-performer" key={errors.performedByMemberId ? 'invalid' : 'valid'} open={errors.performedByMemberId ? true : undefined}><summary><MemberAvatar displayName={ledger.members.find(member=>member.memberId===draft.performedByMemberId)?.displayName ?? '구성원'} memberId={draft.performedByMemberId} size="xs"/>쓴 사람 · {ledger.members.find(member=>member.memberId===draft.performedByMemberId)?.displayName ?? '선택'}<ChevronDown size={14}/></summary><PerformerPicker id="correctionPerformer" label={performerQuestionLabel('EXPENSE')} members={ledger.members} value={draft.performedByMemberId} onChange={value=>updateDraft('performedByMemberId',value)} error={errors.performedByMemberId} disabled={pending}/></details>
+            <Button type="button" className="tr-next" disabled={pending || remoteMissing || dependenciesPending || dependenciesError} onClick={()=>{const parsed=parseCorrection(draft,baseVersion); const keys:(keyof CorrectionDraft)[]=step===1?['occurredOn']:['categoryId','cardAssetId']; const nextErrors=Object.fromEntries(keys.map(key=>[key,parsed.errors[key]])); setErrors(nextErrors); if(!Object.values(nextErrors).some(Boolean))goToStep(step+1)}}>다음</Button>
+            <Button type="submit" className="tr-save" size="large" disabled={!online || pending || remoteMissing || Boolean(conflict) || dependenciesPending || dependenciesError}>{previewMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}정정 저장</Button>
+          </footer>
         </form>
         <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) closeConfirmation() }}>
           {preview ? (
@@ -314,7 +308,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
               initialFocus={confirmationHeading}
             >
               <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6">
-                <DialogHeader className="border-b border-[var(--line)] pb-4">
+                <DialogHeader className="pb-2">
                   <DialogTitle ref={confirmationHeading} id="correction-confirmation-title" className="outline-none" tabIndex={-1}>정정 내용을 저장할까요?</DialogTitle>
                   <DialogDescription id="correction-confirmation-description">바뀌는 기록과 카드·계좌 장부 영향을 확인해 주세요.</DialogDescription>
                 </DialogHeader>
@@ -323,7 +317,7 @@ function CorrectionPage({ ledger, management, assets, categories, dependenciesPe
                   <AccountReturns returns={preview.accountReturns} unpaidCardReductionWon={preview.unpaidCardReductionWon} />
                   <MutationError error={applyMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="정정을 저장하지 못했어요." />
                 </div>
-                <DialogFooter className="grid grid-cols-2 border-t border-[var(--line)] pt-4 sm:flex">
+                <DialogFooter className="grid grid-cols-2 gap-3 pt-4 sm:flex">
                   <Button type="button" variant="secondary" size="large" disabled={applyMutation.isPending} onClick={closeConfirmation}>취소</Button>
                   <Button type="button" size="large" disabled={!online || applyMutation.isPending} onClick={applyCorrection}>
                     {applyMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}저장
@@ -342,6 +336,7 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
+  const { step, setStep, goToStep, stepTitle } = useCardRecordSteps(2)
   const purchase = management.purchase
   const [draft, setDraft] = useState<RefundDraft>(() => ({
     refundedOn: todayInSeoul(),
@@ -439,6 +434,7 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
     const parsed = parseRefund(draft, expectedVersion, latest.refundableAmountWon, remainingRefundStatisticsAmount(latest))
     setErrors(parsed.errors)
     if (!parsed.input) {
+      goToStep(parsed.errors.refundedOn ? 1 : 2)
       requestAnimationFrame(() => errorSummary.current?.focus())
       return
     }
@@ -467,12 +463,14 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
   const pending = previewMutation.isPending || applyMutation.isPending
   return (
     <AppShell ledgerNavigation>
-      <section className="mx-auto max-w-[52rem] py-5 md:py-8">
-        <Button asChild variant="ghost"><Link to={`/transactions/${purchase.transactionId}/card-purchase`} state={{ returnTo }}><ArrowLeft size={17} />카드 구매 상세</Link></Button>
-        <header className="mt-4 border-b border-[var(--line)] pb-4">
+      <section className="transaction-record card-record-editor refund-record" data-record-step={step}>
+        <Button asChild className="hidden md:inline-flex" variant="ghost"><Link to={`/transactions/${purchase.transactionId}/card-purchase`} state={{ returnTo }}><ArrowLeft size={17} />카드 구매 상세</Link></Button>
+        <header className="tr-desktop-title mt-4">
           <h1 className="text-2xl font-semibold tracking-[-.025em]">카드 구매 환불</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">판매처에서 실제로 환불받은 경우에만 기록합니다. 원 구매 기록은 남고 환불일의 지출에서 차감됩니다.</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">실제로 돌려받은 금액을 기록해요.</p>
         </header>
+        <CardRecordProgress step={step} total={2} title="카드 구매 환불" goToStep={goToStep} purchaseId={purchase.transactionId} returnTo={returnTo} disabled={pending}/>
+        <h1 ref={stepTitle} tabIndex={-1} className="tr-mobile-title">{step===1?'언제 환불받았나요?':'얼마를 환불받았나요?'}</h1>
         <CompactPurchaseLine purchase={purchase} />
         <p className="mt-4 text-sm text-[var(--muted)]">현재 환불 가능 금액 <strong className="text-ink-900 dark:text-white">{formatWon(conflict?.latest.refundableAmountWon ?? management.refundableAmountWon)}</strong></p>
         {remoteMissing ? <RemoteMissing returnTo={returnTo} /> : null}
@@ -481,21 +479,25 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
         </ConflictPanel>
         {management.refundableAmountWon <= 0 ? <NoRefundAvailable returnTo={returnTo} purchaseId={purchase.transactionId} /> : <form className="mt-5" onSubmit={submit} noValidate>
           {Object.values(errors).some(Boolean) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
-          <div className="grid gap-4 border-b border-[var(--line)] pb-5 md:grid-cols-[minmax(0,1.35fr)_minmax(13rem,.65fr)] md:gap-5">
-            <MoneyField id="refundAmount" label="환불 금액" value={draft.amountWon} onValueChange={updateRefundAmount} error={errors.amountWon} disabled={pending} required />
-            <Field id="refundDate" label="환불일" type="date" value={draft.refundedOn} onChange={(event) => updateDraft('refundedOn', event.target.value)} error={errors.refundedOn} disabled={pending} required />
-          </div>
-          {purchase.statisticsAmountWon !== purchase.amountWon ? (
-            <MoneyField id="refundStatisticsAmount" className="mt-5 max-w-sm" label="지출에서 차감할 금액" value={draft.statisticsAmountWon} onValueChange={(value) => updateDraft('statisticsAmountWon', value)} hint={`남은 지출 반영액 ${formatWon(remainingRefundStatisticsAmount(conflict?.latest ?? management))} 이하로 입력해 주세요.`} error={errors.statisticsAmountWon} disabled={pending} required />
-          ) : null}
-          <TextAreaField id="refundDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} error={errors.description} disabled={pending} />
-          <StatisticsExclusionSwitch type="EXPENSE" checked={draft.excludedFromStatistics} onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)} disabled={pending} />
+          <section className="tr-panel" data-record-panel="1" onFocusCapture={()=>setStep(1)} aria-label="환불 날짜">
+            <p className="tr-fixed-type inline-flex items-center gap-2"><Undo2 size={17}/>카드 환불</p>
+            <DatePickerField id="refundDate" label="환불일" value={draft.refundedOn} onChange={value=>updateDraft('refundedOn',value)} error={errors.refundedOn} disabled={pending} required/>
+            <p className="text-xs leading-6 text-[var(--muted)]">판매처에서 실제로 환불받은 날짜를 선택해 주세요. 원 구매 기록은 그대로 남아요.</p>
+          </section>
+          <section className="tr-panel" data-record-panel="2" onFocusCapture={()=>setStep(2)} aria-label="환불 금액과 내용">
+            <MoneyField id="refundAmount" label="환불 금액" value={draft.amountWon} onValueChange={updateRefundAmount} inputClassName="tr-amount" maxLength={13} error={errors.amountWon} disabled={pending} required/>
+            <div className="tr-inline-options"><label><Switch aria-label="지출에 포함하지 않기" checked={draft.excludedFromStatistics} onCheckedChange={value=>updateDraft('excludedFromStatistics',value)} disabled={pending}/><span aria-hidden="true">지출에 포함하지 않기</span></label></div>
+            {purchase.statisticsAmountWon !== purchase.amountWon ? <div className="tr-representative"><MoneyField id="refundStatisticsAmount" inputClassName="tr-amount" maxLength={13} label="지출에서 차감할 금액" value={draft.statisticsAmountWon} onValueChange={value=>updateDraft('statisticsAmountWon',value)} hint={`남은 지출 반영액 ${formatWon(remainingRefundStatisticsAmount(conflict?.latest ?? management))} 이하로 입력해 주세요.`} error={errors.statisticsAmountWon} disabled={pending} required/></div> : null}
+            {draft.excludedFromStatistics ? <p className="text-xs leading-6 text-[var(--muted)]">자산 잔액은 바뀌지만 달력과 통계 합계에는 반영하지 않아요.</p> : null}
+            <CardDescription id="refundDescription" value={draft.description} onChange={value=>updateDraft('description',value)} error={errors.description} disabled={pending}/>
+          </section>
           <OfflineNotice online={online} />
           <MutationError error={previewMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="환불 반영 내용을 계산하지 못했어요." />
           <MutationError error={applyMutation.error} hidden={Boolean(conflict || remoteMissing)} fallback="환불을 기록하지 못했어요." />
-          <div className="mt-5 flex flex-col-reverse gap-3 min-[22.5rem]:flex-row min-[22.5rem]:justify-end">
+          <div className="card-record-actions">
+            <Button type="button" className="tr-next" disabled={pending || remoteMissing} onClick={()=>{if(!draft.refundedOn){setErrors({refundedOn:'환불일을 선택해 주세요.'});return}goToStep(2)}}>다음</Button>
             {applyMutation.isPending ? <Button type="button" variant="secondary" size="large" disabled>취소</Button> : <Button asChild variant="secondary" size="large"><Link to={`/transactions/${purchase.transactionId}/card-purchase`} state={{ returnTo }}>취소</Link></Button>}
-            <Button type="button" size="large" onClick={() => requestPreview()} disabled={!online || pending || remoteMissing || Boolean(conflict) || (conflict?.latest.refundableAmountWon ?? management.refundableAmountWon) <= 0}>{previewMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Check size={18} />}환불 내용 확인</Button>
+            <Button type="button" className="refund-confirm" size="large" onClick={() => requestPreview()} disabled={!online || pending || remoteMissing || Boolean(conflict) || (conflict?.latest.refundableAmountWon ?? management.refundableAmountWon) <= 0}>{previewMutation.isPending ? <LoaderCircle className="animate-spin" size={18} /> : <Check size={18} />}환불 내용 확인</Button>
           </div>
           {preview ? (
             <ImpactPreview ref={previewHeading} title="환불 반영 내용" preview={preview}>
@@ -516,41 +518,35 @@ function RefundPage({ management, returnTo }: { management: CardPurchaseManageme
 
 function PurchaseSummary({ management }: { management: CardPurchaseManagementView }) {
   const purchase = management.purchase
-  return (
-    <section className="border-b border-[var(--line-subtle)]" aria-labelledby="purchase-summary-title">
-      <h2 id="purchase-summary-title" className="sr-only">원 구매</h2>
-      <dl className="divide-y divide-[var(--line-subtle)] text-sm">
-        <TransactionDetailRow label="구매 날짜" value={<time dateTime={purchase.occurredOn}>{formatDate(purchase.occurredOn)}</time>} />
-        {purchase.statisticsAmountWon !== purchase.amountWon ? <TransactionDetailRow label="지출 반영 금액" value={formatWon(purchase.statisticsAmountWon)} /> : null}
-        <TransactionDetailRow label="결제 카드" value={management.billingSnapshot.cardAssetName} />
-        <TransactionDetailRow label="분류" value={purchase.category?.name ?? '분류 없음'} />
-        <TransactionDetailRow label={performerPersonLabel('EXPENSE')} value={purchase.performedBy ? <span className="inline-flex items-center gap-1.5"><MemberAvatar displayName={purchase.performedBy.displayName} memberId={purchase.performedBy.memberId} size="xs" /><span>{purchase.performedBy.displayName}</span></span> : '구성원 없음'} />
-        <TransactionDetailRow label="결제 방식" value={management.billingSnapshot.installmentCount > 1 ? `${management.billingSnapshot.installmentCount}개월 할부` : '일시불'} />
-        <TransactionDetailRow label="달력·통계" value={purchase.excludedFromStatistics ? '집계 제외' : '지출에 포함'} />
-      </dl>
-    </section>
-  )
+  return <section className="td-information" aria-label="거래 정보"><h2>거래 정보</h2><dl>
+    <TransactionDetailRow label="분류" value={purchase.category?.name ?? '분류 없음'}/>
+    <TransactionDetailRow label="결제 자산" value={<><CreditCard size={17} aria-hidden="true"/><Link to={`/assets/${management.billingSnapshot.cardAssetId}`}>{management.billingSnapshot.cardAssetName}</Link></>}/>
+    <TransactionDetailRow label={performerPersonLabel('EXPENSE')} value={purchase.performedBy ? <><MemberAvatar displayName={purchase.performedBy.displayName} memberId={purchase.performedBy.memberId} size="xs"/>{purchase.performedBy.displayName}</> : '구성원 없음'}/>
+    <TransactionDetailRow label="결제 방식" value={management.billingSnapshot.installmentCount > 1 ? `${management.billingSnapshot.installmentCount}개월 할부` : '일시불'}/>
+  </dl></section>
 }
 
-function BillingDetails({ management }: { management: CardPurchaseManagementView }) {
+function BillingDetails({ management, returnTo }: { management: CardPurchaseManagementView; returnTo: string }) {
   return (
-    <section className="py-5" aria-labelledby="billing-details-title">
+    <details className="td-disclosure"><summary><span>카드 청구·환불 내역<small>{management.billingSnapshot.installmentCount > 1 ? `${management.billingSnapshot.installmentCount}개월 할부` : '일시불'} · {management.refunds.length ? `환불 ${management.refunds.length}건` : '환불 기록 없음'}</small></span><ChevronDown size={17} aria-hidden="true"/></summary>
+    <section className="td-disclosure-body" aria-labelledby="billing-details-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="billing-details-title" className="text-lg font-semibold">결제와 환불 내역</h2>
         <span className="text-sm text-[var(--muted)]">환불 가능 {formatWon(management.refundableAmountWon)}</span>
       </div>
+      {management.refundableAmountWon > 0 ? <Button asChild className="my-3" variant="secondary"><Link to={`/transactions/${management.purchase.transactionId}/card-purchase/refund`} state={{ returnTo }}><Undo2 size={15}/>환불 처리</Link></Button> : null}
       <p className="mt-2 text-sm text-[var(--muted)]">매월 {management.billingSnapshot.statementClosingDay}일 정산 · {paymentMonthLabel(management.billingSnapshot.paymentMonthOffset)} {management.billingSnapshot.paymentDay}일 결제</p>
       {management.charges.length ? (
         <section className="mt-4" aria-labelledby="charge-schedule-title">
           <h3 id="charge-schedule-title" className="font-semibold">할부·청구 일정</h3>
-          <ul className="mt-2 divide-y divide-[var(--line)] border-y border-[var(--line)] text-sm">
+          <ul className="mt-2 space-y-2 text-sm">
             {management.charges.map((charge) => <li className="grid gap-1 py-3 min-[30rem]:grid-cols-[minmax(0,1fr)_auto]" key={charge.chargeId}><span>{charge.installmentNo}/{charge.installmentCount}회 · {charge.expectedSettlementOn}</span><span className="font-semibold tabular-nums">환불 가능 {formatWon(charge.refundableAmountWon)}</span></li>)}
           </ul>
         </section>
       ) : null}
-      <div className="mt-4 border-t border-[var(--line)]">
+      <div className="mt-4 space-y-3">
         {management.statements.length ? management.statements.map((statement) => (
-          <section className="border-b border-[var(--line)] py-4" aria-labelledby={`statement-${statement.statementId}`} key={statement.statementId}>
+          <section className="rounded-xl bg-[var(--surface)] p-4" aria-labelledby={`statement-${statement.statementId}`} key={statement.statementId}>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 id={`statement-${statement.statementId}`} className="font-semibold">{statement.dueOn} 결제</h3>
               <span className="text-xs text-[var(--muted)]">{statementStatusLabel(statement.status)}</span>
@@ -561,22 +557,22 @@ function BillingDetails({ management }: { management: CardPurchaseManagementView
               <Value label="남은 결제" value={formatWon(statement.paymentAmountWon)} />
             </dl>
             <Button asChild className="mt-3" variant="ghost"><Link to={`/assets/${management.billingSnapshot.cardAssetId}/card-statements/${statement.statementId}`}>카드 결제 내역 보기</Link></Button>
-            {statement.payments.length ? <ul className="mt-3 divide-y divide-[var(--line)] border-t border-[var(--line)] text-sm">{statement.payments.map((payment) => <li className="grid gap-1 py-3 min-[30rem]:grid-cols-[1fr_auto]" key={payment.paymentId}><span>{payment.settlementAssetName} · {payment.paidOn}</span><span className="font-semibold tabular-nums">결제 {formatWon(payment.amountWon)}{payment.returnedAmountWon > 0 ? ` · 반환 ${formatWon(payment.returnedAmountWon)}` : ''}</span></li>)}</ul> : <p className="mt-3 text-sm text-[var(--muted)]">아직 결제 기록이 없어요.</p>}
+            {statement.payments.length ? <ul className="mt-3 space-y-2 text-sm">{statement.payments.map((payment) => <li className="grid gap-1 py-3 min-[30rem]:grid-cols-[1fr_auto]" key={payment.paymentId}><span>{payment.settlementAssetName} · {payment.paidOn}</span><span className="font-semibold tabular-nums">결제 {formatWon(payment.amountWon)}{payment.returnedAmountWon > 0 ? ` · 반환 ${formatWon(payment.returnedAmountWon)}` : ''}</span></li>)}</ul> : <p className="mt-3 text-sm text-[var(--muted)]">아직 결제 기록이 없어요.</p>}
           </section>
-        )) : <p className="border-b border-[var(--line)] py-5 text-sm text-[var(--muted)]">연결된 카드 명세가 없어요.</p>}
+        )) : <p className="py-5 text-sm text-[var(--muted)]">연결된 카드 결제 내역이 없어요.</p>}
       </div>
       {management.refunds.length ? (
         <section className="mt-6" aria-labelledby="refund-history-title">
           <h3 id="refund-history-title" className="font-semibold">환불 처리 내역</h3>
-          <ul className="mt-2 divide-y divide-[var(--line)] border-y border-[var(--line)]">{management.refunds.map((refund) => <li className="py-3 text-sm" key={refund.refundId}><div className="flex flex-wrap justify-between gap-2"><span>{refund.refundedOn}{refund.excludedFromStatistics ? ' · 집계 제외' : refund.statisticsAmountWon !== refund.amountWon ? ` · 지출 ${formatWon(refund.statisticsAmountWon)} 차감` : ''}</span><strong>+{formatWon(refund.amountWon)}</strong></div><AccountReturns returns={refund.accountReturns} unpaidCardReductionWon={refund.unpaidCardReductionWon} /></li>)}</ul>
+          <ul className="mt-2 space-y-2">{management.refunds.map((refund) => <li className="py-3 text-sm" key={refund.refundId}><div className="flex flex-wrap justify-between gap-2"><span>{refund.refundedOn}{refund.excludedFromStatistics ? ' · 집계 제외' : refund.statisticsAmountWon !== refund.amountWon ? ` · 지출 ${formatWon(refund.statisticsAmountWon)} 차감` : ''}</span><strong>+{formatWon(refund.amountWon)}</strong></div><AccountReturns returns={refund.accountReturns} unpaidCardReductionWon={refund.unpaidCardReductionWon} /></li>)}</ul>
         </section>
       ) : null}
-    </section>
+    </section></details>
   )
 }
 
 function CompactPurchaseLine({ purchase }: { purchase: Transaction }) {
-  return <p className="border-b border-[var(--line)] py-4 text-sm leading-6"><span className="text-[var(--muted)]">원 구매 </span><strong>{purchase.occurredOn} · {formatWon(purchase.amountWon)}</strong><span className="text-[var(--muted)]"> · {purchase.description || purchase.category?.name || '카드 구매'}</span></p>
+  return <p className="card-original-purchase"><span className="text-[var(--muted)]">원 구매 </span><strong>{purchase.occurredOn} · {formatWon(purchase.amountWon)}</strong><span className="text-[var(--muted)]"> · {purchase.description || purchase.category?.name || '카드 구매'}</span></p>
 }
 
 function NoRefundAvailable({ returnTo, purchaseId }: { returnTo: string; purchaseId: string }) {
@@ -585,7 +581,7 @@ function NoRefundAvailable({ returnTo, purchaseId }: { returnTo: string; purchas
 
 const ImpactPreview = function ImpactPreview({ ref, title, preview, children }: { ref: Ref<HTMLHeadingElement>; title: string; preview: CardPurchaseCorrectionPreview | CardPurchaseRefundPreview; children: ReactNode }) {
   return (
-    <section className="mt-6 border-y border-[var(--line)] py-5" aria-labelledby="card-purchase-impact-title">
+    <section className="card-impact-preview" aria-labelledby="card-purchase-impact-title">
       <h2 ref={ref} id="card-purchase-impact-title" className="text-lg font-semibold outline-none" tabIndex={-1}>{title}</h2>
       <p className="mt-2 text-sm leading-6 text-[var(--muted)]">장부에서 카드와 실제 원 결제 계좌 내역을 함께 맞춥니다.</p>
       {children}
@@ -596,10 +592,10 @@ const ImpactPreview = function ImpactPreview({ ref, title, preview, children }: 
 
 function AccountReturns({ returns, unpaidCardReductionWon }: { returns: CardPurchaseAccountReturn[]; unpaidCardReductionWon: number }) {
   return (
-    <dl className="mt-4 border-t border-[var(--line)] text-sm">
-      <div className="grid gap-1 border-b border-[var(--line)] py-3 min-[30rem]:grid-cols-[minmax(0,1fr)_auto]"><dt>미결제 카드 금액 감소</dt><dd className="font-semibold tabular-nums">{formatWon(unpaidCardReductionWon)}</dd></div>
-      {returns.map((accountReturn) => <div className="grid gap-1 border-b border-[var(--line)] py-3 min-[30rem]:grid-cols-[minmax(0,1fr)_auto]" key={`${accountReturn.assetId}-${accountReturn.amountWon}`}><dt>{accountReturn.assetName} 장부 반환</dt><dd className="font-semibold tabular-nums">{formatWon(accountReturn.amountWon)}</dd></div>)}
-      {!returns.length ? <div className="border-b border-[var(--line)] py-3 text-[var(--muted)]">원 결제 계좌에 반환 기록할 금액이 없어요.</div> : null}
+    <dl className="mt-4 rounded-xl bg-[var(--surface)] px-4 py-2 text-sm">
+      <div className="grid gap-1 py-3 min-[30rem]:grid-cols-[minmax(0,1fr)_auto]"><dt>미결제 카드 금액 감소</dt><dd className="font-semibold tabular-nums">{formatWon(unpaidCardReductionWon)}</dd></div>
+      {returns.map((accountReturn) => <div className="grid gap-1 py-3 min-[30rem]:grid-cols-[minmax(0,1fr)_auto]" key={`${accountReturn.assetId}-${accountReturn.amountWon}`}><dt>{accountReturn.assetName} 장부 반환</dt><dd className="font-semibold tabular-nums">{formatWon(accountReturn.amountWon)}</dd></div>)}
+      {!returns.length ? <div className="py-3 text-[var(--muted)]">원 결제 계좌에 반환 기록할 금액이 없어요.</div> : null}
     </dl>
   )
 }
@@ -619,7 +615,7 @@ function CorrectionChanges({ purchase, draft, assets, categories, ledger }: { pu
     ['달력·통계', purchase.excludedFromStatistics ? '집계 제외' : '지출에 포함', draft.excludedFromStatistics ? '집계 제외' : '지출에 포함'],
     ['내용', purchase.description || '내용 없음', draft.description || '내용 없음'],
   ].filter(([, before, after]) => before !== after)
-  return changes.length ? <dl className="mt-4 divide-y divide-[var(--line)] border-y border-[var(--line)] text-sm">{changes.map(([label, before, after]) => <div className="grid gap-1 py-3 min-[30rem]:grid-cols-[7rem_minmax(0,1fr)_auto]" key={label}><dt className="font-semibold">{label}</dt><dd className="min-w-0 break-words text-[var(--muted)]">{before}</dd><dd className="min-w-0 break-words font-semibold min-[30rem]:text-right">→ {after}</dd></div>)}</dl> : <p className="mt-4 text-sm text-[var(--muted)]">입력한 값은 기존 구매 기록과 같아요.</p>
+  return changes.length ? <dl className="mt-4 space-y-2 text-sm">{changes.map(([label, before, after]) => <div className="grid gap-1 py-3 min-[30rem]:grid-cols-[7rem_minmax(0,1fr)_auto]" key={label}><dt className="font-semibold">{label}</dt><dd className="min-w-0 break-words text-[var(--muted)]">{before}</dd><dd className="min-w-0 break-words font-semibold min-[30rem]:text-right">→ {after}</dd></div>)}</dl> : <p className="mt-4 text-sm text-[var(--muted)]">입력한 값은 기존 구매 기록과 같아요.</p>
 }
 
 function ConflictPanel({ conflict, onRecalculate, children }: { conflict?: Conflict; onRecalculate: () => void; children?: ReactNode }) {
@@ -655,8 +651,19 @@ function LoadingLine({ label }: { label: string }) {
   return <p className="mt-5 inline-flex items-center gap-2 text-sm text-[var(--muted)]" role="status"><LoaderCircle className="animate-spin" size={17} />{label}</p>
 }
 
-function TextAreaField({ id, label, value, onChange, error, disabled = false }: { id: string; label: string; value: string; onChange: (value: string) => void; error?: string; disabled?: boolean }) {
-  return <TextareaField id={id} label={label} value={value} onChange={onChange} error={error} disabled={disabled} maxLength={500} className="grid gap-1 border-b border-[var(--line)] py-5" />
+function CardDescription({ id, value, onChange, error, disabled }: { id:string; value:string; onChange:(value:string)=>void; error?:string; disabled:boolean }) {
+  return <div className="relative"><Field id={id} label="내용 (선택)" value={value} onChange={event=>onChange(event.target.value)} maxLength={40} placeholder="짧게 남겨요" error={error} disabled={disabled}/><span className="absolute right-0 top-0 text-[13px] tabular-nums text-[var(--muted)]">{value.length}/40</span>{value.length>40?<p className="mt-2 text-xs text-[var(--muted)]">기존 내용은 보존했어요. 변경할 때는 40자 이내로 입력해 주세요.</p>:null}</div>
+}
+
+function useCardRecordSteps(total:number) {
+  const [step,setStep]=useState(1)
+  const stepTitle=useRef<HTMLHeadingElement>(null)
+  function goToStep(value:number) { setStep(Math.max(1,Math.min(value,total))); requestAnimationFrame(()=>{if(stepTitle.current?.getClientRects().length)stepTitle.current.focus()}) }
+  return {step,setStep,goToStep,stepTitle}
+}
+
+function CardRecordProgress({step,total,title,goToStep,purchaseId,returnTo,disabled}:{step:number;total:number;title:string;goToStep:(step:number)=>void;purchaseId:string;returnTo:string;disabled:boolean}) {
+  return <div className="tr-mobile-progress">{step===1?<Button asChild variant="ghost" size="icon"><Link aria-label="카드 구매 상세" to={`/transactions/${purchaseId}/card-purchase`} state={{returnTo}}><ArrowLeft size={19}/></Link></Button>:<Button type="button" variant="ghost" size="icon" aria-label="이전 단계" disabled={disabled} onClick={()=>goToStep(step-1)}><ArrowLeft size={19}/></Button>}<span>{title}</span><StepIndicator step={step} total={total} label={`${title} 진행`}/></div>
 }
 
 function Value({ label, value, className = '' }: { label: string; value: ReactNode; className?: string }) {

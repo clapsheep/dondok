@@ -52,6 +52,9 @@ management:
 
 dondok:
   public-url: ${DONDOK_PUBLIC_URL:http://localhost:5173}
+  legal:
+    operator-name: ${DONDOK_LEGAL_OPERATOR_NAME:운영자 설정 대기}
+    contact-email: ${DONDOK_LEGAL_CONTACT_EMAIL:문의처 설정 대기}
   mail:
     enabled: ${DONDOK_MAIL_ENABLED:true}
     from: ${DONDOK_MAIL_FROM:no-reply@dondok.local}

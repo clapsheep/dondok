@@ -479,3 +479,69 @@ Playwright 카드 결제 21개가 mobile-chrome·ipad-portrait·desktop-chrome�
 ## D-073 날짜별 공통 거래 목록 검증
 
 cursor page 경계의 같은 날짜 합치기와 기준일 당일 거래 뒤의 잔액 행·역산 금액 보존을 단위 테스트로 검증한다. 모바일·iPad·데스크톱 E2E는 날짜 제목 한 번, 같은 날 거래 건수(기준일 잔액 제외), 반복 날짜·행 구분선 없음, 들여쓰기, 홈 일별·달력 날짜 상세·자산 원장의 공통 목록과 거래 상세 이동을 확인한다.
+
+### 2026-10-09 D-086 공통 표면·자산·통계 검증
+
+- 영향 범위: frontend, UX, QC. API·DB·posting·Query key 계산 계약은 유지한다.
+- 실행: frontend 단위 테스트 106개 통과, ESLint·production build·preview TypeScript 검사 통과. `verify-harness.sh` 통과, `git diff --check` 오류 없음.
+- 실제 production 페이지를 import하는 `design-preview/implemented.html`에서 합성 데이터만 사용해 브라우저 검증했다. 해당 진입점은 mutation과 미정의 API 요청을 차단하고 production build에 포함하지 않는다.
+- 확인: 320/390px 모바일, 768px 세로·1024px 가로 태블릿, 1280px 데스크톱. 소유자·유형 필터, 회전 후 통계 구성원 보존, 카드 잔액과 결제 예정액 구분, 카드 상세 이동, 통계 분류 상세, 빈 통계, 다크 선택색, 달력 월 머리·주말색을 확인했다. 긴 이름과 10조 원대 합계의 320px 가로 넘침도 없다.
+- `e2e/tests/asset-overview.spec.ts`의 폐기된 하단선·카드 두 열 강제 기대를 새 UI 계약으로 갱신하고 `e2e/design-checks/implemented-layout.spec.ts`에 실제 컴포넌트 fixture 검증을 추가했다. 두 파일은 runner 수집까지 확인했다. 이번 실행에서 인증·backend를 포함하는 전체 E2E와 WebKit runner는 실행하지 않았으며, 브라우저 확인은 Codex IAB에서 수행했다.
+
+### 2026-10-09 D-088 거래 입력 페이지 통일
+
+- 영향: frontend 진입 경로·자산 기본값·저장 복귀, UX, QC. DB·API·금액 posting 변경 없음.
+- 검증: 변경 파일 ESLint, 단위 테스트 106개, production build, preview TypeScript, harness 및 diff whitespace 검사 통과.
+- IAB에서 실제 AssetLedgerPage → TransactionFormPage 이동, 카드 자동 선택, 거래 입력 dialog 부재, 미저장 확인·계속 작성·이탈 후 자산 복귀, 모바일 전환 후 draft 유지를 합성 데이터로 확인했다.
+- 기존 거래 관리·날짜 선호 E2E 기대를 페이지 경로로 변경하고 독립 fixture 시나리오를 추가했다. Playwright runner 수집은 통과했으며 서버 연동 저장 E2E 실행은 이번 검증에 포함하지 않았다.
+
+
+## D-087 가입 동의·독립 거래·탈퇴 검증
+
+- 영향 범위: DB/Flyway, OpenAPI, backend, frontend, shared-session/cache, UX, QC.
+- 가입: 필수 동의 누락/false·과거 버전 HTTP 거절, 문서 모달/회전 후 draft 보존, 서버 시각/문서 버전 증거 저장, 실패 시 계정 생성 없음.
+- 탈퇴: 실제 계정·인증·세션·동의 삭제, 원래 회원 ID 삭제, 가계부별 단일 표식, 관련 텍스트 정리, posting·잔액·기존 결제 연결 불변, 탈퇴 후 카드 환불 정상 처리.
+- 권한/경합: 옛 회원·표식으로 신규 입력 불가, 남은 구성원 접근 가능, 다른 기기 세션 무효, 최신 구성 확인 전 412, 동시 탈퇴 두 요청 중 하나만 성공, 마지막 회원은 가계부 삭제.
+- 기존 데이터: V35 WITHDRAWN fixture에서 최신 migration 실행 후 계정 삭제와 잔액 유지 검증.
+- 독립 거래: 다른 명의 이체·카드 연결·출금 계좌 변경 거절. 같은 명의 연결에서 작성자와 사용주체가 달라도 허용. 새 연결과 명의 변경은 가계부 잠금으로 보호.
+- 2026-10-09 최종 backend test/bootJar: 159 tests, 0 failures/errors/skipped. frontend build/lint 및 106 tests 통과. 임시 DB와 Mailpit을 사용했고 운영 데이터는 사용하지 않았다.
+- 초기 브라우저 실패에는 동시 디자인 편집 중 CSS import 누락과 실행 JAR 재빌드로 인한 클래스 로딩 오류가 있었다. 최종 실행은 별도 복사 JAR와 전용 artifact 경로로 격리한다. 제품 결함으로 오인하여 소스 동작을 바꾸지 않았다.
+
+- 최종 브라우저: 가입/인증/동의/탈퇴/독립 이체 6개 시나리오 × 모바일 Chrome·iPad WebKit·데스크톱 Chrome = 18개 조합 통과. 마지막 모바일 실패는 새 기록 화면의 ‘다음’ 단계 진입을 테스트가 생략한 것이며 실제 사용자 순서로 수정 후 3개 화면의 이체 검증이 모두 통과했다. 최종 artifact는 `e2e/qc-artifacts/consent-final`, `e2e/qc-artifacts/consent-transfer-final`에 보존한다.
+- 하네스와 Gitleaks 통과. OpenAPI YAML 파싱 및 로컬 참조 검증을 수행한다.
+
+### 2026-10-09 D-089 기록 폼 복원·인증 시안 검증
+
+- 실제 폼의 금액 우선·각진 종류 버튼·textarea·모바일 단계 부재를 IAB DOM에서 재현하고 승인된 기록 시안과 비교했다. 수정 후 실제 production component fixture에서 종류/날짜→분류/자산→금액/내용 3단계, 인라인 토글, 접힌 할부/주체를 확인했다.
+- 390px↔1280px 전환에서 금액·대표 반영액·내용·단계 유지, 두 금액의 동일 28px 왼쪽 정렬, 11자리 입력 거절 및 40자 내용 제한을 확인했다. 별도 320px에서 3단계와 가로 넘침 없음, 다크 선택 `#DBEE8B`를 확인했다.
+- 인증 시안은 랜딩·로그인·가입 단계 전환, 모바일 다크 모드, 동의 기본 미선택, 문서 overlay의 Escape 닫기와 320px 넘침 없음을 확인했다. 실제 인증/메일 요청은 하지 않는다.
+- frontend 106개 단위 테스트·전체 lint·production build·preview TypeScript·harness 통과. design-checks 10개 시나리오는 runner 수집 확인. 모바일 단계 회귀 시나리오를 추가하고 이전 금액 우선 WebKit 기대를 갱신했다. 이번 기록 복원 검증에서 전체 인증 backend E2E·Playwright 브라우저 runner는 실행하지 않았으며 브라우저 흐름은 IAB에서 확인했다.
+
+### 2026-10-09 D-090 시각 강조 조정
+
+영향은 frontend/UX에 한정한다. IAB 실제 컴포넌트 fixture에서 라이트/다크 순위 막대가 각각 단일 회녹색이며 요약의 수입·지출·총계가 같은 기본 글자색임을 확인했다. 모바일 기록 1→2단계 전환 시 인디케이터와 접근 가능한 현재 단계 설명이 갱신되며 숫자 분수 표시가 사라진 것을 확인했다. frontend 106개 단위 테스트, 전체 lint/build, preview TypeScript가 통과했다. 금융/API 변경은 없고 서버 연동 E2E는 이번 시각 변경 검증에 포함하지 않았다.
+
+### 2026-10-09 금융기관 로고 여백
+
+공통 은행·카드사 avatar의 흰 배경/테두리/그림자와 4px 이미지 패딩을 제거했다. `implemented.html?logos=1` 합성 fixture로 국민·신한·하나·토스 로고를 검토했다. IAB 데스크톱 다크·390px 라이트에서 이미지 패딩 0, 배경 투명, 자산 목록 40px, 가로 넘침 없음을 확인했다. 전체 frontend lint/build 및 preview TypeScript 통과. 금융 동작 변경이 없는 시각 조정으로 서버 연동 E2E는 실행하지 않았다.
+
+### 2026-10-09 로고 크기·카카오 원본·카드사 누락 보완
+
+목록 로고를 40px에서 32px로 줄이고 카카오의 치수선 포함 도판을 공식 명암별 favicon으로 교체했다. 삼성·현대·롯데·BC·NH농협을 추가해 기타를 제외한 9개 카드사 모두 로컬 로고가 있다. IAB `/logos`에서 9개 이미지 로딩과 32px 크기, 카카오 light/dark 전환을 확인했다. 로고 누락 검사 포함 frontend 107개 테스트, lint/build, preview TypeScript 통과. 금융 계약 변경 없음.
+
+### 2026-10-09 저축은행 카탈로그·작은 기관 로고
+
+- frontend 테스트 108개, lint, production build, preview TypeScript 검사 통과.
+- 별도 임시 PostgreSQL에서 Flyway V38 적용 후 backend `test bootJar` 통과: 160개, 실패/오류/skip 0. 79개 저축은행 코드 전체를 계좌·적금·대출로 분산 생성하여 DB 저장 코드와 원래 잔액을 확인했다. 임시 DB 컨테이너는 검증 후 제거했다.
+- 공식 목록 snapshot 79개와 frontend/Java/OpenAPI/V38 whitelist 133개 코드 일치 검사. 기존 포괄 SAVINGS_BANK 유지.
+- CUA 실제 컴포넌트 검수: desktop에서 소문자 sbi 검색→SBI 선택, 390px 전환 후 선택 유지, 모바일 페퍼 검색→선택. 초기 모바일 popup이 collision padding 16px + 100vw 너비로 오른쪽 16px 넘침을 재현했고 이 선택기의 너비를 viewport−32px로 제한한 뒤 left 16/right 374, document width 390을 확인했다.
+- 자산 목록 desktop/mobile 로고 20px, 이름과 간격 8px 확인. 하나의 무문자 심벌과 카카오 light/dark 원본 확인. 검증 데이터 화면 캡처를 전달했다.
+- harness 및 git diff --check 통과. 수집 과정의 임시 외부 HTML에서 scanner가 발견한 외부 토큰 포함 파일 4개는 재사용하지 않고 제거했으며 재검사 no leaks.
+- 실행 중인 다른 작업의 서버는 재시작하지 않았다. 새 기관 저장 기능의 실행 환경 반영에는 V38을 포함한 backend 업데이트가 필요하다.
+
+### 2026-10-09 저축은행 79개 공식 로고
+
+- 공식 홈페이지의 이미지 후보와 중앙회 공개 저축은행 찾기 로고를 대조해 79개 기관 모두 연결했다. 공통 SB 파비콘은 고유 기관 로고로 채택하지 않았다. 심벌 26개, 가로형 53개이며 URL/확인일/SHA-256을 `docs/design/savings-bank-logos.json`에 보존했다.
+- frontend 테스트 109개, lint, production build, preview TypeScript, harness, diff whitespace 검사 통과. 신규 검사에서 79개 코드별 로컬 파일 존재·SHA-256·HTML 오응답·SVG executable 요소 제외를 검증했다.
+- CUA 실제 FinancialInstitutionAvatar 79개 이미지 로딩 확인. 390px 모바일에서 가로 넘침·깨진 이미지 0, light/dark 표시를 확인했다. 투명 가로형 45개의 다크 모드 대비를 CSS 단색으로 보완하고 불투명 원본과 심벌은 원본 표시를 유지한다.
+- 실제 컴포넌트 확인 경로: `design-preview/implemented.html#/savings-logos`. 이번 변경은 정적 표시만 해당하며 backend/DB/API를 수정하지 않았다.

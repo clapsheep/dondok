@@ -1,9 +1,8 @@
 package com.dondok.asset.api;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.dondok.asset.application.AssetService;
 import com.dondok.asset.domain.AssetOwnershipScope;
-import com.dondok.asset.domain.CardIssuerCode;
-import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.auth.application.DondokPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -117,10 +116,6 @@ public class AssetController {
 
         UUID ownerMemberId();
 
-        FinancialInstitutionCode financialInstitutionCode();
-
-        CardIssuerCode cardIssuerCode();
-
         String name();
 
         LocalDate openedOn();
@@ -137,7 +132,7 @@ public class AssetController {
 
         default AssetService.AssetCommand toCommand() {
             return new AssetService.AssetCommand(
-                    assetTypeId(), ownershipScope(), ownerMemberId(), financialInstitutionCode(), cardIssuerCode(), name(),
+                    assetTypeId(), ownershipScope(), ownerMemberId(), name(),
                     openedOn(), memo(), openingBalanceWon(),
                     cardSettings() == null ? null : cardSettings().toCommand(),
                     debitCardSettings() == null ? null : debitCardSettings().toCommand(),
@@ -148,12 +143,11 @@ public class AssetController {
     public record RestoreAssetRequest(@Min(0) long expectedVersion) {
     }
 
+    @JsonIgnoreProperties({"financialInstitutionCode", "cardIssuerCode"})
     public record CreateAssetRequest(
             @NotNull UUID assetTypeId,
             @NotNull AssetOwnershipScope ownershipScope,
             @NotNull UUID ownerMemberId,
-            FinancialInstitutionCode financialInstitutionCode,
-            CardIssuerCode cardIssuerCode,
             @NotBlank @Size(max = 100) String name,
             @NotNull LocalDate openedOn,
             @Size(max = 1000) String memo,
@@ -164,12 +158,11 @@ public class AssetController {
     ) implements AssetPayload {
     }
 
+    @JsonIgnoreProperties({"financialInstitutionCode", "cardIssuerCode"})
     public record UpdateAssetRequest(
             @NotNull UUID assetTypeId,
             @NotNull AssetOwnershipScope ownershipScope,
             @NotNull UUID ownerMemberId,
-            FinancialInstitutionCode financialInstitutionCode,
-            CardIssuerCode cardIssuerCode,
             @NotBlank @Size(max = 100) String name,
             @NotNull LocalDate openedOn,
             @Size(max = 1000) String memo,

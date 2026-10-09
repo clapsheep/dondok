@@ -374,6 +374,7 @@ test('분류 가로 막대는 큰 금액부터 이름과 금액을 바로 읽고
     await expect(bars).toHaveCount(6)
   }
   await page.getByRole('link', { name: '설정', exact: true }).click()
+  await page.getByRole('button', { name: '화면', exact: true }).click()
   await page.getByRole('radiogroup', { name: '화면 모드' }).locator('label').filter({ hasText: '다크' }).click()
   await page.goto(`/statistics?month=${month}&direction=income`)
   await expect(page.locator('html')).toHaveClass(/dark/)
@@ -538,6 +539,7 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
       debitCardSettings: null,
       savingsSettings: null,
     }, true)
+    const transferAccount = await mutate<Asset>('/api/assets', { assetTypeId: bankType.assetTypeId, ownershipScope: 'PERSONAL', ownerMemberId: owner.memberId, name: '통계 이체 계좌', openedOn: `${currentMonth}-01`, openingBalanceWon: 0 }, true)
     const card = await mutate<Asset>('/api/assets', {
       assetTypeId: creditCardType.assetTypeId,
       ownershipScope: 'PERSONAL',
@@ -567,7 +569,7 @@ async function seedStatisticsLedger(page: Page): Promise<Omit<StatisticsSeed, 'o
     await createTransaction({ type: 'EXPENSE', occurredOn: dates.transportOtherAsset, amountWon: 999_999, categoryId: transport.categoryId, assetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '사용자 선택 통계 제외 지출', excludedFromStatistics: true }, false)
     const currentCardPurchase = await createTransaction({ type: 'EXPENSE', occurredOn: dates.currentCardPurchase, amountWon: 120_000, categoryId: food.categoryId, assetId: card.assetId, performedByMemberId: other.memberId, description: '통계 포함 카드 구매', installmentCount: 1 }, true)
     const previousCardPurchase = await createTransaction({ type: 'EXPENSE', occurredOn: dates.previousCardPurchase, amountWon: 400_000, categoryId: food.categoryId, assetId: card.assetId, performedByMemberId: other.memberId, description: '지난달 카드 구매', installmentCount: 1 }, true)
-    await createTransaction({ type: 'TRANSFER', occurredOn: dates.transfer, amountWon: 50_000, sourceAssetId: account.assetId, destinationAssetId: otherAsset.assetId, performedByMemberId: other.memberId, description: '통계 제외 일반 이체' }, false)
+    await createTransaction({ type: 'TRANSFER', occurredOn: dates.transfer, amountWon: 50_000, sourceAssetId: account.assetId, destinationAssetId: transferAccount.assetId, performedByMemberId: other.memberId, description: '통계 제외 일반 이체' }, false)
 
     const refundInput = { refundedOn: dates.refund, amountWon: 400_000, expectedVersion: previousCardPurchase.version, description: '이번달 실제 환불' }
     const refundPreview = await mutate<{ previewToken: string }>(`/api/transactions/${previousCardPurchase.transactionId}/card-purchase-refunds/preview`, refundInput)
@@ -616,7 +618,7 @@ async function selectStatisticsMember(radio: Locator) {
 }
 
 async function expectSummaryValue(summary: Locator, label: string, value: string) {
-  const item = summary.getByText(label, { exact: true }).locator('..')
+  const item = summary.getByRole('term', { includeHidden: true }).filter({ hasText: label === '지출' ? /^이번 달 지출$/ : new RegExp(`^${label}(?:\\s|$)`) }).locator('..')
   await expect(item.getByText(value, { exact: true })).toBeVisible()
 }
 
@@ -659,8 +661,8 @@ async function expectResponsiveStatisticsState(page: Page, focused: Locator, mon
   for (const viewport of RESPONSIVE_VIEWPORTS) {
     await page.setViewportSize(viewport)
     const monthHeading = page.locator('[data-month-title]')
-    await expect(monthHeading, `${viewport.label} 홈과 같은 월 제목 크기`).toHaveCSS('font-size', '14px')
-    await expect(monthHeading, `${viewport.label} 홈과 같은 월 제목 굵기`).toHaveCSS('font-weight', '500')
+    await expect(monthHeading, `${viewport.label} 통계 월 제목 크기`).toHaveCSS('font-size', '16px')
+    await expect(monthHeading, `${viewport.label} 통계 월 제목 굵기`).toHaveCSS('font-weight', '550')
     await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(month)
     await expect.poll(() => new URL(page.url()).searchParams.get('direction')).toBe('income')
     await expect(focused, `${viewport.label} 분류 방향 focus`).toBeFocused()

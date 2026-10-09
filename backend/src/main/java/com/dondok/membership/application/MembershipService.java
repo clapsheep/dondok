@@ -2,6 +2,7 @@ package com.dondok.membership.application;
 
 import com.dondok.auth.application.PublicUrlProperties;
 import com.dondok.auth.infrastructure.persistence.AppUserEntity;
+import com.dondok.auth.domain.UserStatus;
 import com.dondok.auth.infrastructure.persistence.AppUserRepository;
 import com.dondok.asset.application.AssetTypeBootstrapService;
 import com.dondok.asset.application.DefaultAssetBootstrapService;
@@ -218,9 +219,11 @@ public class MembershipService {
         List<LedgerMemberEntity> ledgerMembers = members
                 .findAllByBookIdOrderByJoinedAtAscIdAsc(book.getId());
         Map<UUID, AppUserEntity> usersById = users.findAllById(
-                        ledgerMembers.stream().map(LedgerMemberEntity::getUserId).toList()).stream()
+                        ledgerMembers.stream().map(LedgerMemberEntity::getUserId).filter(java.util.Objects::nonNull).toList()).stream()
                 .collect(Collectors.toMap(AppUserEntity::getId, Function.identity()));
         List<String> memberNames = ledgerMembers.stream()
+                .filter(member -> member.getUserId() != null)
+                .filter(member -> requiredUser(usersById, member.getUserId()).getStatus() != UserStatus.WITHDRAWN)
                 .map(member -> requiredUser(usersById, member.getUserId()).getDisplayName())
                 .toList();
         return new InvitationPreview(memberNames, memberNames.size(), invitation.getExpiresAt());
@@ -311,16 +314,19 @@ public class MembershipService {
         List<LedgerMemberEntity> ledgerMembers = members
                 .findAllByBookIdOrderByJoinedAtAscIdAsc(book.getId());
         Map<UUID, AppUserEntity> usersById = users.findAllById(
-                        ledgerMembers.stream().map(LedgerMemberEntity::getUserId).toList()).stream()
+                        ledgerMembers.stream().map(LedgerMemberEntity::getUserId).filter(java.util.Objects::nonNull).toList()).stream()
                 .collect(Collectors.toMap(AppUserEntity::getId, Function.identity()));
         List<LedgerMemberView> memberViews = ledgerMembers.stream()
                 .map(member -> {
+                    if (member.getUserId() == null) return new LedgerMemberView(
+                            member.getId(), "탈퇴한 구성원", member.getJoinedAt(), false, true);
                     AppUserEntity user = requiredUser(usersById, member.getUserId());
                     return new LedgerMemberView(
                             member.getId(),
                             user.getDisplayName(),
                             member.getJoinedAt(),
-                            member.getUserId().equals(currentUserId));
+                            member.getUserId().equals(currentUserId),
+                            user.getStatus() == UserStatus.WITHDRAWN);
                 })
                 .sorted(Comparator.comparing(LedgerMemberView::joinedAt).thenComparing(LedgerMemberView::memberId))
                 .toList();
@@ -352,7 +358,7 @@ public class MembershipService {
 
     private AppUserEntity lockUser(UUID userId) {
         AppUserEntity user = entityManager.find(AppUserEntity.class, userId, LockModeType.PESSIMISTIC_WRITE);
-        if (user == null) {
+        if (user == null || user.getStatus() != UserStatus.ACTIVE) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "USER_NOT_FOUND", "로그인 사용자를 찾을 수 없습니다.");
         }
         return user;
@@ -462,7 +468,7 @@ public class MembershipService {
     public record LedgerBookView(UUID ledgerId, long version, List<LedgerMemberView> members) {
     }
 
-    public record LedgerMemberView(UUID memberId, String displayName, Instant joinedAt, boolean currentUser) {
+    public record LedgerMemberView(UUID memberId, String displayName, Instant joinedAt, boolean currentUser, boolean withdrawn) {
     }
 
     public record InvitationSummary(

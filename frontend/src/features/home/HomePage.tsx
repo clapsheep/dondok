@@ -1,12 +1,15 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, SquarePen, UsersRound } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, List, LoaderCircle, Plus, RefreshCw, SquarePen, UsersRound } from 'lucide-react'
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../components/ui/Dialog'
-import { RadioGroup, RadioGroupItem } from '../../components/ui/RadioGroup'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
+import { useOnlineStatus } from '../../lib/useOnlineStatus'
+import './home-layout.css'
+import { Radio as RadioPrimitive } from '@base-ui/react/radio'
+import { RadioGroup } from '../../components/ui/RadioGroup'
 import { addMonths, currentMonthInSeoul, monthBounds, monthTitle, todayInSeoul } from '../../lib/month'
 import {
   membershipApi,
@@ -17,7 +20,7 @@ import {
 } from '../membership/api'
 import type { LedgerNavigationState } from '../membership/ledgerLifecycle'
 import { transactionApi, transactionKeys, type CalendarDay, type Transaction, type TransactionFilters } from '../transactions/api'
-import { transactionRowAccessibleName, transactionRowAmountPrefix, transactionRowDestination, transactionRowTone, transactionTypeLabel } from '../transactions/transactionRow'
+import { transactionRowAccessibleName, transactionRowAmountPrefix, transactionRowDestination, transactionTypeLabel } from '../transactions/transactionRow'
 import { calendarAmount, nextCalendarDate, selectedDateForMonth, shiftCalendarDate } from './calendarPresentation'
 import { TransactionList, TransactionListRow } from '../transactions/TransactionDateGroup'
 import { TransactionHistory } from '../transactions/TransactionHistory'
@@ -49,13 +52,14 @@ function LedgerSetup() {
     <section className="mx-auto max-w-2xl py-8 md:py-14">
       <div>
         <p className="text-sm font-semibold text-brass-500">첫 시작</p>
+        <Link to="/settings?section=account" className="mb-3 inline-flex min-h-11 items-center text-sm text-[var(--muted)] underline underline-offset-4">내 계정 설정</Link>
         <h1 className="mt-2 text-3xl font-semibold tracking-[-.035em] md:text-4xl">초대 코드를 받으셨나요?</h1>
         <p className="mt-3 leading-7 text-[var(--muted)]">받지 않았다면 새 가계부를 바로 시작하고, 받았다면 기존 가계부에 참여해요.</p>
         {ledgerLifecycleStatus(location.state)}
       </div>
 
-      <div className="mt-8 divide-y divide-[var(--line)] border-y border-[var(--line)]">
-        <div className="grid gap-4 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="mt-8 grid gap-4">
+        <div className="ui-soft-panel grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div>
             <h2 className="font-semibold">초대 코드가 없어요</h2>
             <p className="mt-1 text-sm leading-6 text-[var(--muted)]">별도 설정 없이 내 가계부를 만들고 바로 기록을 시작해요.</p>
@@ -73,7 +77,7 @@ function LedgerSetup() {
           {createLedger.error ? <div className="sm:col-span-2"><ErrorNotice error={createLedger.error} /></div> : null}
         </div>
 
-        <div className="grid gap-4 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div className="ui-soft-panel grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div>
             <h2 className="font-semibold">6자리 초대 코드를 받았어요</h2>
             <p className="mt-1 text-sm leading-6 text-[var(--muted)]">현재 구성원을 확인한 뒤 기존 가계부에 참여할 수 있어요.</p>
@@ -103,7 +107,9 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
   const performedByMemberId = selectedMemberKey === 'all' ? undefined : selectedMemberKey
   const month = /^\d{4}-\d{2}$/.test(params.get('month') ?? '') ? params.get('month')! : currentMonthInSeoul()
   const view = params.get('view') === 'daily' ? 'daily' : 'calendar'
-  const dayDetailOpen = view === 'calendar' && params.get('detail') === 'day'
+  const online = useOnlineStatus()
+  const calendarRef = useRef<HTMLDivElement>(null)
+  const dayRef = useRef<HTMLElement>(null)
   const bounds = monthBounds(month)
   const filters = useMemo(() => ({ ...readTransactionFilters(params), performedByMemberId }), [params, performedByMemberId])
   const customRange = Boolean(filters.q || filters.type || filters.from || filters.toExclusive)
@@ -139,7 +145,7 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
     queryFn: ({ pageParam }) => transactionApi.list({ from: selectedDate, toExclusive: selectedDateToExclusive, cursor: pageParam, performedByMemberId }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: dayDetailOpen,
+    enabled: view === 'calendar',
     staleTime: 0,
     refetchOnWindowFocus: 'always',
   })
@@ -153,7 +159,7 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
     [queryClient],
   )
   const pullToRefreshRoot = useRef<HTMLElement>(null)
-  const { distance: pullDistance, refreshing: pullRefreshing } = useMobilePullToRefresh(pullToRefreshRoot, !dayDetailOpen, refreshTransactions)
+  const { distance: pullDistance, refreshing: pullRefreshing } = useMobilePullToRefresh(pullToRefreshRoot, true, refreshTransactions)
   const fetchNextPage = transactions.fetchNextPage
   const hasNextPage = transactions.hasNextPage
   const isFetchingNextPage = transactions.isFetchingNextPage
@@ -200,15 +206,22 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
     }, { replace: true })
   }
 
+  function scrollToDay() {
+    if (dayRef.current && getComputedStyle(dayRef.current).getPropertyValue('--stacked-day').trim() === '1') {
+      requestAnimationFrame(() => dayRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }))
+    }
+  }
+
   function selectDate(date: string) {
     setParams((current) => {
       const updated = new URLSearchParams(current)
       updated.set('month', date.slice(0, 7))
       updated.set('view', 'calendar')
       updated.set('date', date)
-      updated.set('detail', 'day')
+      updated.delete('detail')
       return updated
     })
+    scrollToDay()
   }
 
   function moveSelectedDate(offset: number) {
@@ -218,95 +231,54 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
       updated.set('month', nextDate.slice(0, 7))
       updated.set('view', 'calendar')
       updated.set('date', nextDate)
-      updated.set('detail', 'day')
-      return updated
-    }, { replace: true })
-  }
-
-  function closeDayDetail() {
-    setParams((current) => {
-      const updated = new URLSearchParams(current)
       updated.delete('detail')
       return updated
     }, { replace: true })
   }
 
+  const returnTo = `${location.pathname}${location.search}`
+  const scopeLabel = selectedMemberKey === 'all' ? '모든 구성원' : selectedMemberKey === currentMember.memberId ? '나' : ledger.members.find(member => member.memberId === selectedMemberKey)?.displayName ?? '구성원'
+  const showAmount = (value?: number) => value === undefined ? '—' : `${value < 0 ? '-' : ''}${formatWon(value)}`
   return (
-    <section ref={pullToRefreshRoot} className="relative max-w-[74rem] pb-5 pt-1 md:py-8" data-home-ledger>
-      <h1 className="sr-only">가계부</h1>
-      <PullToRefreshIndicator distance={pullDistance} refreshing={pullRefreshing} />
-
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-x-8 xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-x-10">
-        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-          <div className="mt-2 flex items-center justify-between gap-2 lg:mt-0">
-            <Button variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={18} /></Button>
-            <h2 className="whitespace-nowrap text-lg font-semibold tracking-tight tabular-nums text-[var(--foreground)]" data-month-title>{monthTitle(month)}</h2>
-            <Button variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={18} /></Button>
-          </div>
-
-          <CalendarMemberFilter
-            members={ledger.members}
-            currentMemberId={currentMember.memberId}
-            value={selectedMemberKey}
-            onChange={selectMember}
-          />
-
-          {transactionStatus(location.state)}
-          {ledgerLifecycleStatus(location.state)}
-        </div>
-
-        <aside className="mt-4 border-y border-[var(--line-subtle)] lg:sticky lg:top-[calc(var(--app-header-height,0px)+2rem)] lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:border-y-0 lg:border-l lg:pl-7" aria-label="이번 달 요약" data-home-desktop-summary>
-          <h2 className="hidden text-xs font-semibold tracking-[.08em] text-[var(--muted)] lg:block">이번 달 요약</h2>
-          <div className="grid grid-cols-3 py-3 text-center lg:mt-3 lg:grid-cols-1 lg:py-0 lg:text-left">
-            <SummaryValue label="수입" value={calendar.data?.totalIncomeWon} tone="income" />
-            <SummaryValue label="지출" value={calendar.data?.totalExpenseWon} tone="expense" />
-            <SummaryValue label="순액" value={calendar.data?.netWon} tone="net" />
-          </div>
-        </aside>
-
-        <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-          <div className="mt-5 flex border-b border-[var(--line-subtle)]" role="group" aria-label="가계부 보기 방식">
-            <ViewButton active={view === 'calendar'} onClick={() => changeView('calendar')}>월간 달력</ViewButton>
-            <ViewButton active={view === 'daily'} onClick={() => changeView('daily')}>일별 보기</ViewButton>
-          </div>
-
-          {view === 'daily' && calendar.isError ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3 text-sm"><p role="alert">월 합계를 불러오지 못했어요. 일별 거래는 계속 볼 수 있어요.</p><Button variant="ghost" onClick={() => calendar.refetch()}>합계 다시 불러오기</Button></div> : null}
-
-          {view === 'calendar' ? (
-            calendar.isPending ? <LoadingRows label="달력을 불러오는 중…" /> : calendar.isError ? <HomeError onRetry={() => calendar.refetch()} /> : <>
-              <MonthCalendar month={month} days={calendar.data?.days ?? []} selectedDate={selectedDate} onSelectDate={selectDate} />
-            </>
-          ) : <div className="mt-3"><TransactionHistory
+    <section ref={pullToRefreshRoot} className="home-page" data-home-ledger>
+      <PullToRefreshIndicator distance={pullDistance} refreshing={pullRefreshing}/>
+      <header className="home-heading"><div><p>나란히 쌓아가는 우리의 기록</p><h1>가계부</h1></div><Button asChild><Link to="/transactions/new" state={{ returnTo }}><Plus size={18}/>기록하기</Link></Button></header>
+      {transactionStatus(location.state)}{ledgerLifecycleStatus(location.state)}
+      {!online ? <p className="ui-notice" role="status">오프라인 상태예요. 마지막으로 불러온 기록을 표시하며 연결 후 최신값을 확인할 수 있어요.</p> : null}
+      <section className="home-summary" aria-label="이번 달 요약" data-home-desktop-summary>
+        <div><span>{Number(month.slice(5))}월에 쓴 돈</span><strong className="home-total">{showAmount(calendar.data?.totalExpenseWon)}</strong><p>{scopeLabel}의 기록을 보고 있어요</p></div>
+        <dl><div><dt><ArrowDownLeft size={15}/>수입</dt><dd>{showAmount(calendar.data?.totalIncomeWon)}</dd></div><div><dt><ArrowUpRight size={15}/>수입 − 지출</dt><dd>{showAmount(calendar.data?.netWon)}</dd></div></dl>
+      </section>
+      <div className="home-controls"><CalendarMemberFilter members={ledger.members} currentMemberId={currentMember.memberId} value={selectedMemberKey} onChange={selectMember}/>
+        <SegmentedControl label="가계부 보기 방식" value={view} onChange={value => changeView(value as 'calendar' | 'daily')} options={[{value:'calendar',label:<><CalendarDays size={16}/><span>달력</span></>,accessibleLabel:'월간 달력'},{value:'daily',label:<><List size={16}/><span>일별</span></>,accessibleLabel:'일별 보기'}]}/>
+      </div>
+      {calendar.isError ? <div className="ui-notice" role="alert">월 합계를 불러오지 못했어요.{calendar.data ? ' 마지막으로 불러온 값을 표시합니다.' : ''}<Button variant="ghost" disabled={!online} onClick={() => calendar.refetch()}>합계 다시 불러오기</Button></div> : null}
+      <div className="home-layout" data-view={view}>
+        <div className="home-calendar-section" ref={calendarRef}>
+          <div className="home-monthbar"><div className="home-month"><h2 data-month-title>{monthTitle(month)}</h2><Button variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={18}/></Button><Button variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={18}/></Button></div><div className="flex shrink-0 items-center"><Button variant="ghost" size="icon" aria-label="최신값 확인" disabled={!online || calendar.isFetching} onClick={() => refreshTransactions()}><RefreshCw size={16} className={calendar.isFetching ? 'animate-spin' : undefined}/></Button><Button variant="ghost" onClick={() => selectDate(todayInSeoul())}>오늘</Button></div></div>
+          {view === 'calendar' ? calendar.isPending ? <LoadingRows label="달력을 불러오는 중…"/> : calendar.isError && !calendar.data ? <HomeError onRetry={() => calendar.refetch()}/> : <><MonthCalendar month={month} days={calendar.data?.days ?? []} selectedDate={selectedDate} onSelectDate={selectDate}/><p className="home-calendar-note">카드 대금 결제는 수입·지출 합계에 포함하지 않아요.</p></> : <TransactionHistory
             filters={filters} members={ledger.members} onFiltersChange={changeFilters}
-            groups={groups} renderItem={(item) => <TransactionRow transaction={item} returnTo={`${location.pathname}${location.search}`} />}
+            groups={groups} renderItem={(item) => <TransactionRow transaction={item} returnTo={returnTo}/>}
             itemKey={(item) => item.transactionId}
             isPending={transactions.isPending} isError={transactions.isError && !transactions.data}
             onRetry={() => { void transactions.refetch() }}
-            emptyState={!customRange ? <EmptyTransactions /> : undefined}
+            emptyState={!customRange ? <EmptyTransactions/> : undefined}
             footer={<div ref={loadMore} className="grid min-h-16 place-items-center">
-              {transactions.isFetchingNextPage ? <span className="inline-flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={17} />다음 거래를 불러오는 중…</span> : transactions.hasNextPage ? <Button variant="ghost" onClick={() => transactions.fetchNextPage()}>거래 더 보기</Button> : <p className="text-xs text-[var(--muted)]">거래를 모두 확인했어요.</p>}
+              {transactions.isFetchingNextPage ? <span className="inline-flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={17}/>다음 거래를 불러오는 중…</span> : transactions.hasNextPage ? <Button variant="ghost" onClick={() => transactions.fetchNextPage()}>거래 더 보기</Button> : <p className="text-xs text-[var(--muted)]">거래를 모두 확인했어요.</p>}
+              {transactions.isError && transactions.data ? <div role="alert"><p>추가 기록을 불러오지 못했어요.</p><Button variant="ghost" onClick={() => transactions.refetch()}>다시 불러오기</Button></div> : null}
             </div>}
-          /></div>}
-
+          />}
         </div>
+        {view === 'calendar' ? <aside className="home-day-panel" ref={dayRef} aria-label="선택한 날짜의 기록">
+          <DayDetailPanel date={selectedDate} summary={selectedDaySummary} items={selectedItems}
+            isSummaryPending={!calendar.data} isPending={selectedTransactions.isPending}
+            isError={selectedTransactions.isError} hasNextPage={selectedTransactions.hasNextPage}
+            isFetchingNextPage={selectedTransactions.isFetchingNextPage}
+            onPrevious={() => moveSelectedDate(-1)} onNext={() => moveSelectedDate(1)}
+            onBack={() => calendarRef.current?.scrollIntoView({behavior:'instant',block:'start'})}
+            onRetry={() => selectedTransactions.refetch()} onLoadMore={() => selectedTransactions.fetchNextPage()} returnTo={returnTo}/>
+        </aside> : null}
       </div>
-      <DayDetailDialog
-        open={dayDetailOpen}
-        date={selectedDate}
-        summary={selectedDaySummary}
-        items={selectedItems}
-        isSummaryPending={calendar.isPending || calendar.isError}
-        isPending={selectedTransactions.isPending}
-        isError={selectedTransactions.isError}
-        hasNextPage={selectedTransactions.hasNextPage}
-        isFetchingNextPage={selectedTransactions.isFetchingNextPage}
-        onClose={closeDayDetail}
-        onPrevious={() => moveSelectedDate(-1)}
-        onNext={() => moveSelectedDate(1)}
-        onRetry={() => selectedTransactions.refetch()}
-        onLoadMore={() => selectedTransactions.fetchNextPage()}
-        returnTo={`${location.pathname}${location.search}`}
-      />
     </section>
   )
 }
@@ -319,9 +291,9 @@ function CalendarMemberFilter({ members, currentMemberId, value, onChange }: {
 }) {
   const orderedMembers = [...members].sort((left, right) => Number(right.currentUser) - Number(left.currentUser))
   return (
-    <fieldset className="-mx-4 mt-1 min-w-0 xs:-mx-5 md:mx-0">
+    <fieldset className="home-members">
       <legend id="calendar-member-filter-label" className="sr-only">표시할 구성원</legend>
-      <div className="overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xs:px-5 md:px-0">
+      <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <RadioGroup
           name="calendar-member-filter"
           value={value}
@@ -359,41 +331,16 @@ function CalendarMemberOption({ value, selected, label, accessibleLabel, avatar 
   accessibleLabel: string
   avatar: ReactNode
 }) {
-  const id = `calendar-member-${value}`
   return (
-    <label
-      htmlFor={id}
-      className={`flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-2.5 text-sm transition-colors focus-within:ring-3 focus-within:ring-inset focus-within:ring-[var(--ring)] ${selected ? 'border-forest-700 font-semibold text-forest-800 dark:border-forest-300 dark:text-forest-100' : 'border-transparent font-medium text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`}
+    <RadioPrimitive.Root
+      value={value}
+      aria-label={accessibleLabel}
+      className={`home-member-option ${selected ? 'is-selected' : ''}`}
     >
       {avatar}
       <span className="max-w-36 whitespace-nowrap" title={label}>{label}</span>
-      <RadioGroupItem id={id} value={value} className="sr-only" aria-label={accessibleLabel} />
-    </label>
+    </RadioPrimitive.Root>
   )
-}
-
-function SummaryValue({ label, value, tone }: { label: string; value?: number; tone: 'income' | 'expense' | 'net' }) {
-  const shown = value === undefined
-    ? '—'
-    : value === 0
-      ? formatWon(0)
-      : tone === 'income'
-        ? `+${formatWon(value)}`
-        : tone === 'expense'
-          ? `${value < 0 ? '+' : '-'}${formatWon(value)}`
-          : signedWon(value)
-  const color = tone === 'income'
-    ? 'text-[var(--income)]'
-    : tone === 'expense' && value !== undefined && value < 0
-      ? 'text-[var(--transfer)]'
-    : tone === 'expense'
-      ? 'text-[var(--expense)]'
-      : ''
-  return <dl className="min-w-0 border-r border-[var(--line-subtle)] px-2 last:border-r-0 lg:border-r-0 lg:border-b lg:px-0 lg:py-4 lg:last:border-b-0"><dt className="text-xs text-[var(--muted)]">{label}</dt><dd className={`mt-1 truncate text-sm font-semibold tabular-nums xs:text-base lg:mt-2 lg:text-xl ${color}`} title={shown}>{shown}</dd></dl>
-}
-
-function ViewButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
-  return <Button variant="ghost" className={`rounded-none border-b-2 px-4 ${active ? 'border-forest-700 text-forest-800 dark:border-forest-100 dark:text-white' : 'border-transparent text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`} type="button" aria-pressed={active} onClick={onClick}>{children}</Button>
 }
 
 function MonthCalendar({ month, days, selectedDate, onSelectDate }: { month: string; days: CalendarDay[]; selectedDate: string; onSelectDate: (date: string) => void }) {
@@ -402,7 +349,7 @@ function MonthCalendar({ month, days, selectedDate, onSelectDate }: { month: str
   const cellCount = Math.ceil((leadingDays + dayCount) / 7) * 7
   const today = todayInSeoul()
   return (
-    <div className="-mx-3 mt-4 pb-3 min-[360px]:-mx-2 min-[390px]:-mx-1 xs:mx-0" role="grid" aria-label={`${year}년 ${monthIndex + 1}월 거래 달력`}>
+    <div className="home-calendar" role="grid" aria-label={`${year}년 ${monthIndex + 1}월 거래 달력`}>
       <div className="grid grid-cols-7 text-left text-[11px] font-medium md:text-xs" role="row">
         {['일', '월', '화', '수', '목', '금', '토'].map((day, index) => (
           <div className={`px-0.75 pb-3 pt-3 min-[390px]:px-1 md:px-2 ${index === 0 ? 'text-[var(--calendar-income)]' : index === 6 ? 'text-[var(--calendar-expense)]' : 'text-[var(--muted)]'}`} role="columnheader" key={day}>{day}</div>
@@ -425,18 +372,18 @@ function MonthCalendar({ month, days, selectedDate, onSelectDate }: { month: str
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-full min-h-28 w-full flex-col items-start justify-start gap-0 rounded-none px-0.75 py-3 text-left font-normal hover:bg-[var(--surface-hover)] focus-visible:z-[1] focus-visible:ring-inset min-[390px]:px-1 md:min-h-32 md:px-2"
+                  className="home-calendar-day"
                   aria-label={`${calendarCellLabel(date, value)} 선택`}
                   aria-pressed={selected}
                   onClick={() => onSelectDate(date)}
                 >
                   <time
-                    className={`flex size-6 shrink-0 items-center justify-center rounded-full text-sm tabular-nums ${selected ? 'bg-[var(--foreground)] font-semibold text-[var(--background)]' : date === today ? 'bg-[var(--surface-selected)] font-semibold text-[var(--foreground)]' : dateColor}`}
+                    className={`flex size-6 shrink-0 items-center justify-center rounded-lg text-xs tabular-nums ${selected ? 'bg-[var(--selection)] font-semibold text-[var(--background)]' : date === today ? 'bg-[var(--surface-selected)] font-semibold text-[var(--foreground)]' : dateColor}`}
                     dateTime={date}
                     aria-current={date === today ? 'date' : undefined}
                   >{day}</time>
                   {value ? (
-                    <span className="mt-2 grid w-full min-w-0 gap-0.5 text-[9px] leading-[1.35] tracking-[-.04em] tabular-nums min-[360px]:text-[10px] md:text-xs md:tracking-normal">
+                    <span className="mt-2 grid w-full min-w-0 gap-0.5 text-[9px] leading-[1.35] tracking-[-.04em] tabular-nums min-[360px]:text-[10px] md:text-[10px]">
                       {value.incomeWon > 0 ? <span className="block whitespace-nowrap text-[var(--calendar-income)]" title={`수입 +${formatWon(value.incomeWon)}`}>+{calendarAmount(value.incomeWon)}</span> : null}
                       {value.expenseWon !== 0 ? <span className="block whitespace-nowrap text-[var(--calendar-expense)]" title={`${value.expenseWon < 0 ? '환불 +' : '지출 -'}${formatWon(value.expenseWon)}`}>{value.expenseWon < 0 ? '+' : '-'}{calendarAmount(value.expenseWon)}</span> : null}
                       {value.cardPaymentWon > 0 ? <span className="grid text-[var(--muted)]" title={`카드 대금 결제 ${formatWon(value.cardPaymentWon)} (수입·지출 합계 제외)`}><span>카드결제</span><span className="whitespace-nowrap">{calendarAmount(value.cardPaymentWon)}</span></span> : null}
@@ -453,68 +400,22 @@ function MonthCalendar({ month, days, selectedDate, onSelectDate }: { month: str
   )
 }
 
-function DayDetailDialog({ open, date, summary, items, isSummaryPending, isPending, isError, hasNextPage, isFetchingNextPage, onClose, onPrevious, onNext, onRetry, onLoadMore, returnTo }: {
-  open: boolean
-  date: string
-  summary?: CalendarDay
-  items: Transaction[]
-  isSummaryPending: boolean
-  isPending: boolean
-  isError: boolean
-  hasNextPage: boolean
-  isFetchingNextPage: boolean
-  onClose: () => void
-  onPrevious: () => void
-  onNext: () => void
-  onRetry: () => void
-  onLoadMore: () => void
-  returnTo: string
+function DayDetailPanel({ date, summary, items, isSummaryPending, isPending, isError, hasNextPage, isFetchingNextPage, onBack, onPrevious, onNext, onRetry, onLoadMore, returnTo }: {
+  date: string; summary?: CalendarDay; items: Transaction[]; isSummaryPending: boolean; isPending: boolean; isError: boolean;
+  hasNextPage: boolean; isFetchingNextPage: boolean; onBack: () => void; onPrevious: () => void; onNext: () => void;
+  onRetry: () => void; onLoadMore: () => void; returnTo: string
 }) {
-  return (
-    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(46rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(42rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg sm:p-0">
-        <header className="grid shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-[var(--line)] px-2 pb-2 pt-[max(.5rem,env(safe-area-inset-top))] md:px-4 md:py-3">
-          <Button type="button" variant="ghost" size="icon" aria-label="달력으로 돌아가기" onClick={onClose}><ArrowLeft size={20} /></Button>
-          <div className="flex min-w-0 items-center justify-center gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label="이전 날" onClick={onPrevious}><ChevronLeft size={20} /></Button>
-            <DialogTitle className="min-w-24 truncate text-center text-base tabular-nums md:text-xl">{dayTitle(date)}</DialogTitle>
-            <Button type="button" variant="ghost" size="icon" aria-label="다음 날" onClick={onNext}><ChevronRight size={20} /></Button>
-          </div>
-          <Button asChild type="button" variant="ghost" size="icon">
-            <Link
-              to="/transactions/new"
-              state={{ returnTo, transactionDate: date }}
-              aria-label={`${dayTitle(date)}에 거래 기록`}
-              title="이 날짜에 기록"
-            >
-              <SquarePen size={19} />
-            </Link>
-          </Button>
-          <DialogDescription className="sr-only">선택한 날짜의 수입·지출·이체와 카드 결제 기록을 확인합니다.</DialogDescription>
-        </header>
-
-        <section className="flex min-h-0 flex-1 flex-col" role="region" aria-label={`${date} 거래 상세`}>
-          <div className="shrink-0 border-b border-[var(--line)] px-4 py-3 md:px-6">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-[var(--muted)]">{isPending ? '거래를 불러오는 중' : `${items.length}${hasNextPage ? '건 이상' : '건'}`}</p>
-              <p className="text-xs text-[var(--muted)]">이체·집계 제외 기록은 합계에서 제외돼요</p>
-            </div>
-            <dl className="mt-3 grid grid-cols-2 divide-x divide-[var(--line)]">
-              <div className="pr-4"><dt className="text-xs text-[var(--muted)]">수입</dt><dd className="mt-1 text-base font-semibold tabular-nums text-[var(--income)] md:text-lg">{isSummaryPending ? '—' : summary?.incomeWon ? `+${formatWon(summary.incomeWon)}` : formatWon(0)}</dd></div>
-              <div className="pl-4 text-right"><dt className="text-xs text-[var(--muted)]">지출</dt><dd className={`mt-1 text-base font-semibold tabular-nums md:text-lg ${summary && summary.expenseWon < 0 ? 'text-[var(--transfer)]' : 'text-[var(--expense)]'}`}>{isSummaryPending ? '—' : summary?.expenseWon ? `${summary.expenseWon < 0 ? '+' : '-'}${formatWon(summary.expenseWon)}` : formatWon(0)}</dd></div>
-            </dl>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6 md:pb-6">
-            {isPending ? <LoadingRows label="선택한 날짜의 거래를 불러오는 중…" /> : isError ? <div className="py-10 text-center"><p role="alert">선택한 날짜의 거래를 불러오지 못했어요.</p><Button className="mt-4" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div> : items.length ? <>
-              <TransactionList>{items.map((item) => <TransactionRow transaction={item} returnTo={returnTo} key={item.transactionId} />)}</TransactionList>
-              {hasNextPage ? <div className="grid min-h-16 place-items-center"><Button variant="ghost" disabled={isFetchingNextPage} onClick={onLoadMore}>{isFetchingNextPage ? <><LoaderCircle className="animate-spin" size={17} />불러오는 중…</> : '거래 더 보기'}</Button></div> : null}
-            </> : <p className="py-12 text-center text-sm text-[var(--muted)]">이 날짜에 기록한 거래가 없어요.</p>}
-          </div>
-        </section>
-      </DialogContent>
-    </Dialog>
-  )
+  return <>
+    <header className="home-day-heading"><div><p>{date.slice(0,4)}년 {Number(date.slice(5,7))}월</p><h2>{dayTitle(date)}{date === todayInSeoul() ? <span>오늘</span> : null}</h2></div><Button className="home-calendar-back" variant="ghost" size="icon" aria-label="달력으로 돌아가기" onClick={onBack}><CalendarDays size={18}/></Button></header>
+    <div className="home-day-navigation"><Button variant="ghost" size="icon" aria-label="이전 날" onClick={onPrevious}><ChevronLeft size={17}/></Button><Button variant="ghost" size="icon" aria-label="다음 날" onClick={onNext}><ChevronRight size={17}/></Button></div>
+    <section role="region" aria-label={`${date} 거래 상세`}>
+      <dl className="home-day-summary"><div><dt>지출</dt><dd>{isSummaryPending ? '—' : signedWon(summary?.expenseWon ?? 0).replace(/^\+/, '')}</dd></div>{summary?.incomeWon ? <div className="home-day-income"><dt>수입</dt><dd>+{formatWon(summary.incomeWon)}</dd></div> : null}</dl>
+      {isError ? <div className="py-5" role="alert"><p>선택한 날짜의 거래를 불러오지 못했어요.</p><Button variant="ghost" onClick={onRetry}>다시 불러오기</Button></div> : null}
+      {isPending ? <LoadingRows label="선택한 날짜의 거래를 불러오는 중…"/> : items.length ? <><TransactionList>{items.map(item => <TransactionRow key={item.transactionId} transaction={item} returnTo={returnTo}/>)}</TransactionList>{hasNextPage ? <Button className="mt-4" variant="ghost" disabled={isFetchingNextPage} onClick={onLoadMore}>{isFetchingNextPage ? '불러오는 중…' : '거래 더 보기'}</Button> : null}</> : !isError ? <p className="home-day-empty">이 날짜에 기록한 거래가 없어요.</p> : null}
+      <p className="home-day-caption">이체·집계 제외 기록은 합계에서 제외돼요.</p>
+    </section>
+    <Button asChild variant="ghost" className="home-day-record"><Link to="/transactions/new" state={{returnTo,transactionDate:date}} aria-label={`${dayTitle(date)}에 거래 기록`}><Plus size={16}/>이 날짜에 기록하기</Link></Button>
+  </>
 }
 
 const PULL_REFRESH_THRESHOLD = 64
@@ -600,10 +501,9 @@ function PullToRefreshIndicator({ distance, refreshing }: { distance: number; re
 
 function TransactionRow({ transaction, returnTo }: { transaction: Transaction; returnTo: string }) {
   const amount = `${transactionRowAmountPrefix(transaction)}${formatWon(transaction.amountWon)}`
-  const tone = transactionRowTone(transaction)
   const label = transaction.description || transaction.category?.name || transactionTypeLabel(transaction)
   const categoryLabel = transaction.description ? transaction.category?.name : undefined
-  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-[var(--muted)]">{categoryLabel ? <><span className="max-w-full break-words font-medium text-[var(--foreground)]">{categoryLabel}</span><span aria-hidden="true">·</span></> : null}<span className="min-w-0 break-words">{postingLabel(transaction)}</span>{transaction.performedBy ? <><span aria-hidden="true">·</span><span className="inline-flex min-w-0 items-center gap-1"><MemberAvatar displayName={transaction.performedBy.displayName} memberId={transaction.performedBy.memberId} size="xs" /><span className="truncate">{transaction.performedBy.displayName}</span></span></> : null}{transaction.installmentCount && transaction.installmentCount > 1 ? <><span aria-hidden="true">·</span><span className="shrink-0">{transaction.installmentCount}개월</span></> : null}{transaction.excludedFromStatistics ? <><span aria-hidden="true">·</span><span className="shrink-0 font-semibold">집계 제외</span></> : null}</div></div><div className="shrink-0 text-right"><strong className={`text-sm font-semibold tabular-nums ${tone}`}>{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
+  const content = <><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-[var(--muted)]">{categoryLabel ? <><span className="max-w-full break-words font-medium text-[var(--foreground)]">{categoryLabel}</span><span aria-hidden="true">·</span></> : null}<span className="min-w-0 break-words">{postingLabel(transaction)}</span>{transaction.performedBy ? <><span aria-hidden="true">·</span><span className="inline-flex min-w-0 items-center gap-1"><MemberAvatar displayName={transaction.performedBy.displayName} memberId={transaction.performedBy.memberId} size="xs" /><span className="truncate">{transaction.performedBy.displayName}</span></span></> : null}{transaction.installmentCount && transaction.installmentCount > 1 ? <><span aria-hidden="true">·</span><span className="shrink-0">{transaction.installmentCount}개월</span></> : null}{transaction.excludedFromStatistics ? <><span aria-hidden="true">·</span><span className="shrink-0 font-semibold">집계 제외</span></> : null}</div></div><div className="shrink-0 text-right"><strong className="text-sm font-semibold tabular-nums">{amount}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{transactionTypeLabel(transaction)}</span></div></>
   const destination = transactionRowDestination(transaction)
   return <li><TransactionListRow to={destination} returnTo={returnTo} accessibleName={transactionRowAccessibleName(transaction, label, amount)}>{content}</TransactionListRow></li>
 }
@@ -613,11 +513,11 @@ function LoadingRows({ label }: { label: string }) {
 }
 
 function HomeError({ onRetry }: { onRetry: () => void }) {
-  return <div className="border-b border-[var(--line)] py-12 text-center"><p role="alert">가계부 기록을 불러오지 못했어요.</p><Button className="mt-4" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div>
+  return <div className="ui-empty-state my-6"><p role="alert">가계부 기록을 불러오지 못했어요.</p><Button className="mt-4" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div>
 }
 
 function EmptyTransactions() {
-  return <div className="border-b border-[var(--line)] py-16 text-center"><p className="font-semibold">이 달에 기록한 거래가 없어요.</p><p className="mt-2 text-sm text-[var(--muted)]">수입, 지출 또는 이체를 기록하면 날짜별로 이어서 볼 수 있어요.</p><Button asChild className="mt-5"><Link to="/transactions/new"><SquarePen size={18} />첫 거래 기록</Link></Button></div>
+  return <div className="ui-empty-state my-6"><p className="font-semibold">이 달에 기록한 거래가 없어요.</p><p className="mt-2 text-sm text-[var(--muted)]">수입, 지출 또는 이체를 기록하면 날짜별로 이어서 볼 수 있어요.</p><Button asChild className="mt-5"><Link to="/transactions/new"><SquarePen size={18} />첫 거래 기록</Link></Button></div>
 }
 
 function postingLabel(transaction: Transaction) {

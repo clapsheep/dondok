@@ -1,5 +1,7 @@
+@import './components/ui/page-layout.css';
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./components/ui/data-layout.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -32,16 +34,21 @@
   -webkit-font-smoothing: antialiased;
   --background: #ffffff;
   --foreground: #171717;
-  --surface: #fafafa;
-  --surface-hover: #f5f5f5;
-  --surface-selected: #e5e5e5;
+  --surface: #f6f7f5;
+  --surface-hover: #edf0eb;
+  --surface-selected: #e5ece5;
+  --selection: #19463c;
+  --selection-surface: #e5ece5;
+  --action: #19463c;
+  --action-hover: #143a32;
   --muted: #666666;
-  --line: #8a8a8a;
+  --line: #d9ddd8;
   --line-subtle: #e5e5e5;
   --control-border: #d4d4d4;
   --control-border-hover: #a3a3a3;
   --brand-accent: #77571f;
-  --ring: #19463c;
+  --ring: #718c81;
+  --focus-ring: #718c81;
   --income: #1e6a4e;
   --expense: #a94035;
   --transfer: #315e85;
@@ -72,18 +79,23 @@
 
 :root.dark {
   color-scheme: dark;
-  --background: #121212;
+  --background: #171a19;
   --foreground: #f5f5f5;
-  --surface: #1e1e1e;
-  --surface-hover: #2a2a2a;
-  --surface-selected: #333333;
+  --surface: #222725;
+  --surface-hover: #2a302d;
+  --surface-selected: #303a29;
+  --selection: #dbee8b;
+  --selection-surface: #303a29;
+  --action: #285e50;
+  --action-hover: #327260;
   --muted: #a3a3a3;
-  --line: #858585;
+  --line: #414943;
   --line-subtle: #404040;
   --control-border: #404040;
   --control-border-hover: #737373;
   --brand-accent: #d2a856;
-  --ring: #80c7b7;
+  --ring: #95b2a5;
+  --focus-ring: #95b2a5;
   --income: #77d5a6;
   --expense: #f58b80;
   --transfer: #8fc5f2;
@@ -133,8 +145,26 @@ button, a { -webkit-tap-highlight-color: transparent; }
   }
 }
 
-:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
-.dondok-control:focus-visible { outline: none; outline-offset: 0; }
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
+}
+:focus:not(:focus-visible) { outline: none; }
+.dondok-control:focus-visible { outline: none; outline-offset: 0; border-bottom-color:var(--focus-ring); box-shadow:0 1px 0 var(--focus-ring); }
+@media (forced-colors: active) { :focus-visible, .dondok-control:focus-visible { outline:2px solid Highlight; outline-offset:2px; } }
+
+/* Match actual weekdays even when the first day of the week changes.
+   Selected dates retain their selection contrast; outside dates stay faded. */
+.rdp-root .rdp-weekday[aria-label="일요일"],
+.rdp-root .dondok-calendar-sunday:not([data-selected]) > .rdp-day_button {
+  color: var(--calendar-income);
+}
+.rdp-root .rdp-weekday[aria-label="토요일"],
+.rdp-root .dondok-calendar-saturday:not([data-selected]) > .rdp-day_button {
+  color: var(--calendar-expense);
+}
 
 ::selection { background: var(--color-forest-100); color: var(--color-forest-700); }
 

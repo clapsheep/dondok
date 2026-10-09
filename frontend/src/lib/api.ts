@@ -12,6 +12,7 @@ type ApiRequestOptions = { notifyLedgerNotFound?: boolean }
 type LedgerNotFoundListener = () => void
 
 let csrfPromise: Promise<CsrfResponse> | undefined
+const sessionExpiredListeners = new Set<() => void>()
 const ledgerNotFoundListeners = new Set<LedgerNotFoundListener>()
 
 async function csrf() {
@@ -52,12 +53,15 @@ async function request<T>(path: string, init: RequestInit, csrfRetried: boolean,
   }
 
   const response = await fetch(path, { ...init, headers, credentials: 'include' })
-  if (response.status === 403 && !csrfRetried && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    csrfPromise = undefined
-    return request<T>(path, init, true, options)
-  }
   if (!response.ok) {
     const problem = (await response.json().catch(() => ({}))) as Problem
+    if (response.status === 401 && path !== '/api/auth/session') {
+      for (const listener of sessionExpiredListeners) listener()
+    }
+    if (response.status === 403 && problem.errorCode === 'ACCESS_DENIED' && !csrfRetried && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      csrfPromise = undefined
+      return request<T>(path, init, true, options)
+    }
     if (response.status === 404 && problem.errorCode === 'LEDGER_NOT_FOUND' && options.notifyLedgerNotFound !== false) {
       for (const listener of ledgerNotFoundListeners) listener()
     }
@@ -79,4 +83,9 @@ export function subscribeLedgerNotFound(listener: LedgerNotFoundListener) {
 
 export function jsonBody(value: unknown) {
   return JSON.stringify(value)
+}
+
+export function subscribeSessionExpired(listener: () => void) {
+  sessionExpiredListeners.add(listener)
+  return () => { sessionExpiredListeners.delete(listener) }
 }

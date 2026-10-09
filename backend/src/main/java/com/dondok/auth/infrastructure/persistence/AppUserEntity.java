@@ -66,6 +66,15 @@ public class AppUserEntity {
         this.updatedAt = now;
     }
 
+    public long getVersion() { return version; }
+
+    public void updateProfile(String name, String email, Instant now) {
+        this.displayName = name;
+        if (!this.email.equals(email)) this.emailVerifiedAt = now;
+        this.email = email;
+        this.updatedAt = now;
+    }
+
     public void verifyEmail(Instant now) {
         this.emailVerifiedAt = now;
         this.status = UserStatus.ACTIVE;

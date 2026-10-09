@@ -1,3 +1,4 @@
+import { showRecordStep } from './record-steps'
 import { expect, type Page } from '@playwright/test'
 
 export function transactionCategoryTrigger(page: Page) {
@@ -5,6 +6,7 @@ export function transactionCategoryTrigger(page: Page) {
 }
 
 export async function selectTransactionCategory(page: Page, name: string) {
+  await showRecordStep(page, 2)
   const trigger = transactionCategoryTrigger(page)
   await trigger.click()
   const dialog = page.getByRole('dialog', { name: /분류 선택$/ })

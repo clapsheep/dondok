@@ -15,11 +15,11 @@ services:
     cpus: 1.5
     environment:
       DONDOK_COOKIE_SECURE: "true"
+      SPRING_PROFILES_ACTIVE: production
+    volumes:
+      - application-logs:/var/log/dondok
     logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "5"
+      driver: none
 
   frontend:
     mem_limit: 256m
@@ -30,7 +30,7 @@ services:
       - ./infra/nginx-rate-limits.conf:/etc/nginx/conf.d/00-rate-limits.conf:ro
       - ./infra/nginx-server-security.conf:/etc/nginx/dondok/server-security/production.conf:ro
     logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "5"
+      driver: none
+
+volumes:
+  application-logs:

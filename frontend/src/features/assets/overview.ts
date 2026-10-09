@@ -1,8 +1,6 @@
 import type { Asset, AssetTypeSystemCode } from './api'
-import { financialInstitutionSortOrder } from './financialInstitutions.ts'
-import { cardIssuerSortOrder } from './cardIssuers.ts'
 
-export type AssetGroupKey = 'liquid' | 'cards' | 'investments' | 'loans' | 'insurance'
+export type AssetGroupKey = 'liquid' | 'cards' | 'savings' | 'investments' | 'loans' | 'insurance'
 
 export type BalanceSummary = {
   assetsWon: number
@@ -32,8 +30,9 @@ export type AssetStatusOverview = {
 }
 
 const groupDefinitions: { key: AssetGroupKey; label: string; systemCodes: readonly AssetTypeSystemCode[] }[] = [
-  { key: 'liquid', label: '자금', systemCodes: ['CASH', 'OTHER', 'BANK', 'SAVINGS'] },
+  { key: 'liquid', label: '자금', systemCodes: ['CASH', 'OTHER', 'BANK'] },
   { key: 'cards', label: '카드', systemCodes: ['CREDIT_CARD', 'DEBIT_CARD'] },
+  { key: 'savings', label: '적금', systemCodes: ['SAVINGS'] },
   { key: 'investments', label: '투자', systemCodes: ['INVESTMENT'] },
   { key: 'loans', label: '대출', systemCodes: ['LOAN'] },
   { key: 'insurance', label: '보험', systemCodes: ['INSURANCE'] },
@@ -91,21 +90,9 @@ export function buildAssetOverview(assets: readonly Asset[]): AssetOverview {
 }
 
 function compareAssetsForOverview(left: Asset, right: Asset) {
-  const leftBankRelated = left.systemCode === 'BANK' || left.systemCode === 'SAVINGS'
-  const rightBankRelated = right.systemCode === 'BANK' || right.systemCode === 'SAVINGS'
-  if (leftBankRelated !== rightBankRelated) return leftBankRelated ? 1 : -1
-  if ((leftBankRelated && rightBankRelated)
-    || (left.systemCode === right.systemCode && (left.systemCode === 'LOAN' || left.systemCode === 'INVESTMENT'))) {
-    const institutionOrder = financialInstitutionSortOrder(left.financialInstitutionCode)
-      - financialInstitutionSortOrder(right.financialInstitutionCode)
-    if (institutionOrder !== 0) return institutionOrder
-  }
-  const leftCardRelated = left.systemCode === 'CREDIT_CARD' || left.systemCode === 'DEBIT_CARD'
-  const rightCardRelated = right.systemCode === 'CREDIT_CARD' || right.systemCode === 'DEBIT_CARD'
-  if (leftCardRelated && rightCardRelated) {
-    const issuerOrder = cardIssuerSortOrder(left.cardIssuerCode) - cardIssuerSortOrder(right.cardIssuerCode)
-    if (issuerOrder !== 0) return issuerOrder
-  }
+  const order = ['CASH', 'OTHER', 'BANK', 'SAVINGS', 'CREDIT_CARD', 'DEBIT_CARD', 'INVESTMENT', 'LOAN', 'INSURANCE']
+  const familyOrder = order.indexOf(left.systemCode) - order.indexOf(right.systemCode)
+  if (familyOrder !== 0) return familyOrder
   const typeOrder = (left.assetTypeName ?? left.systemCode).localeCompare(right.assetTypeName ?? right.systemCode, 'ko')
   return typeOrder
     || (left.name ?? '').localeCompare(right.name ?? '', 'ko')

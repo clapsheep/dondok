@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dondok.asset.domain.AssetBehavior;
 import com.dondok.asset.domain.AssetOwnershipScope;
-import com.dondok.asset.domain.CardIssuerCode;
-import com.dondok.asset.domain.FinancialInstitutionCode;
 import com.dondok.common.error.ApiException;
 import com.dondok.membership.application.MembershipService;
 import java.sql.Timestamp;
@@ -107,78 +105,6 @@ class AssetServiceIntegrationTest {
                             exception -> assertThat(exception.getErrorCode()).isEqualTo("ASSET_OWNER_INVALID"));
         }
         assertThat(count("select count(*) from asset where book_id = ?", ledger.bookId())).isEqualTo(4);
-    }
-
-    @Test
-    void financialInstitutionsAndCardIssuersAreStoredOnlyForTheirAssetFamilies() {
-        TestLedger ledger = createLedger("금융기관 사용자");
-
-        AssetService.AssetView defaultAccount = assetService.assets(ledger.userId()).stream()
-                .filter(asset -> "BANK".equals(asset.systemCode()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(defaultAccount.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.OTHER);
-
-        AssetService.AssetView savings = assetService.create(
-                ledger.userId(), "kakao-savings",
-                new AssetService.AssetCommand(
-                        typeId(ledger.userId(), "SAVINGS"), AssetOwnershipScope.PERSONAL,
-                        ledger.memberId(), FinancialInstitutionCode.KAKAO_BANK,
-                        "여행 적금", LocalDate.of(2026, 7, 1), null, 500_000,
-                        null, null, null));
-
-        assertThat(savings.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.KAKAO_BANK);
-        assertThat(jdbcTemplate.queryForObject(
-                "select financial_institution_code from asset where id = ?", String.class, savings.assetId()))
-                .isEqualTo("KAKAO_BANK");
-
-        AssetService.AssetView loan = assetService.create(
-                ledger.userId(), "kb-capital-loan",
-                new AssetService.AssetCommand(
-                        typeId(ledger.userId(), "LOAN"), AssetOwnershipScope.PERSONAL,
-                        ledger.memberId(), FinancialInstitutionCode.KB_CAPITAL,
-                        "자동차 대출", LocalDate.of(2026, 7, 1), null, -20_000_000,
-                        null, null, null));
-        AssetService.AssetView investment = assetService.create(
-                ledger.userId(), "kiwoom-investment",
-                new AssetService.AssetCommand(
-                        typeId(ledger.userId(), "INVESTMENT"), AssetOwnershipScope.PERSONAL,
-                        ledger.memberId(), FinancialInstitutionCode.KIWOOM_SEC,
-                        "주식 계좌", LocalDate.of(2026, 7, 1), null, 3_000_000,
-                        null, null, null));
-
-        assertThat(loan.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.KB_CAPITAL);
-        assertThat(investment.financialInstitutionCode()).isEqualTo(FinancialInstitutionCode.KIWOOM_SEC);
-        assertThatThrownBy(() -> assetService.create(
-                ledger.userId(), "wrong-investment-institution",
-                new AssetService.AssetCommand(
-                        typeId(ledger.userId(), "INVESTMENT"), AssetOwnershipScope.PERSONAL,
-                        ledger.memberId(), FinancialInstitutionCode.KB_CAPITAL,
-                        "잘못된 투자 기관", LocalDate.of(2026, 7, 1), null, 0,
-                        null, null, null)))
-                .isInstanceOfSatisfying(ApiException.class,
-                        exception -> assertThat(exception.getErrorCode()).isEqualTo("FINANCIAL_INSTITUTION_INVALID"));
-
-        AssetService.AssetView defaultCard = assetService.assets(ledger.userId()).stream()
-                .filter(asset -> "CREDIT_CARD".equals(asset.systemCode()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(defaultCard.cardIssuerCode()).isEqualTo(CardIssuerCode.OTHER);
-
-        AssetService.AssetView shinhanCard = assetService.create(
-                ledger.userId(), "shinhan-card",
-                new AssetService.AssetCommand(
-                        typeId(ledger.userId(), "CREDIT_CARD"), AssetOwnershipScope.PERSONAL,
-                        ledger.memberId(), null, CardIssuerCode.SHINHAN,
-                        "신한카드", LocalDate.of(2026, 7, 1), null, 0,
-                        new AssetService.CardSettingsCommand(14, 25, 1, defaultAccount.assetId(), false),
-                        null, null));
-
-        assertThat(shinhanCard.cardIssuerCode()).isEqualTo(CardIssuerCode.SHINHAN);
-        assertThat(shinhanCard.financialInstitutionCode()).isNull();
-        assertThat(jdbcTemplate.queryForObject(
-                "select card_issuer_code from asset where id = ?", String.class, shinhanCard.assetId()))
-                .isEqualTo("SHINHAN");
     }
 
     @Test

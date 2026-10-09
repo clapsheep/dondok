@@ -1,8 +1,9 @@
+import { StepIndicator } from '../../components/ui/StepIndicator'
 import { TransactionDetail } from './TransactionDetailPage'
 import { suggestedTransferPurpose, transferPurposeLabels, type TransferPurpose } from './transferPurpose'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRight, Check, Copy, LoaderCircle, RotateCcw, Save, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, ChevronDown, Check, Copy, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react'
+import { useCallback, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useBeforeUnload, useBlocker, useLocation, useNavigate, useParams, type BlockerFunction } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
@@ -11,7 +12,8 @@ import { DatePickerField } from '../../components/ui/DatePickerField'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/Dialog'
 import { Field } from '../../components/ui/Field'
 import { MoneyField } from '../../components/ui/MoneyField'
-import { TextareaField } from '../../components/ui/TextareaField'
+import { Switch } from '../../components/ui/Switch'
+import './record-layout.css'
 import { ApiError } from '../../lib/api'
 import { hasFieldErrors } from '../../lib/formErrors'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
@@ -34,8 +36,6 @@ import { CategoryPicker } from './CategoryPicker'
 import { readLastExpenseAssetId, rememberLastExpenseAsset } from './lastExpenseAsset'
 import { readLastTransactionDate, rememberLastTransactionDate } from './lastTransactionDate'
 import { PerformerPicker } from './PerformerPicker'
-import { RepresentativePaymentFields } from './RepresentativePaymentFields'
-import { StatisticsExclusionSwitch } from './StatisticsExclusionSwitch'
 
 type Draft = {
   type: TransactionType
@@ -98,6 +98,8 @@ export function TransactionFormPage({ ledger }: { ledger: LedgerBook }) {
         activeAssetIds: assets.data.map((asset) => asset.assetId),
       })
     : ''
+  const requestedAssetId = new URLSearchParams(location.search).get('assetId')
+  const entryAssetId = !transactionId && assets.data.some(asset => asset.assetId === requestedAssetId) ? requestedAssetId! : undefined
   return (
     <TransactionEditor
       key={transactionId ?? 'new-transaction'}
@@ -106,44 +108,25 @@ export function TransactionFormPage({ ledger }: { ledger: LedgerBook }) {
       transaction={transaction.data}
       initialDraft={!transactionId ? state?.transactionDraft : undefined}
       initialDate={!transactionId ? state?.transactionDate : undefined}
-      initialAssetId={lastExpenseAssetId}
+      initialAssetId={entryAssetId ?? lastExpenseAssetId}
+      initialSourceAssetId={entryAssetId}
+      returnAfterCreate={entryAssetId ? safeReturnTo(state, undefined, `/assets/${entryAssetId}`) : undefined}
       returnTo={safeReturnTo(location.state, transaction.data?.occurredOn)}
     />
   )
 }
 
-export function AssetTransactionEditor({ ledger, initialAssetId, onSaved, onDirtyChange }: { ledger: LedgerBook; initialAssetId: string; onSaved: (transaction: Transaction) => void; onDirtyChange: (dirty: boolean) => void }) {
-  const assets = useQuery({
-    queryKey: assetKeys.list,
-    queryFn: assetApi.list,
-    staleTime: 0,
-    refetchOnWindowFocus: 'always',
-  })
-
-  if (assets.isPending) return <LoadingState label="거래 입력을 준비하는 중…" />
-  if (assets.isError && !assets.data) return <LoadError message="거래에 사용할 자산을 불러오지 못했어요." onRetry={() => assets.refetch()} />
-  if (!assets.data?.length) return <NoAssets />
-
-  return (
-    <TransactionEditor
-      ledger={ledger}
-      assets={assets.data}
-      initialAssetId={initialAssetId}
-      initialSourceAssetId={initialAssetId}
-      returnTo={`/assets/${initialAssetId}`}
-      embedded
-      treatInitialDraftAsPristine
-      onSaved={onSaved}
-      onDirtyChange={onDirtyChange}
-    />
-  )
-}
-
-function TransactionEditor({ ledger, assets, transaction, initialDraft, initialDate, initialAssetId, initialSourceAssetId, returnTo, embedded = false, treatInitialDraftAsPristine = false, onSaved, onDirtyChange }: { ledger: LedgerBook; assets: Asset[]; transaction?: Transaction; initialDraft?: Draft; initialDate?: string; initialAssetId?: string; initialSourceAssetId?: string; returnTo: string; embedded?: boolean; treatInitialDraftAsPristine?: boolean; onSaved?: (transaction: Transaction) => void; onDirtyChange?: (dirty: boolean) => void }) {
+function TransactionEditor({ ledger, assets, transaction, initialDraft, initialDate, initialAssetId, initialSourceAssetId, returnTo, returnAfterCreate }: { ledger: LedgerBook; assets: Asset[]; transaction?: Transaction; initialDraft?: Draft; initialDate?: string; initialAssetId?: string; initialSourceAssetId?: string; returnTo: string; returnAfterCreate?: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const online = useOnlineStatus()
   const editing = Boolean(transaction)
+  const [step, setStep] = useState(1)
+  const stepTitle = useRef<HTMLHeadingElement>(null)
+  function goToStep(next: number) {
+    setStep(next)
+    requestAnimationFrame(() => { if (stepTitle.current?.getClientRects().length) stepTitle.current.focus() })
+  }
   const currentMemberId = ledger.members.find((member) => member.currentUser)?.memberId ?? ledger.members[0]?.memberId ?? ''
   const [defaultDate] = useState(() => transaction || initialDraft ? undefined : initialDate ?? readLastTransactionDate({
     ledgerId: ledger.ledgerId,
@@ -151,7 +134,7 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   }))
   const [pristineDraft, setPristineDraft] = useState<Draft>(() => transaction
     ? draftFromTransaction(transaction)
-    : validNavigationDraft(treatInitialDraftAsPristine ? initialDraft : undefined, currentMemberId, defaultDate, initialAssetId, initialSourceAssetId))
+    : validNavigationDraft(undefined, currentMemberId, defaultDate, initialAssetId, initialSourceAssetId))
   const [draft, setDraft] = useState<Draft>(() => transaction ? draftFromTransaction(transaction) : validNavigationDraft(initialDraft, currentMemberId, defaultDate, initialAssetId, initialSourceAssetId))
   const allowNavigation = useRef(false)
   const [baseVersion, setBaseVersion] = useState(transaction?.version ?? 0)
@@ -174,9 +157,11 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   const assetId = editing ? draft.assetId : draft.assetId || assets[0]?.assetId || ''
   const sourceAssetId = transferSelection(draft.sourceAssetId, transferAssets)
     || (!draft.sourceAssetId && !editing ? transferAssets[0]?.assetId ?? '' : '')
-  const destinationAssetId = transferSelection(draft.destinationAssetId, transferAssets)
+  const sourceOwner = transferAssets.find((asset) => asset.assetId === sourceAssetId)?.ownerMemberId
+  const destinationAssets = transferAssets.filter((asset) => asset.ownerMemberId === sourceOwner && asset.assetId !== sourceAssetId)
+  const destinationAssetId = transferSelection(draft.destinationAssetId, destinationAssets)
     || (!draft.destinationAssetId && !editing
-      ? transferAssets.find((asset) => asset.assetId !== sourceAssetId)?.assetId ?? ''
+      ? destinationAssets[0]?.assetId ?? ''
       : '')
   const transferPurpose = draft.transferPurpose ?? suggestedTransferPurpose(
     assets.find((asset) => asset.assetId === sourceAssetId)?.systemCode,
@@ -189,7 +174,6 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
     && ((!sourceAssetId && Boolean(draft.sourceAssetId))
       || (!destinationAssetId && Boolean(draft.destinationAssetId)))
   const hasUnsavedChanges = !sameDraft(draft, pristineDraft)
-  useEffect(() => onDirtyChange?.(hasUnsavedChanges), [hasUnsavedChanges, onDirtyChange])
   const blocker = useBlocker(useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
     if (allowNavigation.current || !hasUnsavedChanges) return false
     return currentLocation.pathname !== nextLocation.pathname || currentLocation.search !== nextLocation.search
@@ -244,23 +228,16 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
         assetId: saved.asset.assetId,
       })
     }
-    const refetchType = embedded ? 'active' : 'none'
+    const refetchType = 'none' as const
     const invalidations = [
       queryClient.invalidateQueries({ queryKey: transactionKeys.all, refetchType }),
       queryClient.invalidateQueries({ queryKey: assetKeys.all, refetchType }),
       queryClient.invalidateQueries({ queryKey: cardStatementKeys.all, refetchType }),
     ]
-    if (embedded && onSaved) {
-      await Promise.all(invalidations)
-      allowNavigation.current = true
-      onDirtyChange?.(false)
-      onSaved(saved)
-      return
-    }
     void Promise.all(invalidations)
     const fallback = `/?view=daily&month=${saved.occurredOn.slice(0, 7)}`
     allowNavigation.current = true
-    navigate(editing ? returnTo : fallback, { replace: true, state: { [status]: true } })
+    navigate(editing ? returnTo : returnAfterCreate ?? fallback, { replace: true, state: { [status]: true } })
   }
 
   async function handleMutationError(error: unknown, action: Conflict['action']) {
@@ -287,6 +264,10 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
   }
 
   function updateDraft<K extends keyof Draft>(key: K, value: Draft[K]) {
+    if ((key === 'amountWon' || key === 'statisticsAmountWon') && String(value).replace(/\D/g, '').length > 10) {
+      setErrors(current => ({ ...current, [key]: '금액은 최대 10자리까지 입력해 주세요.' })); return
+    }
+    if (key === 'description' && String(value).length > 40 && String(value).length >= draft.description.length) return
     setErrors((current) => ({ ...current, [key]: undefined }))
     setDraft((current) => ({ ...current, [key]: value }))
     create.reset()
@@ -300,12 +281,23 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
     create.reset()
   }
 
+  function nextStep() {
+    const parsed = parseDraft({ ...draft, assetId, sourceAssetId, destinationAssetId, categoryId, transferPurpose }, isCardExpense)
+    const keys: (keyof Draft)[] = step === 1 ? ['occurredOn'] : ['categoryId', 'assetId', 'sourceAssetId', 'destinationAssetId']
+    const currentErrors = Object.fromEntries(keys.filter(key => parsed.errors[key]).map(key => [key, parsed.errors[key]]))
+    setErrors(currentErrors)
+    if (Object.keys(currentErrors).length) return
+    if (step === 2 && draft.type !== 'TRANSFER' && (categories.isPending || categories.isError)) return
+    goToStep(Math.min(step + 1, 3))
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!online || remoteDeleted) return
     const parsed = parseDraft({ ...draft, assetId, sourceAssetId, destinationAssetId, categoryId, transferPurpose }, isCardExpense)
     setErrors(parsed.errors)
     if (!parsed.input) {
+      goToStep(parsed.errors.occurredOn ? 1 : parsed.errors.categoryId || parsed.errors.assetId || parsed.errors.sourceAssetId || parsed.errors.destinationAssetId ? 2 : 3)
       requestAnimationFrame(() => errorSummary.current?.focus())
       return
     }
@@ -368,8 +360,12 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
 
   const editor = (
     <>
-      <section className={embedded ? 'w-full' : 'mx-auto max-w-[48rem] py-3 sm:py-5 lg:max-w-[74rem] lg:py-8'}>
-        {!embedded ? <header className={`${editing ? 'hidden md:block ' : ''}border-b border-[var(--line)] pb-4`}><h1 className="text-2xl font-semibold tracking-[-.025em]">{editing ? '거래 수정' : '거래 기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">본인이 한 기록으로 시작해요. 필요하면 다른 구성원을 선택할 수 있어요.{editing ? ' 거래 종류는 기록 후 바꿀 수 없어요.' : ''}</p></header> : null}
+      <section className="transaction-record" data-record-step={step}>
+        {!editing && returnAfterCreate ? <Button asChild variant="ghost" className="mb-3"><Link to={returnAfterCreate}><ArrowLeft size={17} />자산으로 돌아가기</Link></Button> : null}
+        <header className="tr-desktop-title"><h1 className="text-2xl font-semibold">{editing ? '거래 수정' : '기록'}</h1><p className="mt-2 text-sm text-[var(--muted)]">한 번의 거래, 간단하게 남겨요.</p></header>
+        <div className="tr-mobile-progress"><Button type="button" variant="ghost" size="icon" aria-label="이전 단계" disabled={step===1} onClick={()=>goToStep(step-1)}><ArrowLeft size={19}/></Button><span>{editing ? '거래 수정' : '기록'}</span><StepIndicator step={step} label="기록 진행"/></div>
+        <h1 ref={stepTitle} tabIndex={-1} className="tr-mobile-title">{step===1 ? '어떤 거래인가요?' : step===2 ? draft.type==='TRANSFER' ? '어디로 옮겼나요?' : '분류와 자산을 확인해요' : draft.type==='INCOME' ? '얼마를 받았나요?' : draft.type==='TRANSFER' ? '얼마를 옮겼나요?' : '얼마를 썼나요?'}</h1>
+        <div className="tr-mobile-crumbs">{step>1 ? <Button variant="ghost" type="button" onClick={()=>goToStep(1)}>{typeLabel(draft.type)} · {draft.occurredOn.slice(5).replace('-', '.')}<ChevronDown size={14}/></Button> : null}{step>2 ? <Button variant="ghost" type="button" onClick={()=>goToStep(2)}>{draft.type==='TRANSFER' ? transferPurposeLabels[transferPurpose] : `${categories.data?.find(item=>item.categoryId===categoryId)?.name ?? '분류'} · ${selectedAsset?.name ?? '자산'}`}<ChevronDown size={14}/></Button> : null}</div>
 
         {remoteDeleted ? (
           <section className="mt-5 border-l-4 border-amber-500 px-4 py-2" aria-labelledby="deleted-transaction-title">
@@ -388,29 +384,24 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
           </section>
         ) : null}
 
-        <form className={embedded ? 'mt-1' : 'mt-1 lg:mt-6 lg:grid lg:grid-cols-[minmax(0,40rem)_18rem] lg:items-start lg:justify-between lg:gap-8 xl:grid-cols-[minmax(0,40rem)_20rem] xl:gap-10'} onSubmit={submit} noValidate>
-          <div className="min-w-0">
-            {hasFieldErrors(errors) ? <p ref={errorSummary} className="mb-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 outline-none dark:text-[#ffd5cf]" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
-
-            {editing ? (
-              <div className="mb-5"><p className="text-sm font-semibold">거래 종류</p><p className="mt-2 min-h-11 border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold" aria-label="거래 종류">{typeLabel(draft.type)}</p></div>
-            ) : (
-              <fieldset className="mb-5"><legend className="text-sm font-semibold">거래 종류</legend><div className="mt-2 grid grid-cols-3 border border-[var(--line)]"><TypeButton type="INCOME" selected={draft.type} onSelect={selectType}>수입</TypeButton><TypeButton type="EXPENSE" selected={draft.type} onSelect={selectType}>지출</TypeButton><TypeButton type="TRANSFER" selected={draft.type} onSelect={selectType}>이체</TypeButton></div></fieldset>
-            )}
-
-          <div className="grid gap-4" data-transaction-fields>
-            <MoneyField id="transactionAmount" label="금액" value={draft.amountWon} onValueChange={(value) => updateDraft('amountWon', value)} placeholder="0" error={errors.amountWon} inputClassName="min-h-12 pr-9 text-lg sm:text-xl" autoFocus={!editing} required />
-            <DatePickerField id="transactionDate" label="날짜" value={draft.occurredOn} onChange={(value) => updateDraft('occurredOn', value)} error={errors.occurredOn} required />
-
+        <form className="tr-form" onSubmit={submit} noValidate>
+          {hasFieldErrors(errors) ? <p ref={errorSummary} className="my-4 text-sm text-[var(--expense)] outline-none" role="alert" tabIndex={-1}>입력하지 않았거나 확인이 필요한 항목이 있어요.</p> : null}
+          <section className="tr-panel" data-record-panel="1" onFocusCapture={()=>setStep(1)} aria-label="거래 종류와 날짜">
+            <fieldset><legend className="mb-2 text-[13px] font-medium">거래 종류</legend>
+              {editing ? <p className="tr-fixed-type">{typeLabel(draft.type)} · 종류는 바꿀 수 없어요</p> : <div className="tr-type-tabs"><TypeButton type="EXPENSE" selected={draft.type} onSelect={selectType}>지출</TypeButton><TypeButton type="INCOME" selected={draft.type} onSelect={selectType}>수입</TypeButton><TypeButton type="TRANSFER" selected={draft.type} onSelect={selectType}>이체</TypeButton></div>}
+            </fieldset>
+            <DatePickerField id="transactionDate" label="날짜" value={draft.occurredOn} onChange={value => updateDraft('occurredOn', value)} error={errors.occurredOn} required />
+          </section>
+          <section className="tr-panel" data-record-panel="2" onFocusCapture={()=>setStep(2)} aria-label="분류와 자산">
             {draft.type === 'TRANSFER' ? (
-              <div className="grid gap-4 pt-1 xl:grid-cols-[1fr_auto_1fr] xl:items-end">
-                {transferAssets.length < 2 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이체하려면 계좌·적금·주식 계좌 중 서로 다른 자산이 두 개 이상 필요해요.</p> : null}
-                {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] xl:col-span-3" role="status">이 이체에 연결된 자산은 현재 일반 이체에 사용할 수 없어요. 보내는 자산과 받는 자산을 다시 선택해 주세요.</p> : null}
-                <p className="text-xs leading-5 text-[var(--muted)] xl:col-span-3">함께 쓰는 모든 구성원의 계좌·적금·주식 계좌를 선택할 수 있어요.</p>
-                <AssetPicker id="sourceAsset" label="보내는 자산" assets={transferAssets} members={ledger.members} value={sourceAssetId} onChange={(value) => updateDraft('sourceAssetId', value)} error={errors.sourceAssetId} placeholder="계좌·적금·주식 계좌를 선택해 주세요" required />
-                <ArrowRight className="mx-auto mb-3 hidden text-[var(--muted)] xl:block" size={20} />
-                <AssetPicker id="destinationAsset" label="받는 자산" assets={transferAssets} members={ledger.members} value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId} placeholder="계좌·적금·주식 계좌를 선택해 주세요" required />
-                <fieldset className="xl:col-span-3">
+              <div className="grid gap-4 pt-1 ">
+                {destinationAssets.length === 0 ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] " role="status">이체하려면 같은 명의의 계좌·적금·주식 계좌가 두 개 이상 필요해요.</p> : null}
+                {unavailableTransferSelection ? <p className="border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3] " role="status">이 이체에 연결된 자산은 현재 일반 이체에 사용할 수 없어요. 보내는 자산과 받는 자산을 다시 선택해 주세요.</p> : null}
+                <AssetPicker id="sourceAsset" label="보내는 자산" assets={transferAssets} members={ledger.members} value={sourceAssetId} onChange={(value) => { updateDraft('sourceAssetId', value); updateDraft('destinationAssetId', '') }} error={errors.sourceAssetId} placeholder="계좌·적금·주식 계좌를 선택해 주세요" required />
+
+                <p className="text-xs leading-5 text-[var(--muted)] ">이체는 같은 명의 자산 사이에서 기록해요. 사람 간 송금은 각자의 수입·지출로 입력해 주세요.</p>
+                <AssetPicker id="destinationAsset" label="받는 자산" assets={destinationAssets} members={ledger.members} value={destinationAssetId} onChange={(value) => updateDraft('destinationAssetId', value)} error={errors.destinationAssetId} placeholder="계좌·적금·주식 계좌를 선택해 주세요" required />
+                <fieldset className="">
                   <legend className="text-sm font-semibold">이체 목적</legend>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {Object.entries(transferPurposeLabels).map(([purpose, label]) => <Button key={purpose} type="button" variant={transferPurpose === purpose ? 'primary' : 'secondary'} aria-pressed={transferPurpose === purpose} onClick={() => updateDraft('transferPurpose', purpose as TransferPurpose)}>{label}</Button>)}
@@ -418,49 +409,32 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
                   <p className="mt-2 text-xs leading-5 text-[var(--muted)]">납입은 적금·투자 통계와 총 사용액에, 인출은 회수액에 반영돼요. 모아둔 돈을 다시 옮길 때는 일반 이체를 선택하세요.</p>
                 </fieldset>
               </div>
-            ) : (
-              <>
-                {categories.isError ? <div className="border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert"><p>분류를 불러오지 못했어요. 분류를 확인한 뒤 거래를 저장할 수 있어요.</p><Button className="mt-3" type="button" variant="secondary" onClick={() => categories.refetch()}>분류 다시 불러오기</Button></div> : null}
-                <CategoryPicker key={categoryKind} kind={categoryKind} categories={categories.data ?? []} value={categoryId} missingName={transaction?.category?.name} onChange={(value) => updateDraft('categoryId', value)} error={errors.categoryId} disabled={categories.isPending || categories.isError || pending || remoteDeleted} online={online} />
-                <AssetPicker id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} assets={assets} members={ledger.members} value={assetId} onChange={(value) => updateDraft('assetId', value)} missingSelection={transaction?.asset && !assets.some((asset) => asset.assetId === transaction.asset?.assetId) ? { assetId: transaction.asset.assetId, name: transaction.asset.name } : undefined} error={errors.assetId} required />
-                {isCardExpense ? <div className="w-full max-w-48"><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={(event) => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></div> : null}
-                {draft.type === 'EXPENSE' ? (
-                  <RepresentativePaymentFields
-                    checked={draft.representativePayment}
-                    statisticsAmountWon={draft.statisticsAmountWon}
-                    onCheckedChange={(checked) => updateDraft('representativePayment', checked)}
-                    onStatisticsAmountChange={(value) => updateDraft('statisticsAmountWon', value)}
-                    error={errors.statisticsAmountWon}
-                    disabled={pending || remoteDeleted}
-                  />
-                ) : null}
-                <StatisticsExclusionSwitch
-                  type={draft.type}
-                  checked={draft.excludedFromStatistics}
-                  onCheckedChange={(checked) => updateDraft('excludedFromStatistics', checked)}
-                  disabled={pending || remoteDeleted}
-                  className="border-0 py-1 sm:py-1"
-                />
-              </>
-            )}
-
-            <PerformerPicker id="performedBy" label={performerQuestionLabel(draft.type)} members={ledger.members} value={draft.performedByMemberId} onChange={(value) => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending || remoteDeleted} />
-            <TextareaField id="transactionDescription" label="내용 (선택)" value={draft.description} onChange={(value) => updateDraft('description', value)} maxLength={500} />
-          </div>
-
-            {!online ? <p className="mt-5 border-l-4 border-amber-500 px-4 py-2 text-sm text-amber-900 dark:text-[#ffe3a3]" role="status">인터넷 연결을 확인해 주세요. 입력은 그대로 두었고 연결되면 저장할 수 있어요.</p> : null}
-            {mutationError && !(mutationError instanceof ApiError && [404, 412].includes(mutationError.status)) ? <p className="mt-5 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{mutationError instanceof Error ? mutationError.message : '거래를 저장하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
-          </div>
-
-          <aside className={embedded ? 'mt-5 border-t border-[var(--line)] pt-5' : 'mt-5 border-t border-[var(--line)] pt-5 lg:sticky lg:top-[calc(var(--app-header-height,0px)+2rem)] lg:mt-0 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-7'}>
-            <div className={embedded ? 'hidden' : 'hidden lg:block'} data-transaction-desktop-summary>
-              <p className="text-xs font-semibold tracking-[.08em] text-[var(--muted)]">현재 입력</p>
-              <TransactionDraftSummary draft={resolvedDraft} assets={assets} categories={categories.data ?? []} ledger={ledger} />
+) : <>
+              {categories.isError ? <div role="alert" className="text-sm text-[var(--expense)]">분류를 불러오지 못했어요.<Button type="button" variant="ghost" onClick={() => categories.refetch()}>분류 다시 불러오기</Button></div> : null}
+              <CategoryPicker key={categoryKind} kind={categoryKind} categories={categories.data ?? []} value={categoryId} missingName={transaction?.category?.name} onChange={value => updateDraft('categoryId', value)} error={errors.categoryId} disabled={categories.isPending || categories.isError || pending || remoteDeleted} online={online} />
+              <AssetPicker id="transactionAsset" label={draft.type === 'INCOME' ? '입금 자산' : '결제 자산'} assets={assets} members={ledger.members} value={assetId} onChange={value => updateDraft('assetId', value)} missingSelection={transaction?.asset && !assets.some(asset => asset.assetId === transaction.asset?.assetId) ? { assetId: transaction.asset.assetId, name: transaction.asset.name } : undefined} error={errors.assetId} required />
+            </>}
+          </section>
+          <section className="tr-panel" data-record-panel="3" onFocusCapture={()=>setStep(3)} aria-label="금액과 내용">
+            <div>
+              <MoneyField id="transactionAmount" label="금액" value={draft.amountWon} onValueChange={value => updateDraft('amountWon', value)} placeholder="0" error={errors.amountWon} inputClassName="tr-amount" maxLength={13} required />
+              <div className="tr-inline-options">
+                {draft.type === 'EXPENSE' ? <label><Switch checked={draft.representativePayment} onCheckedChange={value => updateDraft('representativePayment', value)} aria-label="대표로 결제했어요" disabled={pending || remoteDeleted}/><span aria-hidden="true">대표 결제</span></label> : null}
+                {draft.type !== 'TRANSFER' ? <label><Switch checked={draft.excludedFromStatistics} onCheckedChange={value => updateDraft('excludedFromStatistics', value)} aria-label={`${draft.type === 'INCOME' ? '수입' : '지출'}에 포함하지 않기`} disabled={pending || remoteDeleted}/><span aria-hidden="true">{draft.type === 'INCOME' ? '수입' : '지출'}에 포함하지 않기</span></label> : null}
+              </div>
+              {draft.type === 'EXPENSE' && draft.representativePayment ? <div className="tr-representative"><MoneyField id="statisticsAmountWon" inputClassName="tr-amount" label="지출로 반영할 금액" value={draft.statisticsAmountWon} onValueChange={value => updateDraft('statisticsAmountWon', value)} maxLength={13} placeholder="0" error={errors.statisticsAmountWon} disabled={pending || remoteDeleted} required hint="0원부터 실제 결제 금액까지 입력할 수 있어요."/><p className="mt-3 text-[13px] leading-6 text-[var(--muted)]">실제 결제 {formatWon(Number(draft.amountWon) || 0)} · {draft.excludedFromStatistics ? '달력·통계에는 반영하지 않아요.' : `내 지출 ${formatWon(Number(draft.statisticsAmountWon) || 0)}`}</p></div> : null}
+              {draft.type !== 'TRANSFER' && draft.excludedFromStatistics && !draft.representativePayment ? <p className="text-[13px] text-[var(--muted)]">자산 잔액은 바뀌지만 달력과 통계 합계에는 반영하지 않아요.</p> : null}
+              {isCardExpense ? <details className="tr-installment" open={errors.installmentCount ? true : undefined}><summary>카드 결제 · {draft.installmentCount === '1' ? '일시불' : `${draft.installmentCount}개월 할부`} <ChevronDown size={14}/></summary><Field id="installmentCount" label="할부 개월" hint="일시불은 1개월로 두세요." type="number" min={1} max={60} value={draft.installmentCount} onChange={event => updateDraft('installmentCount', event.target.value)} inputMode="numeric" error={errors.installmentCount} required /></details> : null}
             </div>
-            <div className={embedded ? 'flex justify-end' : 'flex flex-col-reverse gap-3 xs:flex-row xs:justify-end lg:mt-6 lg:grid'}>
-              <Button type="submit" size="large" disabled={pending || !online || remoteDeleted || (draft.type !== 'TRANSFER' && (categories.isPending || categories.isError)) || (draft.type === 'TRANSFER' && (transferAssets.length < 2 || !sourceAssetId || !destinationAssetId))}>{pending ? <LoaderCircle className="animate-spin" size={18} /> : <Save size={18} />}{editing ? '변경 저장' : '기록 저장'}</Button>
-            </div>
-          </aside>
+            <div className="relative"><Field id="transactionDescription" label="내용 (선택)" value={draft.description} onChange={event => updateDraft('description', event.target.value)} maxLength={40} placeholder="어디에 썼는지 짧게 남겨요"/><span className="absolute right-0 top-0 text-[13px] tabular-nums text-[var(--muted)]">{draft.description.length}/40</span>{draft.description.length > 40 ? <p className="text-xs text-[var(--muted)]">기존 내용은 보존했어요. 변경할 때는 40자 이내로 입력해 주세요.</p> : null}</div>
+          </section>
+          {!online ? <p className="my-4 text-sm text-[var(--muted)]" role="status">인터넷 연결을 확인해 주세요. 입력은 그대로 두었고 연결되면 저장할 수 있어요.</p> : null}
+          {mutationError && !(mutationError instanceof ApiError && [404, 412].includes(mutationError.status)) ? <p className="my-4 text-sm text-[var(--expense)]" role="alert">{mutationError instanceof Error ? mutationError.message : '거래를 저장하지 못했어요.'} 입력은 그대로 두었습니다.</p> : null}
+          <footer className="tr-footer">
+            <details className="tr-performer" open={errors.performedByMemberId ? true : undefined}><summary><MemberAvatar memberId={draft.performedByMemberId} displayName={ledger.members.find(member => member.memberId === draft.performedByMemberId)?.displayName ?? '구성원'} size="xs"/><span>{performerPersonLabel(draft.type)} · {draft.performedByMemberId === currentMemberId ? '나' : ledger.members.find(member => member.memberId === draft.performedByMemberId)?.displayName ?? '구성원'}</span><ChevronDown size={14}/></summary><PerformerPicker id="performedBy" label={performerQuestionLabel(draft.type)} members={ledger.members} value={draft.performedByMemberId} onChange={value => updateDraft('performedByMemberId', value)} error={errors.performedByMemberId} disabled={pending || remoteDeleted}/></details>
+            <Button className="tr-next" type="button" onClick={nextStep}>다음<ArrowRight size={17}/></Button>
+            <Button className="tr-save" type="submit" size="large" disabled={pending || !online || remoteDeleted || (draft.type !== 'TRANSFER' && (categories.isPending || categories.isError)) || (draft.type === 'TRANSFER' && (destinationAssets.length === 0 || !sourceAssetId || !destinationAssetId))}>{pending ? <LoaderCircle className="animate-spin" size={18}/> : null}{editing ? '변경 저장' : '기록 저장'}</Button>
+          </footer>
         </form>
 
         {editing ? (
@@ -485,7 +459,6 @@ function TransactionEditor({ ledger, assets, transaction, initialDraft, initialD
     </>
   )
 
-  if (embedded) return editor
   return <AppShell ledgerNavigation mobileHeader={editing ? { title: '거래 수정', backTo: returnTo, backLabel: '거래 목록으로' } : undefined}>{editor}</AppShell>
 }
 
@@ -504,38 +477,16 @@ function TransactionSummary({ title, draft, assets, categories, ledger }: { titl
   return <dl className="border-y border-[var(--line)] py-2"><dt className="font-semibold">{title}</dt><dd className="mt-1 text-[var(--muted)]">{draft.occurredOn} · {formatWon(Number(draft.amountWon) || 0)}</dd><dd className="mt-1 text-[var(--muted)]">{draft.type === 'TRANSFER' ? `${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}` : `${categoryName} · ${assetName(draft.assetId)}`}</dd>{draft.type === 'EXPENSE' && draft.representativePayment ? <dd className="mt-1 font-semibold text-[var(--muted)]">대표 결제 · 지출 반영 {formatWon(Number(draft.statisticsAmountWon) || 0)}</dd> : null}{draft.type !== 'TRANSFER' && draft.excludedFromStatistics ? <dd className="mt-1 font-semibold text-[var(--muted)]">집계 제외</dd> : null}<dd className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-[var(--muted)]"><MemberValue member={member} fallback="현재 구성원에 없음" /><span aria-hidden="true">·</span><span>{draft.description || '내용 없음'}</span></dd></dl>
 }
 
-function TransactionDraftSummary({ draft, assets, categories, ledger }: { draft: Draft; assets: Asset[]; categories: Category[]; ledger: LedgerBook }) {
-  const assetName = (id: string) => draft.type === 'TRANSFER'
-    ? transferAssetName(id, assets, ledger, '선택 안 함')
-    : assets.find((asset) => asset.assetId === id)?.name ?? '선택 안 함'
-  const categoryName = categories.find((category) => category.categoryId === draft.categoryId)?.name ?? '선택 안 함'
-  const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)
-  const amountWon = Number(draft.amountWon.replaceAll(',', ''))
-  const flow = draft.type === 'TRANSFER'
-    ? `${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)}`
-    : `${categoryName} · ${assetName(draft.assetId)}`
-
-  return (
-    <dl className="mt-3 border-y border-[var(--line)] py-4 text-sm">
-      <div className="flex items-center justify-between gap-4"><dt className="text-[var(--muted)]">구분</dt><dd className="font-semibold">{typeLabel(draft.type)}</dd></div>
-      <div className="mt-4"><dt className="text-[var(--muted)]">금액</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.03em] tabular-nums ${draft.type === 'EXPENSE' ? 'text-[var(--expense)]' : draft.type === 'INCOME' ? 'text-[var(--income)]' : 'text-[var(--transfer)]'}`}>{Number.isSafeInteger(amountWon) && amountWon > 0 ? formatWon(amountWon) : '금액 미입력'}</dd></div>
-      {draft.type === 'EXPENSE' && draft.representativePayment ? <div className="mt-4"><dt className="text-[var(--muted)]">지출 반영</dt><dd className="mt-1 font-semibold tabular-nums">{formatWon(Number(draft.statisticsAmountWon) || 0)}</dd></div> : null}
-      <div className="mt-4"><dt className="text-[var(--muted)]">날짜</dt><dd className="mt-1 font-semibold tabular-nums">{draft.occurredOn || '선택 안 함'}</dd></div>
-      <div className="mt-4"><dt className="text-[var(--muted)]">흐름</dt><dd className="mt-1 break-words font-semibold leading-6">{flow}</dd></div>
-      {draft.type === 'TRANSFER' ? <div className="mt-4"><dt className="text-[var(--muted)]">이체 목적</dt><dd className="mt-1 font-semibold">{transferPurposeLabels[draft.transferPurpose ?? 'GENERAL']}</dd></div> : null}
-      {draft.type !== 'TRANSFER' ? <div className="mt-4"><dt className="text-[var(--muted)]">달력·통계</dt><dd className="mt-1 font-semibold">{draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}</dd></div> : null}
-      <div className="mt-4"><dt className="text-[var(--muted)]">{performerPersonLabel(draft.type)}</dt><dd className="mt-1 font-semibold"><MemberValue member={member} fallback="선택 안 함" /></dd></div>
-      {draft.description ? <div className="mt-4"><dt className="text-[var(--muted)]">내용</dt><dd className="mt-1 break-words leading-6">{draft.description}</dd></div> : null}
-    </dl>
-  )
-}
 
 function MemberValue({ member, fallback }: { member?: { memberId: string; displayName: string } | null; fallback: string }) {
   if (!member) return <>{fallback}</>
   return <span className="inline-flex min-w-0 items-center gap-1.5"><MemberAvatar displayName={member.displayName} memberId={member.memberId} size="xs" /><span className="truncate">{member.displayName}</span></span>
 }
 
-function TypeButton({ type, selected, onSelect, children }: { type: TransactionType; selected: TransactionType; onSelect: (type: TransactionType) => void; children: string }) { return <Button variant="ghost" className={`rounded-none border-r border-[var(--line)] px-3 last:border-r-0 ${selected === type ? 'bg-forest-100 text-forest-800 dark:bg-forest-800 dark:text-white' : 'bg-[var(--surface)] text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`} type="button" aria-pressed={selected === type} onClick={() => onSelect(type)}>{children}</Button> }
+function TypeButton({ type, selected, onSelect, children }: { type: TransactionType; selected: TransactionType; onSelect: (type: TransactionType) => void; children: string }) {
+  const Icon = type === 'EXPENSE' ? ArrowUpRight : type === 'INCOME' ? ArrowDownLeft : ArrowLeftRight
+  return <button type="button" aria-pressed={selected===type} onClick={()=>onSelect(type)}><Icon size={17}/>{children}</button>
+}
 function LoadingState({ label = '거래를 불러오는 중…' }: { label?: string }) { return <div className="grid min-h-56 place-items-center text-sm text-[var(--muted)]"><span className="inline-flex items-center gap-2"><LoaderCircle className="animate-spin" size={18} />{label}</span></div> }
 function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) { return <div className="mx-auto max-w-xl py-20 text-center"><p role="alert">{message}</p><Button className="mt-4" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div> }
 function NoAssets() { return <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold">먼저 자산을 등록해 주세요</h1><p className="mt-2 text-sm text-[var(--muted)]">거래 금액이 반영될 현금, 계좌 또는 카드를 먼저 준비해야 해요.</p><Button asChild className="mt-5"><Link to="/assets/new">자산 등록</Link></Button></div> }
@@ -592,7 +543,7 @@ function validNavigationDraft(draft: Draft | undefined, memberId: string, initia
 function apiFieldErrors(error: ApiError): FieldErrors { const mapped: FieldErrors = {}; for (const item of error.fieldErrors) if (item.field in defaultDraftKeys) mapped[item.field as keyof Draft] = item.code; for (const [field, message] of Object.entries(error.errors ?? {})) if (field in defaultDraftKeys) mapped[field as keyof Draft] = message; return mapped }
 const defaultDraftKeys: Record<keyof Draft, true> = { transferPurpose: true, type: true, amountWon: true, occurredOn: true, categoryId: true, assetId: true, sourceAssetId: true, destinationAssetId: true, performedByMemberId: true, description: true, installmentCount: true, excludedFromStatistics: true, representativePayment: true, statisticsAmountWon: true }
 function transferSelection(id: string, accounts: Asset[]) { return accounts.some((asset) => asset.assetId === id) ? id : '' }
-function safeReturnTo(state: unknown, occurredOn?: string) { const value = (state as NavigationState | null)?.returnTo; return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : `/?view=daily&month=${(occurredOn ?? todayInSeoul()).slice(0, 7)}` }
+function safeReturnTo(state: unknown, occurredOn?: string, fallback?: string) { const value = (state as NavigationState | null)?.returnTo; return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : fallback ?? `/?view=daily&month=${(occurredOn ?? todayInSeoul()).slice(0, 7)}` }
 function transferAssetName(id: string, assets: Asset[], ledger: LedgerBook, fallback: string) { const asset = assets.find((item) => item.assetId === id); return asset ? transferAssetLabel(asset, ledger.members) : fallback }
 function copyableDraft(draft: Draft, assets: Asset[], categories: Category[], ledger: LedgerBook) { const assetName = (id: string) => draft.type === 'TRANSFER' ? transferAssetName(id, assets, ledger, id) : assets.find((asset) => asset.assetId === id)?.name ?? id; const category = categories.find((item) => item.categoryId === draft.categoryId)?.name ?? draft.categoryId; const member = ledger.members.find((item) => item.memberId === draft.performedByMemberId)?.displayName ?? draft.performedByMemberId; return [`종류: ${typeLabel(draft.type)}`, `날짜: ${draft.occurredOn}`, `금액: ${draft.amountWon}원`, ...(draft.type === 'EXPENSE' && draft.representativePayment ? [`대표 결제 지출 반영: ${draft.statisticsAmountWon}원`] : []), draft.type === 'TRANSFER' ? `자산: ${assetName(draft.sourceAssetId)} → ${assetName(draft.destinationAssetId)} · ${transferPurposeLabels[draft.transferPurpose ?? 'GENERAL']}` : `분류/자산: ${category} / ${assetName(draft.assetId)}`, ...(draft.type !== 'TRANSFER' ? [`달력·통계: ${draft.excludedFromStatistics ? '집계 제외' : '집계 포함'}`] : []), `${performerPersonLabel(draft.type)}: ${member}`, `내용: ${draft.description}`].join('\n') }
 function typeLabel(type: TransactionType) { return type === 'INCOME' ? '수입' : type === 'EXPENSE' ? '지출' : '이체' }

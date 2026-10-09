@@ -45,7 +45,7 @@ export function MoneyCalculatorKeypad({ id, label, state, allowNegative, onActio
       aria-describedby={descriptionId}
       initialFocus={false}
     >
-      <PopoverHeader className="shrink-0 border-b border-[var(--line)] px-4 py-3 md:py-2">
+      <PopoverHeader className="shrink-0  px-4 py-3 md:py-2">
         <div className="min-w-0 flex-1 md:grid md:grid-cols-[1fr_auto] md:items-center md:gap-x-3">
           <PopoverTitle id={titleId}>{label} 계산기</PopoverTitle>
           <PopoverDescription id={descriptionId} className="sr-only">
@@ -97,7 +97,7 @@ export function MoneyCalculatorKeypad({ id, label, state, allowNegative, onActio
         <Key label="계산 결과 적용" display="=" onClick={() => onAction({ type: 'equals' })} operator />
       </div>
 
-      <div className="shrink-0 border-t border-[var(--line)] px-3 pt-2 pb-[max(.75rem,env(safe-area-inset-bottom))] md:p-2">
+      <div className="shrink-0  px-3 pt-2 pb-[max(.75rem,env(safe-area-inset-bottom))] md:p-2">
         <PopoverClose render={<Button type="button" className="w-full" />}>
           완료
         </PopoverClose>

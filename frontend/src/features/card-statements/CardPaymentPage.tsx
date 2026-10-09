@@ -25,11 +25,11 @@ export function CardPaymentPage({ ledger }: { ledger: LedgerBook }) {
 
   return (
     <AppShell ledgerNavigation mobileHeader={{ title: '카드 대금 결제', backTo, backLabel: '카드 자산으로 돌아가기' }}>
-      <section className="mx-auto max-w-[52rem] py-4 md:py-8">
+      <section className="mx-auto max-w-[66rem] py-4 md:py-8">
         <Button asChild className="mb-3 hidden md:inline-flex" variant="ghost"><Link to={backTo}><ArrowLeft size={17} />카드 자산으로 돌아가기</Link></Button>
         <header>
           <h1 className="hidden text-2xl font-semibold tracking-[-.025em] md:block">카드 대금 결제</h1>
-          {asset.data && !missing ? <p className="text-sm text-[var(--muted)] md:mt-2">{asset.data.name}</p> : null}
+
         </header>
         {asset.isPending ? <p className="py-12 text-sm text-[var(--muted)]" role="status">카드 정보를 불러오는 중…</p>
           : missing || !asset.data ? <div className="py-8" role="alert">

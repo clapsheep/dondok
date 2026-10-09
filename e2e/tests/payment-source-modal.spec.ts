@@ -1,3 +1,4 @@
+import { selectDate } from './support/date-picker'
 import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { cardAssetRow, expectCardPaymentAmounts } from './support/assets'
 import { openAssetPicker } from './support/asset-picker'
@@ -69,7 +70,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   const parentOpenedOn = parentForm.getByLabel('잔액 기준일', { exact: true })
   await parentName.fill('QC 생활비 신용카드')
   await parentAmount.fill('-180000')
-  await parentOpenedOn.fill(CARD_OPENED_ON)
+  await selectDate(page, '잔액 기준일', CARD_OPENED_ON, parentOpenedOn)
   await parentForm.getByLabel('정산일').fill('15')
   await parentForm.getByRole('spinbutton', { name: '결제일', exact: true }).fill('25')
   await parentForm.getByLabel('결제 월').selectOption('1')
@@ -84,7 +85,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   await typeGroup.getByRole('button', { name: '신용카드', exact: true }).click()
   await expect(parentName).toHaveValue('QC 생활비 신용카드')
   await expect(parentAmount).toHaveValue('-180,000')
-  await expect(parentOpenedOn).toHaveValue(CARD_OPENED_ON)
+  await expect(parentOpenedOn).toHaveAttribute('data-value', CARD_OPENED_ON)
   expect(paymentSources.hiddenReadCount, 'GET /api/assets에서 결제 계좌 후보를 숨겨야 합니다').toBeGreaterThan(0)
 
   await expectModalDismissal(page, context, creditTrigger, parentForm)
@@ -96,7 +97,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   const accountOpenedOn = dialog.getByLabel('잔액 기준일', { exact: true })
   await accountName.fill('QC 카드 결제 계좌')
   await accountAmount.fill('350000')
-  await accountOpenedOn.fill(CARD_OPENED_ON)
+  await selectDate(page, '잔액 기준일', CARD_OPENED_ON, accountOpenedOn)
   await accountName.focus()
 
   for (const viewport of [
@@ -110,7 +111,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
     await expectPaymentSourceDialogLayout(page, dialog, viewport)
     await expect(accountName, `${viewport.width}px에서 모달 이름 draft를 보존해야 합니다`).toHaveValue('QC 카드 결제 계좌')
     await expect(accountAmount, `${viewport.width}px에서 모달 금액 draft를 보존해야 합니다`).toHaveValue('350,000')
-    await expect(accountOpenedOn, `${viewport.width}px에서 모달 잔액 기준일 draft를 보존해야 합니다`).toHaveValue(CARD_OPENED_ON)
+    await expect(accountOpenedOn, `${viewport.width}px에서 모달 잔액 기준일 draft를 보존해야 합니다`).toHaveAttribute('data-value', CARD_OPENED_ON)
     await expect(accountName, `${viewport.width}px resize 뒤 모달 focus를 보존해야 합니다`).toBeFocused()
     await expectParentCardDraft(parentForm)
   }
@@ -127,7 +128,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   await expect(dialog.getByRole('alert')).toContainText('계좌 등록 테스트 오류')
   await expect(accountName).toHaveValue('QC 카드 결제 계좌')
   await expect(accountAmount).toHaveValue('350,000')
-  await expect(accountOpenedOn).toHaveValue(CARD_OPENED_ON)
+  await expect(accountOpenedOn).toHaveAttribute('data-value', CARD_OPENED_ON)
   await expectParentCardDraft(parentForm)
 
   paymentSources.enabled = false
@@ -144,7 +145,7 @@ test('신용카드에서 계좌를 바로 만들면 부모 draft를 보존하고
   expect(context.pages(), '계좌 생성은 새 탭을 열지 않아야 합니다').toHaveLength(1)
 
   await parentForm.getByRole('button', { name: '자산 등록', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('자산을 등록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '자산을 등록했어요.' })).toBeVisible()
   const cardRow = cardAssetRow(page, 'QC 생활비 신용카드')
   await expect(cardRow).toBeVisible()
   await expectCardPaymentAmounts(cardRow, { nearest: '180,000원' })
@@ -163,7 +164,7 @@ for (const scenario of LINKED_ASSET_SCENARIOS) {
     const parentOpenedOn = parentForm.getByLabel('잔액 기준일', { exact: true })
     await parentName.fill(scenario.parentName)
     await parentAmount.fill('270000')
-    await parentOpenedOn.fill('2026-07-08')
+    await selectDate(page, '잔액 기준일', '2026-07-08', parentOpenedOn)
     if (scenario.typeName === '적금') {
       await parentForm.getByRole('switch', { name: '자동이체 설정', exact: true }).click()
       await parentForm.getByRole('spinbutton', { name: '자동이체일', exact: true }).fill('27')
@@ -185,7 +186,7 @@ for (const scenario of LINKED_ASSET_SCENARIOS) {
     await expect(linkedAsset).toBeFocused()
     await expect(parentName).toHaveValue(scenario.parentName)
     await expect(parentAmount).toHaveValue('270,000')
-    await expect(parentOpenedOn).toHaveValue('2026-07-08')
+    await expect(parentOpenedOn).toHaveAttribute('data-value', '2026-07-08')
     if (scenario.typeName === '적금') {
       await expect(parentForm.getByRole('spinbutton', { name: '자동이체일', exact: true })).toHaveValue('27')
     }
@@ -369,7 +370,7 @@ async function expectPaymentSourceDialogLayout(
   expect(bottomMarginRatio, `${width}x${viewport.height}에서 모달 아래쪽 여백이 유지되어야 합니다`).toBeGreaterThanOrEqual(minimumVerticalMarginRatio)
   expect(layout.horizontalOverflow, `${width}px에서 모달 내부가 가로로 넘치면 안 됩니다`).toBe(false)
   expect(layout.verticalOverflow, `${width}x${viewport.height}에서 충분한 높이의 모달 내부가 세로로 넘치면 안 됩니다`).toBe(false)
-  expect(layout.radius, 'overlay 모달의 radius는 8px 이하여야 합니다').toBeLessThanOrEqual(8)
+  expect(layout.radius, 'overlay 모달의 radius는 공통 모달의 16px이어야 합니다').toBe(16)
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), `${width}px에서 페이지 가로 overflow가 없어야 합니다`).toBe(false)
 
   const [amountField, dateField] = await Promise.all([
@@ -410,7 +411,7 @@ async function expectControlTargetSize(locator: Locator, label: string) {
 async function expectParentCardDraft(parentForm: Locator) {
   await expect(parentForm.getByLabel('자산 이름 (선택)', { exact: true })).toHaveValue('QC 생활비 신용카드')
   await expect(parentForm.getByLabel('기준일 잔액', { exact: true })).toHaveValue('-180,000')
-  await expect(parentForm.getByLabel('잔액 기준일', { exact: true })).toHaveValue(CARD_OPENED_ON)
+  await expect(parentForm.getByLabel('잔액 기준일', { exact: true })).toHaveAttribute('data-value', CARD_OPENED_ON)
   await expect(parentForm.getByLabel('정산일')).toHaveValue('15')
   // Base UI modal은 열린 동안 배경 form을 접근성 트리에서 숨기므로 DOM label 연결로 draft만 확인한다.
   await expect(parentForm.getByLabel('결제일', { exact: true })).toHaveValue('25')

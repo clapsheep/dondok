@@ -68,14 +68,3 @@ export function yearlyBarSeries(months: StatisticsMonthAmount[]): YearlyBar[] {
     investmentPercent: maximum === 0 ? 0 : (month.assetFormation?.investmentDepositWon ?? 0) / maximum * 100,
   }))
 }
-
-// Keep an item's accent independent of its rank and the selected month.
-export function statisticsAccent(label: string, kind?: 'savings' | 'investment') {
-  if (kind === 'savings') return 'var(--chart-5)'
-  if (kind === 'investment') return 'var(--chart-3)'
-  let hash = 2166136261
-  for (const character of label) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619)
-  hash ^= hash >>> 16
-  const palette = [2, 1, 3, 7, 4, 6]
-  return `var(--chart-${palette[(hash >>> 0) % palette.length]})`
-}

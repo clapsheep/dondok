@@ -1,3 +1,4 @@
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, Copy, LoaderCircle, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
@@ -188,18 +189,15 @@ export function CategorySettingsPage() {
 
   return (
     <AppShell ledgerNavigation>
-      <section className="mx-auto max-w-5xl py-7 md:py-10">
+      <section className="category-settings py-7 md:py-10">
         <Button asChild variant="ghost"><Link to="/settings"><ArrowLeft size={17} />설정으로 돌아가기</Link></Button>
-        <header className="mt-5 border-b border-[var(--line)] pb-5">
+        <header className="mt-5 ui-page-section pb-5">
           <p className="text-sm font-semibold text-brass-500">공동 기준</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-[-.035em]">분류 설정</h1>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">모든 구성원이 같은 분류를 사용해요. 연결된 분류를 삭제하면 같은 종류의 ‘기타’로 거래가 이동합니다.</p>
         </header>
 
-        <div className="mt-5 grid grid-cols-2 border border-[var(--line)]" role="group" aria-label="분류 종류">
-          <KindButton active={kind === 'EXPENSE'} onClick={() => changeKind('EXPENSE')}>지출 분류</KindButton>
-          <KindButton active={kind === 'INCOME'} onClick={() => changeKind('INCOME')}>수입 분류</KindButton>
-        </div>
+        <SegmentedControl label="분류 종류" value={kind} onChange={changeKind} options={[{value:'EXPENSE',label:'지출 분류'},{value:'INCOME',label:'수입 분류'}]} />
 
         {!online ? <Notice tone="warning">오프라인 상태예요. 입력은 유지되며 연결된 뒤 추가·수정·삭제할 수 있어요.</Notice> : null}
         {result ? <Notice tone="success">‘{result.fallbackCategoryName}’ 분류로 {result.remappedTransactionCount}건을 옮기고 삭제했어요.{result.firstOccurredOn && result.lastOccurredOn ? ` (${formatPeriod(result.firstOccurredOn, result.lastOccurredOn)})` : ''}</Notice> : null}
@@ -207,14 +205,14 @@ export function CategorySettingsPage() {
         {orderNotice?.kind === kind && orderNotice.result === 'saved' ? <Notice tone="success">분류 순서를 변경했어요.</Notice> : null}
         {orderNotice?.kind === kind && orderNotice.result === 'conflict' ? <Notice tone="warning">다른 구성원이 분류를 변경해 최신 순서를 불러왔어요. 다시 이동해 주세요.</Notice> : null}
 
-        <form className="mt-6 grid gap-3 border-y border-[var(--line)] py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" onSubmit={add}>
+        <form className="mt-6 grid gap-3 ui-soft-panel py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" onSubmit={add}>
           <Field id="newCategoryName" label={`${kind === 'EXPENSE' ? '지출' : '수입'} 분류 추가`} value={addName} onChange={(event) => { setAddName(event.target.value); create.reset() }} maxLength={100} placeholder="예: 반려동물" required error={create.error instanceof ApiError && create.error.status === 409 ? '이미 같은 이름의 분류가 있어요.' : undefined} />
           <Button type="submit" disabled={!online || !addName.trim() || create.isPending}>{create.isPending ? <LoaderCircle className="animate-spin" size={17} /> : <Plus size={17} />}추가</Button>
         </form>
 
         {create.error && !(create.error instanceof ApiError && create.error.status === 409) ? <ErrorNotice error={create.error} /> : null}
         {missingDraft ? (
-          <section className="mt-5 border-l-4 border-amber-500 px-4 py-2" aria-labelledby="missing-category-title">
+          <section className="mt-5 ui-notice px-4 py-2" aria-labelledby="missing-category-title">
             <h2 id="missing-category-title" className="font-semibold">다른 구성원이 이 분류를 먼저 삭제했어요</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">수정하던 이름 ‘{missingDraft.name}’은 유지했어요. 새 분류로 다시 만들거나 복사할 수 있어요.</p>
             <div className="mt-3 flex flex-wrap gap-2"><Button type="button" onClick={() => { setAddName(missingDraft.name); setMissingDraft(undefined); setEdit(undefined) }}><Plus size={17} />새 분류로 입력</Button><Button type="button" variant="secondary" onClick={copyMissingName}>{copied ? <Check size={17} /> : <Copy size={17} />}{copied ? '복사됨' : '이름 복사'}</Button><Button asChild type="button" variant="ghost"><Link to="/settings">설정으로 돌아가기</Link></Button></div>
@@ -222,7 +220,7 @@ export function CategorySettingsPage() {
         ) : null}
 
         {conflict ? (
-          <section className="mt-5 border-l-4 border-amber-500 px-4 py-2" aria-labelledby="category-conflict-title">
+          <section className="mt-5 ui-notice px-4 py-2" aria-labelledby="category-conflict-title">
             <h2 id="category-conflict-title" className="font-semibold">다른 구성원이 먼저 변경했어요</h2>
             <dl className="mt-2 grid gap-1 text-sm"><div><dt className="inline text-[var(--muted)]">최신 이름 </dt><dd className="inline font-semibold">{conflict.latest.name}</dd></div>{conflict.action === 'rename' ? <div><dt className="inline text-[var(--muted)]">내 입력 </dt><dd className="inline font-semibold">{conflict.draftName}</dd></div> : null}</dl>
             <div className="mt-3 flex flex-wrap gap-2"><Button type="button" onClick={rebaseConflict}><Check size={17} />최신 버전에 {conflict.action === 'rename' ? '내 이름 적용' : '삭제 적용'}</Button><Button type="button" variant="secondary" onClick={() => { setConflict(undefined); setEdit(undefined); setPendingDelete(undefined); rename.reset(); remove.reset() }}><RotateCcw size={17} />최신값 유지</Button></div>
@@ -242,7 +240,7 @@ export function CategorySettingsPage() {
                 onReorder={(ordered) => reorder.mutate({ kind, categories: ordered })}
               />
 
-              <div id="selected-category-panel" className="border-t border-[var(--line)] pt-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
+              <div id="selected-category-panel" className="ui-soft-panel">
                 {selectedCategory ? (
                   edit?.categoryId === selectedCategory.categoryId ? (
                     <form className="grid gap-3" onSubmit={saveRename}>
@@ -269,7 +267,7 @@ export function CategorySettingsPage() {
         {reorder.error && !(reorder.error instanceof ApiError && reorder.error.status === 412) ? <ErrorNotice error={reorder.error} /> : null}
 
         {pendingDelete ? (
-          <section className="mt-5 border-y border-[var(--line)] py-5" aria-labelledby="delete-category-title">
+          <section className="mt-5 ui-soft-panel py-5" aria-labelledby="delete-category-title">
             <h2 id="delete-category-title" className="text-lg font-semibold">‘{pendingDelete.name}’ 분류를 삭제할까요?</h2>
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">연결된 거래 {pendingDelete.transactionCount}건은 {fallback ? `‘${fallback.name}’` : '같은 종류의 ‘기타’'} 분류로 옮겨져요. 거래 자체는 삭제되지 않습니다.</p>
             {remove.error && !(remove.error instanceof ApiError && [404, 412].includes(remove.error.status)) ? <ErrorNotice error={remove.error} /> : null}
@@ -281,18 +279,14 @@ export function CategorySettingsPage() {
   )
 }
 
-function KindButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
-  return <Button variant="ghost" className={`rounded-none px-3 first:border-r first:border-[var(--line)] ${active ? 'bg-forest-100 text-forest-800 dark:bg-forest-800 dark:text-white' : 'bg-[var(--surface)] text-[var(--muted)] hover:text-ink-900 dark:hover:text-white'}`} type="button" aria-pressed={active} onClick={onClick}>{children}</Button>
-}
-
 function Notice({ tone, children }: { tone: 'warning' | 'success'; children: ReactNode }) {
-  return <p className={`mt-4 border-l-4 px-4 py-2 text-sm ${tone === 'warning' ? 'border-amber-500 text-amber-900 dark:text-[#ffe3a3]' : 'border-forest-600 text-forest-800 dark:text-forest-100'}`} role="status">{children}</p>
+  return <p className={`mt-4 ui-notice text-sm ${tone === 'warning' ? 'border-amber-500 text-amber-900 dark:text-[#ffe3a3]' : 'border-forest-600 text-forest-800 dark:text-forest-100'}`} role="status">{children}</p>
 }
 
 function ErrorNotice({ error }: { error: unknown }) {
-  return <p className="mt-4 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{error instanceof Error ? error.message : '요청을 처리하지 못했어요.'}</p>
+  return <p className="mt-4 ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{error instanceof Error ? error.message : '요청을 처리하지 못했어요.'}</p>
 }
 
 function Loading() { return <div className="grid min-h-40 place-items-center text-sm text-[var(--muted)]"><span className="inline-flex items-center gap-2"><LoaderCircle className="animate-spin" size={17} />분류를 불러오는 중…</span></div> }
-function LoadError({ onRetry }: { onRetry: () => void }) { return <div className="mt-3 border-y border-[var(--line)] py-8 text-center"><p role="alert">분류를 불러오지 못했어요.</p><Button className="mt-3" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div> }
+function LoadError({ onRetry }: { onRetry: () => void }) { return <div className="mt-3 ui-soft-panel py-8 text-center"><p role="alert">분류를 불러오지 못했어요.</p><Button className="mt-3" variant="secondary" onClick={onRetry}>다시 불러오기</Button></div> }
 function formatPeriod(first: string, last: string) { return first === last ? first : `${first}~${last}` }

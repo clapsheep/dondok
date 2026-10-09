@@ -1,3 +1,4 @@
+import { fillRecordField, showRecordStep } from './support/record-steps'
 import { expect, test } from '@playwright/test'
 import { registerAndLogin } from './support/auth'
 import { selectAsset } from './support/asset-picker'
@@ -50,9 +51,10 @@ test('이체 목적은 저장·수정·회전 뒤에도 유지되고 납입과 �
     })
     await testInfo.attach('seed-manifest', { body: JSON.stringify({ ...seed, version: 'transfer-purpose-v1' }), contentType: 'application/json' })
     await page.goto('/transactions/new')
-    await page.getByLabel('금액', { exact: true }).fill('500000')
+    await fillRecordField(page, '금액', '500000')
     const calculator = page.getByRole('dialog', { name: '금액 계산기' })
     if (await calculator.isVisible()) await calculator.getByRole('button', { name: '완료', exact: true }).click()
+    await showRecordStep(page, 1)
     await page.getByRole('button', { name: '이체', exact: true }).click()
     await selectAsset(page, '보내는 자산', '계좌')
     await selectAsset(page, '받는 자산', '검증 적금')
@@ -106,9 +108,11 @@ test('이체 목적은 저장·수정·회전 뒤에도 유지되고 납입과 �
     await page.setViewportSize({ width: 390, height: 844 })
     await page.screenshot({ path: testInfo.outputPath('statistics-mobile.png'), fullPage: true })
     await page.goto(`/transactions/${transaction.transactionId}/edit`)
+    await page.getByRole('button', { name: '다음', exact: true }).click()
     await expect(page.getByRole('button', { name: '적금 납입', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('button', { name: '일반 이체', exact: true }).click()
     const updateResponse = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().includes(transaction.transactionId))
+    await page.getByRole('button', { name: '다음', exact: true }).click()
     await page.getByRole('button', { name: '변경 저장', exact: true }).click()
     expect((await updateResponse).status()).toBe(200)
     // Follow the completed save through the app instead of unloading its in-flight home requests.

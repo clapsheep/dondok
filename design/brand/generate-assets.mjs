@@ -75,6 +75,20 @@ try {
     }, { svgData, size })
     await writeFile(new URL(name, output), Buffer.from(png, 'base64'))
   }
+  // Email clients receive a small inline PNG instead of an external SVG request.
+  const mailOutput = new URL('../../backend/src/main/resources/mail/', import.meta.url)
+  await mkdir(mailOutput, { recursive: true })
+  const mailLogo = await page.evaluate(async (svgData) => {
+    const image = new Image()
+    image.src = 'data:image/svg+xml;base64,' + svgData
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = 528
+    canvas.height = 132
+    canvas.getContext('2d').drawImage(image, 0, 0, 528, 132)
+    return canvas.toDataURL('image/png').split(',')[1]
+  }, Buffer.from(assets['dondok-wordmark.svg']).toString('base64'))
+  await writeFile(new URL('dondok-wordmark.png', mailOutput), Buffer.from(mailLogo, 'base64'))
   console.log('Brand SVG and PNG assets generated in ' + fileURLToPath(output))
 } finally {
   await browser.close()

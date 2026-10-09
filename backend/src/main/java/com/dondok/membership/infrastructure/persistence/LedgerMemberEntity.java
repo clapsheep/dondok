@@ -17,7 +17,7 @@ public class LedgerMemberEntity {
     @Column(name = "book_id", nullable = false)
     private UUID bookId;
 
-    @Column(name = "user_id", nullable = false)
+    @Column(name = "user_id")
     private UUID userId;
 
     @Column(name = "joined_at", nullable = false)

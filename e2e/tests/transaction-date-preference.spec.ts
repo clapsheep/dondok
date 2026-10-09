@@ -1,3 +1,4 @@
+import { fillRecordField, showRecordStep } from './support/record-steps'
 import { expect, test, type Page } from '@playwright/test'
 import { registerAndLogin } from './support/auth'
 import { selectDate } from './support/date-picker'
@@ -46,7 +47,7 @@ test('마지막 신규 저장 날짜를 복원하고 선택 날짜·편집·초�
 
     // 취소와 서버 저장 실패는 기억한 날짜를 변경하지 않는다.
     await selectDate(page, '날짜', explicitDate)
-    await page.getByLabel('금액', { exact: true }).fill('1000')
+    await fillRecordField(page, '금액', '1000')
     await page.route('**/api/transactions', (route) => route.request().method() === 'POST'
       ? route.fulfill({ status: 503, contentType: 'application/problem+json', json: { title: 'QC 저장 실패', status: 503, detail: 'QC 저장 실패' } })
       : route.continue())
@@ -62,6 +63,7 @@ test('마지막 신규 저장 날짜를 복원하고 선택 날짜·편집·초�
     await page.goto(`/transactions/${first.transactionId}/edit`)
     await expect(date).toHaveAttribute('data-value', firstDate)
     await selectDate(page, '날짜', explicitDate)
+    await showRecordStep(page, 3)
     await page.getByRole('button', { name: '변경 저장', exact: true }).click()
     await expect(page).not.toHaveURL(/\/edit$/)
     await page.goto('/transactions/new')
@@ -72,7 +74,7 @@ test('마지막 신규 저장 날짜를 복원하고 선택 날짜·편집·초�
     await expect(date).toHaveAttribute('data-value', explicitDate)
 
     // 다른 탭의 저장과 화면 회전은 열린 폼의 날짜·입력을 덮지 않는다.
-    await page.getByLabel('내용 (선택)').fill('작성 중 유지')
+    await fillRecordField(page, '내용 (선택)', '작성 중 유지')
     const otherTab = await page.context().newPage()
     await otherTab.goto('/transactions/new')
     await expect(otherTab.getByLabel('날짜', { exact: true })).toHaveAttribute('data-value', lastDate)
@@ -89,25 +91,24 @@ test('마지막 신규 저장 날짜를 복원하고 선택 날짜·편집·초�
     await page.getByRole('button', { name: '나가기', exact: true }).click()
 
     await page.goto(`/assets/${first.asset.assetId}`)
-    await page.getByRole('button', { name: '기록 추가', exact: true }).click()
+    await page.getByRole('link', { name: '기록 추가', exact: true }).click()
     await expect(date).toHaveAttribute('data-value', firstDate)
-    await saveTransaction(page, lastDate, true)
-    await page.getByRole('button', { name: '기록 추가', exact: true }).click()
+    await saveTransaction(page, lastDate)
+    await page.getByRole('link', { name: '기록 추가', exact: true }).click()
     await expect(date).toHaveAttribute('data-value', lastDate)
   } finally {
     await testInfo.attach('console-network-request-ids', { body: JSON.stringify(evidence), contentType: 'application/json' })
   }
 })
 
-async function saveTransaction(page: Page, occurredOn: string, embedded = false) {
+async function saveTransaction(page: Page, occurredOn: string) {
   await selectDate(page, '날짜', occurredOn)
-  await page.getByLabel('금액', { exact: true }).fill('1000')
+  await fillRecordField(page, '금액', '1000')
   const response = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/transactions'
     && response.request().method() === 'POST' && response.status() === 201)
   await page.getByRole('button', { name: '기록 저장', exact: true }).click()
   const transaction = await (await response).json() as { transactionId: string; asset: { assetId: string } }
-  if (embedded) await expect(page.getByRole('dialog', { name: '거래 기록', exact: true })).toHaveCount(0)
-  else await expect(page).not.toHaveURL(/\/transactions\/new$/)
+  await expect(page).not.toHaveURL(/\/transactions\/new(?:\?|$)/)
   return transaction
 }
 

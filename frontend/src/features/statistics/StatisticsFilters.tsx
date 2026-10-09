@@ -98,7 +98,7 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
           finalFocus={trigger}
         >
         <form className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6" onSubmit={submit}>
-          <header className="flex items-start justify-between gap-4 border-b border-[var(--line)] pb-4">
+          <header className="flex items-start justify-between gap-4  pb-4">
             <div><DialogTitle id="statistics-filter-title">세부 필터</DialogTitle><DialogDescription className="mt-1">자산 소유자와 분류 조건을 함께 적용해요.</DialogDescription></div>
             <Button type="button" size="icon" variant="ghost" aria-label="통계 필터 닫기" onClick={close}><X size={19} /></Button>
           </header>
@@ -119,7 +119,7 @@ export function StatisticsFilters({ state, members, categories, categoriesPendin
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-4 sm:flex sm:justify-between">
+          <div className="grid grid-cols-2 gap-2  pt-4 sm:flex sm:justify-between">
             <Button type="button" variant="ghost" onClick={() => setDraft({ owner: 'all', categoryId: '' })}><RotateCcw size={17} />필터 초기화</Button>
             <Button type="submit">필터 적용</Button>
           </div>
@@ -135,7 +135,7 @@ function FilterRadioGroup({ legend, description, value, onValueChange, columns =
     <fieldset className="min-w-0">
       <legend className="text-base font-semibold">{legend}</legend>
       <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{description}</p>
-      <RadioGroupPrimitive value={value} onValueChange={onValueChange} className={`mt-2 gap-0 border-y border-[var(--line)] ${columns ? 'grid sm:grid-cols-2 sm:gap-x-5' : ''}`}>{children}</RadioGroupPrimitive>
+      <RadioGroupPrimitive value={value} onValueChange={onValueChange} className={`mt-2 gap-0  ${columns ? 'grid sm:grid-cols-2 sm:gap-x-5' : ''}`}>{children}</RadioGroupPrimitive>
     </fieldset>
   )
 }
@@ -143,7 +143,7 @@ function FilterRadioGroup({ legend, description, value, onValueChange, columns =
 function FilterRadioOption({ name, value, children }: { name: string; value: string; children: ReactNode }) {
   const id = `${name}-${value || 'all'}`
   return (
-    <label htmlFor={id} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 border-b border-[var(--line-subtle)] py-2 text-sm last:border-b-0">
+    <label htmlFor={id} className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3  py-2 text-sm last:border-b-0">
       <RadioGroupItem id={id} value={value} />
       <span className="flex min-w-0 items-center gap-2 break-words">{children}</span>
     </label>

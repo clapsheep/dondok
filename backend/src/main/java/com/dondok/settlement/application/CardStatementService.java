@@ -42,6 +42,7 @@ public class CardStatementService {
     private final LedgerMemberRepository members;
     private final LedgerMutationGuard mutationGuard;
     private final CardStatementPaymentPolicy paymentPolicy;
+    private final com.dondok.asset.application.AssetConnectionPolicy connections;
     private final Clock clock;
 
     public CardStatementService(
@@ -51,7 +52,7 @@ public class CardStatementService {
             LedgerMemberRepository members,
             LedgerMutationGuard mutationGuard,
             CardStatementPaymentPolicy paymentPolicy,
-            Clock clock
+            com.dondok.asset.application.AssetConnectionPolicy connections, Clock clock
     ) {
         this.repository = repository;
         this.idempotency = idempotency;
@@ -59,7 +60,7 @@ public class CardStatementService {
         this.members = members;
         this.mutationGuard = mutationGuard;
         this.paymentPolicy = paymentPolicy;
-        this.clock = clock;
+        this.clock = clock; this.connections = connections;
     }
 
     @Transactional(readOnly = true)
@@ -112,6 +113,7 @@ public class CardStatementService {
         }
         requireActiveCard(statement);
         LocalDate today = today();
+        connections.requireSameOwner(member.getBookId(), statement.cardAssetId(), statement.settlementAssetId());
         requirePrepayable(statement, command.amountWon(), today);
         CardStatementPaymentPolicy.PrepaymentDecision decision = prepaymentDecision(
                 statement.remainingAmountWon(), command.amountWon());
@@ -159,6 +161,7 @@ public class CardStatementService {
                 command.previewToken().getBytes(StandardCharsets.UTF_8))) {
             throw previewStale(statement);
         }
+        connections.requireSameOwner(member.getBookId(), statement.cardAssetId(), statement.settlementAssetId());
         requirePrepayable(statement, command.amountWon(), today);
         CardStatementPaymentPolicy.PrepaymentDecision decision = prepaymentDecision(
                 statement.remainingAmountWon(), command.amountWon());
@@ -226,6 +229,7 @@ public class CardStatementService {
             throw error(HttpStatus.CONFLICT, "CARD_STATEMENT_NOT_PAYABLE", "현재 결제할 카드 명세가 아닙니다.");
         }
         settlementAsset(statement);
+        connections.requireSameOwner(member.getBookId(), statement.cardAssetId(), statement.settlementAssetId());
         if (!repository.isActivePaymentSource(member.getBookId(), statement.settlementAssetId())) {
             throw error(HttpStatus.CONFLICT, "CARD_SETTLEMENT_ASSET_INVALID", "사용 가능한 결제 계좌를 설정해 주세요.");
         }
@@ -275,6 +279,7 @@ public class CardStatementService {
             throw error(HttpStatus.CONFLICT, "CARD_PAYMENT_ACCOUNT_CORRECTION_REFUND_EXISTS",
                     "환불 반환에 사용된 결제는 출금 계좌를 변경할 수 없습니다.");
         }
+        connections.requireSameOwner(member.getBookId(), statement.cardAssetId(), command.settlementAssetId());
         if (!repository.isActivePaymentSource(member.getBookId(), command.settlementAssetId())) {
             throw error(HttpStatus.BAD_REQUEST, "CARD_SETTLEMENT_ASSET_INVALID",
                     "같은 가계부의 결제 가능한 자산을 선택해 주세요.");

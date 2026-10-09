@@ -95,7 +95,7 @@ export function DatePickerField({
           aria-describedby={descriptionId}
           finalFocus={trigger}
         >
-          <PopoverHeader className="shrink-0 border-b border-[var(--line)] px-4 py-3">
+          <PopoverHeader className="shrink-0  px-4 py-3">
             <div className="min-w-0">
               <PopoverTitle id={titleId}>{label} 선택</PopoverTitle>
               <PopoverDescription id={descriptionId} className="sr-only md:not-sr-only md:mt-0.5">월을 이동한 뒤 날짜를 선택해 주세요.</PopoverDescription>
@@ -123,7 +123,7 @@ export function DatePickerField({
             </Suspense>
           </div>
 
-          <div className="flex shrink-0 items-center justify-between border-t border-[var(--line)] px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-2 md:pb-3">
+          <div className="flex shrink-0 items-center justify-between  px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-2 md:pb-3">
             <span className="text-xs text-[var(--muted)]">{selected ? formatDateDisplay(selected) : '날짜를 선택해 주세요'}</span>
             <Button type="button" variant="ghost" className="min-h-11 px-3" onClick={() => selectDate(today)}>오늘</Button>
           </div>

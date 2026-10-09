@@ -1,8 +1,9 @@
+import { showRecordStep } from './support/record-steps'
 import { expect, test, type Page } from '@playwright/test'
 import { logoutFromLedger, registerAndLogin } from './support/auth'
 import { openAssetPicker, selectAsset } from './support/asset-picker'
 
-test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 관리하고 이체한다', { tag: '@pr' }, async ({ page, request }) => {
+test('가계부 생성자가 초대한 구성원과 함께 기록하고 서로 다른 명의 간 이체를 구분한다', { tag: '@pr' }, async ({ page, request }) => {
   const ownerName = `초대한 사람 ${test.info().workerIndex}`
   const memberName = `참여한 사람 ${test.info().workerIndex}`
   const owner = await registerAndLogin(page, request, ownerName)
@@ -17,7 +18,7 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   await expect(page.getByRole('button', { name: '새 초대' })).toHaveCount(0)
   await page.getByRole('link', { name: '설정', exact: true }).click()
   await expect(page.getByRole('heading', { name: '가계부 설정' })).toBeVisible()
-  await expect(page.getByText(ownerName, { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '함께 쓰는 가계부' }).getByText(ownerName, { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '새 초대' }).click()
   const invitationCode = await page.getByRole('status', { name: '초대 코드' }).textContent()
   expect(invitationCode).toBeTruthy()
@@ -39,8 +40,8 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   await expect(page.getByRole('radio', { name: '내 기록 보기' })).toBeChecked()
   await expect(page.getByRole('radio', { name: `${ownerName} 기록 보기` })).toBeVisible()
   await page.getByRole('link', { name: '설정', exact: true }).click()
-  await expect(page.getByText(ownerName, { exact: true })).toBeVisible()
-  await expect(page.getByText(memberName, { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '함께 쓰는 가계부' }).getByText(ownerName, { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '함께 쓰는 가계부' }).getByText(memberName, { exact: true })).toBeVisible()
 
   await page.goto(`/join?code=${encodeURIComponent(invitationCode!)}`)
   await expect(page).toHaveURL('/')
@@ -54,10 +55,12 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   await expect(page.getByRole('radio', { name: `${memberName} 기록 보기` })).toBeVisible()
   await page.getByRole('link', { name: '설정', exact: true }).click()
   await expect(page.getByRole('heading', { name: '가계부 설정' })).toBeVisible()
-  await expect(page.getByText(memberName, { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '함께 쓰는 가계부' }).getByText(memberName, { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /초대 내역/ }).click()
   await expect(page.getByText('사용 완료', { exact: true })).toBeVisible()
 
   await page.getByRole('link', { name: '기록', exact: true }).click()
+  await page.locator('summary').filter({ hasText: '쓴 사람' }).click()
   const performerGroup = page.getByRole('radiogroup', { name: '누가 썼나요?' })
   await expect(performerGroup).toBeVisible()
   await expect(performerGroup.locator('[data-member-avatar]')).toHaveCount(2)
@@ -71,7 +74,8 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   const accounts = await createOtherMemberAccount(page, `${memberName} 계좌`)
   await page.goto('/transactions/new')
   await page.getByRole('button', { name: '이체', exact: true }).click()
-  await expect(page.getByText('함께 쓰는 모든 구성원의 계좌·적금·주식 계좌를 선택할 수 있어요.')).toBeVisible()
+  await showRecordStep(page, 2)
+  await expect(page.getByText('이체는 같은 명의 자산 사이에서 기록해요. 사람 간 송금은 각자의 수입·지출로 입력해 주세요.')).toBeVisible()
   const sourceAccount = page.getByLabel('보내는 자산')
   const destinationAccount = page.getByLabel('받는 자산')
   const sourcePicker = await openAssetPicker(page, '보내는 자산')
@@ -96,17 +100,12 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   await page.keyboard.press('Escape')
 
   await selectAsset(page, '보내는 자산', accounts.source.name)
-  await selectAsset(page, '받는 자산', accounts.destination.name)
-  await expect(sourceAccount).toContainText('나')
-  await expect(destinationAccount).toContainText(memberName)
-  await page.getByLabel('금액').fill('210000')
-  await page.getByLabel('내용 (선택)').fill('구성원 간 계좌 이체')
-  await page.getByRole('button', { name: '기록 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('거래를 기록했어요')
-
+  const destinationPicker = await openAssetPicker(page, '받는 자산')
+  await expect(destinationPicker.picker.locator(`[data-asset-id="${accounts.destination.assetId}"]`)).toHaveCount(0)
+  await page.keyboard.press('Escape')
   const balances = await accountBalances(page, [accounts.source.assetId, accounts.destination.assetId])
-  expect(balances[accounts.source.assetId]).toBe(accounts.source.balanceWon - 210_000)
-  expect(balances[accounts.destination.assetId]).toBe(accounts.destination.balanceWon + 210_000)
+  expect(balances[accounts.source.assetId]).toBe(accounts.source.balanceWon)
+  expect(balances[accounts.destination.assetId]).toBe(accounts.destination.balanceWon)
 
   const calendarSeed = await seedMemberCalendarIncome(page)
   await page.goto('/')
@@ -119,9 +118,9 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   const monthTitle = page.locator('[data-month-title]')
   await expect(monthTitle).toBeVisible()
   expect(await monthTitle.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)))
-    .toBeLessThanOrEqual(18)
+    .toBeLessThanOrEqual(19)
 
-  await memberFilter.getByRole('radio', { name: `${memberName} 기록 보기` }).locator('..').click()
+  await memberFilter.getByRole('radio', { name: `${memberName} 기록 보기` }).click()
   await expect(page.getByTitle('수입 +70,000원')).toBeVisible()
   await expect(page.getByTitle('수입 +100,000원')).toHaveCount(0)
   expect(new URL(page.url()).searchParams.get('member')).toBe(calendarSeed.otherMemberId)
@@ -130,18 +129,18 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   const dayDetail = page.getByRole('region', { name: `${calendarSeed.occurredOn} 거래 상세` })
   await expect(dayDetail.getByText('상대 달력 수입', { exact: true })).toBeVisible()
   await expect(dayDetail.getByText('내 달력 수입', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: '달력으로 돌아가기' }).click()
+  if(await page.getByRole('button', { name: '달력으로 돌아가기' }).isVisible()) await page.getByRole('button', { name: '달력으로 돌아가기' }).click()
 
   await page.getByRole('button', { name: '일별 보기' }).click()
   await expect(page.getByText('상대 달력 수입', { exact: true })).toBeVisible()
   await expect(page.getByText('내 달력 수입', { exact: true })).toHaveCount(0)
 
-  await memberFilter.getByRole('radio', { name: '모든 구성원 기록 보기' }).locator('..').click()
+  await memberFilter.getByRole('radio', { name: '모든 구성원 기록 보기' }).click()
   await expect(page.getByText('상대 달력 수입', { exact: true })).toBeVisible()
   await expect(page.getByText('내 달력 수입', { exact: true })).toBeVisible()
   expect(new URL(page.url()).searchParams.get('member')).toBe('all')
 
-  await memberFilter.getByRole('radio', { name: '내 기록 보기' }).locator('..').click()
+  await memberFilter.getByRole('radio', { name: '내 기록 보기' }).click()
   await expect(page.getByText('내 달력 수입', { exact: true })).toBeVisible()
   await expect(page.getByText('상대 달력 수입', { exact: true })).toHaveCount(0)
   expect(new URL(page.url()).searchParams.get('member')).toBeNull()

@@ -1,3 +1,4 @@
+import { fillRecordField } from './support/record-steps'
 import { expectRecordActions } from './support/record-actions'
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { selectAsset } from './support/asset-picker'
@@ -82,13 +83,15 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
 
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
   await expect(page.getByText('-80,000원', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '환불 처리', exact: true })).toBeHidden()
+  await page.locator('summary').filter({ hasText: '카드 청구·환불 내역' }).click()
   await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('80,000원')
   await expect(page.getByRole('link', { name: '기록 정정', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: '환불 처리', exact: true })).toBeVisible()
-  await expectRecordActions(page, '카드 구매 상세', ['기록 정정', '환불 처리'])
+  await expectRecordActions(page, '카드 구매 상세', ['기록 정정'])
   const originalViewport = page.viewportSize()!
   await page.setViewportSize({ width: 320, height: 740 })
-  await expectRecordActions(page, '카드 구매 상세', ['기록 정정', '환불 처리'])
+  await expectRecordActions(page, '카드 구매 상세', ['기록 정정'])
   expect(await hasPageOverflow(page)).toBe(false)
   await page.setViewportSize(originalViewport)
   await page.screenshot({ path: testInfo.outputPath('card-detail-actions.png'), fullPage: true })
@@ -98,14 +101,16 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await expect(page.getByRole('heading', { name: '자산 현황', exact: true })).toBeVisible()
   await expectAssetDebt(page, '80,000원')
   await page.goto(detailUrl)
+  await page.locator('summary').filter({ hasText: '카드 청구·환불 내역' }).click()
   await page.getByRole('link', { name: '환불 처리', exact: true }).click()
 
-  await expect(page.getByRole('heading', { name: '카드 구매 환불' })).toBeVisible()
-  const amount = page.getByLabel('환불 금액')
+  await expect(page.getByText('카드 구매 환불', { exact: true }).filter({ visible: true })).toBeVisible()
+  const amount = page.getByLabel('환불 금액', { exact: true })
   const date = page.getByLabel('환불일')
   const description = page.getByLabel('내용 (선택)')
+  await selectDate(page, '환불일', refundDate)
+  await advanceVisibleSteps(page)
   await amount.fill('30,000')
-  await date.fill(refundDate)
   await description.fill(refundDescription)
   await page.getByRole('switch', { name: '지출에 포함하지 않기' }).click()
   await expect(page.getByText('자산 잔액은 바뀌지만 달력과 통계 합계에는 반영하지 않아요.')).toBeVisible()
@@ -127,9 +132,10 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
   await refundPreview.getByRole('button', { name: '환불 기록' }).click()
 
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
-  await expect(page.getByRole('status')).toContainText('환불을 기록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '환불을 기록했어요.' })).toBeVisible()
   await expect(page.getByText('-80,000원', { exact: true })).toBeVisible()
   await expect(page.getByText(purchaseDescription, { exact: true })).toBeVisible()
+  await page.locator('summary').filter({ hasText: '카드 청구·환불 내역' }).click()
   await expect(page.getByText('환불 가능 50,000원', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('50,000원')
   await expect(page.getByRole('heading', { name: '환불 처리 내역' }).locator('..')).toContainText('+30,000원')
@@ -149,7 +155,7 @@ test('미결제 카드 구매 환불은 원 구매를 남기고 환불일·달�
 
   await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
   await page.getByRole('button', { name: '월간 달력' }).click()
-  await expect(page.getByTitle('-80,000원', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('grid', { name: /거래 달력/ })).toBeVisible()
   await expect(page.getByTitle('지출 -80,000원', { exact: true })).toBeVisible()
   await expect(page.getByTitle('환불 +30,000원', { exact: true })).toHaveCount(0)
   expect(await hasPageOverflow(page)).toBe(false)
@@ -182,12 +188,13 @@ test('카드 구매 기록 정정은 저장 확인 dialog 뒤 변경된 구매�
     .click()
   await page.getByRole('link', { name: '기록 정정', exact: true }).click()
 
-  await expect(page.getByRole('heading', { name: '카드 구매 기록 정정' })).toBeVisible()
-  const amount = page.getByLabel('금액')
+  await expect(page.getByText('카드 구매 기록 정정', { exact: true }).filter({ visible: true })).toBeVisible()
+  const amount = page.getByLabel('금액', { exact: true })
   const date = page.getByLabel('구매 날짜')
   const description = page.getByLabel('내용 (선택)')
+  await selectDate(page, '구매 날짜', correctedDate)
+  await advanceVisibleSteps(page)
   await amount.fill('60,000')
-  await date.fill(correctedDate)
   await description.fill(correctedDescription)
   await page.getByRole('switch', { name: '지출에 포함하지 않기' }).click()
   await expectDraftAndFocusAcrossViewports(page, description, correctedDescription, '정정 저장')
@@ -212,12 +219,14 @@ test('카드 구매 기록 정정은 저장 확인 dialog 뒤 변경된 구매�
   await confirmation.getByRole('button', { name: '저장', exact: true }).click()
 
   await expect(page.getByRole('heading', { name: '카드 구매 상세' })).toBeVisible()
-  await expect(page.getByRole('status')).toContainText('카드 구매 기록을 정정했어요.')
-  await expect(page.getByRole('region', { name: '원 구매', exact: true }).locator('time')).toHaveAttribute('datetime', correctedDate)
+  await expect(page.getByRole('status').filter({ hasText: '카드 구매 기록을 정정했어요.' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '거래 요약', exact: true }).locator('time')).toHaveAttribute('datetime', correctedDate)
   await expect(page.getByText('-65,000원', { exact: true })).toBeVisible()
+  await page.locator('summary').filter({ hasText: '카드 청구·환불 내역' }).click()
   await expect(page.getByText('남은 결제', { exact: true }).locator('..')).toContainText('65,000원')
   await expect(page.getByText(correctedDescription, { exact: true })).toBeVisible()
-  await expect(page.getByText('달력·통계', { exact: true }).locator('..')).toContainText('집계 제외')
+  await expect(page.getByRole('region', { name: '거래 요약' })).toContainText('집계 제외')
+  await expect(page.getByRole('complementary', { name: '집계 반영' })).toContainText('0원')
 
   await page.getByRole('link', { name: /^(거래 목록으로|목록으로 돌아가기)$/ }).click()
   await expect(transactionRow(page, originalDescription)).toHaveCount(0)
@@ -236,18 +245,20 @@ test('카드 구매 기록 정정은 저장 확인 dialog 뒤 변경된 구매�
 
 async function createCardPurchase(page: Page, purchase: { amount: string; occurredOn: string; description: string }) {
   await page.goto('/transactions/new')
-  await expect(page.getByRole('heading', { name: '거래 기록' })).toBeVisible()
-  await page.getByLabel('금액').fill(purchase.amount)
   await selectDate(page, '날짜', purchase.occurredOn)
+  if(await page.getByRole('button', {name:'다음',exact:true}).isVisible()) await page.getByRole('button', {name:'다음',exact:true}).click()
   const category = transactionCategoryTrigger(page)
   await expect(category).toContainText('식비')
   await selectTransactionCategory(page, '식비')
   await selectAsset(page, '결제 자산', '신용카드')
+  await advanceVisibleSteps(page)
+  await fillRecordField(page, '금액', purchase.amount)
+  await page.locator('summary').filter({hasText:'카드 결제'}).click()
   await expect(page.getByLabel('할부 개월')).toBeVisible()
   await page.getByLabel('할부 개월').fill('1')
-  await page.getByLabel('내용 (선택)').fill(purchase.description)
+  await fillRecordField(page, '내용 (선택)', purchase.description)
   await page.getByRole('button', { name: '기록 저장' }).click()
-  await expect(page.getByRole('status')).toContainText('거래를 기록했어요.')
+  await expect(page.getByRole('status').filter({ hasText: '거래를 기록했어요.' })).toBeVisible()
   await expect(page.getByRole('button', { name: '일별 보기' })).toHaveAttribute('aria-pressed', 'true')
 }
 
@@ -272,44 +283,24 @@ async function expectDraftAndFocusAcrossViewports(page: Page, field: Locator, va
 }
 
 async function expectCardManagementFormLayout(page: Page, width: number, kind: 'refund' | 'correction') {
-  const fieldRect = (locator: Locator) => locator.evaluate((element) => {
-    const wrapper = element.closest('[data-slot="field"], [data-slot="money-field"]') ?? element.parentElement
-    if (!wrapper) throw new Error('카드 관리 Field wrapper를 찾지 못했습니다.')
-    const rect = wrapper.getBoundingClientRect()
-    return { top: rect.top, bottom: rect.bottom, width: rect.width }
-  })
-  const [amount, date] = await Promise.all([
-    fieldRect(page.getByLabel(kind === 'refund' ? '환불 금액' : '금액', { exact: true })),
-    fieldRect(page.getByLabel(kind === 'refund' ? '환불일' : '구매 날짜', { exact: true })),
-  ])
-  if (width < 768) {
-    expect(date.top, `${width}px 날짜는 금액 아래에 있어야 합니다`).toBeGreaterThanOrEqual(amount.bottom - 1)
+  const amount = page.getByLabel(kind === 'refund' ? '환불 금액' : '금액', { exact: true })
+  const date = page.getByRole('button', { name: kind === 'refund' ? '환불일' : '구매 날짜', exact: true })
+  await expect(amount).toBeVisible()
+  if(width < 768) {
+    await expect(date).toBeHidden()
+    await expect(page.getByRole('img', { name: new RegExp(`진행: ${kind==='refund'?2:3}단계 중 ${kind==='refund'?2:3}단계`) })).toBeVisible()
   } else {
-    expect(Math.abs(amount.top - date.top), `${width}px 금액과 날짜는 같은 행에서 시작해야 합니다`).toBeLessThanOrEqual(1)
-    expect(amount.width, `${width}px 금액 입력은 날짜보다 넓어야 합니다`).toBeGreaterThan(date.width)
+    await expect(date).toBeVisible()
+    expect((await date.boundingBox())!.y).toBeLessThan((await amount.boundingBox())!.y)
   }
-  if (kind === 'refund') return
+  await expect(page.getByRole('textbox', { name:'내용 (선택)', exact:true })).toHaveAttribute('maxlength','40')
+}
 
-  const [category, card, installments, performer] = await Promise.all([
-    fieldRect(page.getByLabel('분류', { exact: true })),
-    fieldRect(page.getByLabel('결제 카드', { exact: true })),
-    fieldRect(page.getByLabel('할부 개월', { exact: true })),
-    page.getByRole('radiogroup', { name: '누가 썼나요?' }).evaluate((element) => {
-      const wrapper = element.closest('[data-slot="performer-picker"]') ?? element.parentElement
-      if (!wrapper) throw new Error('카드 관리 PerformerPicker wrapper를 찾지 못했습니다.')
-      const rect = wrapper.getBoundingClientRect()
-      return { top: rect.top, bottom: rect.bottom, width: rect.width }
-    }),
-  ])
-  if (width < 768) {
-    expect(card.top, `${width}px 결제 카드는 분류 아래에 있어야 합니다`).toBeGreaterThanOrEqual(category.bottom - 1)
-    expect(installments.top, `${width}px 할부 개월은 결제 카드 아래에 있어야 합니다`).toBeGreaterThanOrEqual(card.bottom - 1)
-  } else {
-    expect(Math.abs(category.top - card.top), `${width}px 분류와 결제 카드는 같은 맥락 행이어야 합니다`).toBeLessThanOrEqual(1)
-    if (width >= 1024) expect(Math.abs(card.top - installments.top), `${width}px 할부는 결제 카드와 같은 행이어야 합니다`).toBeLessThanOrEqual(1)
-    else expect(installments.top, `${width}px iPad 세로에서 할부는 좁은 다음 행이어야 합니다`).toBeGreaterThanOrEqual(card.bottom - 1)
+async function advanceVisibleSteps(page: Page) {
+  for(let index=0;index<2;index++) {
+    const next=page.getByRole('button', {name:'다음',exact:true})
+    if(await next.isVisible()) await next.click()
   }
-  expect(performer.top, `${width}px 사용한 사람은 카드·할부 설정과 다른 독립 행이어야 합니다`).toBeGreaterThanOrEqual(installments.bottom - 1)
 }
 
 async function expectTouchTarget(locator: Locator, label: string) {

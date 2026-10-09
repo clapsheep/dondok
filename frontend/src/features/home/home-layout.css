@@ -1,0 +1,74 @@
+.home-page { container-type:inline-size; max-width:74rem; margin:auto; position:relative; padding:26px 0 32px; }
+.home-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:26px; }
+.home-heading p { color:var(--muted); font-size:12px; margin-bottom:5px; }
+.home-heading h1 { font-size:29px; font-weight:650; letter-spacing:-1px; }
+.home-summary { display:flex; align-items:center; justify-content:space-between; gap:32px; padding:26px 32px; border-radius:22px; background:var(--surface); }
+.home-summary>div { min-width:0; }
+.home-summary>div>span,.home-summary p { color:var(--muted); font-size:12px; }
+.home-total { display:block; overflow-wrap:anywhere; font-size:clamp(26px,3.4cqi,36px); letter-spacing:-1.4px; line-height:1.55; font-weight:650; font-variant-numeric:tabular-nums; }
+.home-summary dl { display:grid; flex-shrink:0; gap:18px; min-width:260px; }
+.home-summary dl>div { display:flex; justify-content:space-between; align-items:center; gap:20px; }
+.home-summary dt { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; }
+.home-summary dd { font-size:17px; font-weight:550; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.home-controls { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:28px 0; }
+.home-members { min-width:0; padding:3px; margin:-3px; }
+.home-member-option { display:flex; min-height:44px; align-items:center; gap:7px; padding:0 13px; border-radius:11px; font-size:13px; color:var(--muted); cursor:pointer; }
+.home-member-option.is-selected { background:var(--selection-surface); color:var(--selection); font-weight:600; }
+.home-member-option:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
+.home-controls>.ui-segmented { flex-shrink:0; }
+.home-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(285px,310px); align-items:start; gap:32px; }
+.home-layout[data-view=daily] { grid-template-columns:minmax(0,1fr); }
+.home-calendar-section { min-width:0; scroll-margin-top:calc(var(--app-header-height,0px) + 20px); }
+.home-monthbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
+.home-month { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px; align-items:center; }
+.home-month h2 { font-size:19px; font-weight:600; white-space:nowrap; letter-spacing:-.45px; margin-right:12px; }
+.home-month button { width:44px; color:var(--muted); }
+.home-monthbar>div:last-child button { padding-inline:8px; color:var(--muted); font-size:12px; }
+.home-calendar { min-width:0; }
+.home-calendar-day { height:100%; width:100%; min-height:96px; display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:0; border-radius:0; padding:8px 5px; font-weight:400; text-align:left; }
+.home-calendar-day[aria-pressed=true] { background:var(--surface); }
+.home-calendar-day:focus-visible { outline-offset:-2px; position:relative; z-index:1; }
+.home-calendar-note { margin-top:16px; color:var(--muted); font-size:11px; }
+.home-day-panel { --stacked-day:0; position:sticky; top:calc(var(--app-header-height,0px) + 24px); min-width:0; border-radius:20px; padding:24px; background:var(--surface); scroll-margin-top:calc(var(--app-header-height,0px) + 16px); }
+.home-day-heading { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+.home-day-heading p { color:var(--muted); font-size:11px; margin-bottom:7px; }
+.home-day-heading h2 { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:20px; font-weight:600; letter-spacing:-.5px; }
+.home-day-heading h2>span { font-size:10px; color:var(--selection); background:var(--selection-surface); border-radius:5px; padding:3px 6px; }
+.home-day-navigation { display:flex; justify-content:flex-end; margin:4px -8px -8px 0; }
+.home-day-navigation button { height:44px; min-height:44px; width:44px; color:var(--muted); }
+.home-day-summary { display:grid; gap:10px; margin:16px 0; }
+.home-day-summary>div { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+.home-day-summary dt { color:var(--muted); font-size:12px; }
+.home-day-summary dd { font-size:23px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.home-day-summary .home-day-income dd { font-size:14px; }
+.home-day-panel [data-transaction-list] { padding:0; }
+.home-day-panel [data-transaction-list] a { padding:14px 0; gap:10px; border-radius:8px; }
+.home-day-panel [data-transaction-list] a>div>p { font-weight:500; white-space:normal; overflow-wrap:anywhere; }
+.home-day-panel [data-transaction-list] a strong { font-size:13px; }
+.home-day-panel [data-transaction-list] a .text-xs { font-size:11px; }
+.home-day-caption { font-size:10px; color:var(--muted); margin-top:16px; line-height:1.6; }
+.home-day-empty { text-align:center; color:var(--muted); font-size:13px; padding:38px 0; }
+.home-day-record { margin-top:18px; font-size:12px; padding:0; }
+.home-calendar-back { display:none; }
+@container (max-width: 49rem) {
+ .home-layout { grid-template-columns:minmax(0,1fr); }
+ .home-day-panel { --stacked-day:1; position:static; margin-top:0; }
+ .home-calendar-back { display:inline-flex; }
+ .home-day-navigation { margin-top:0; }
+}
+@container (max-width: 35rem) {
+ .home-heading { margin-bottom:20px; } .home-heading h1 { font-size:25px; } .home-heading p { font-size:11px; }
+ .home-heading a { font-size:12px; padding-inline:12px; }
+ .home-summary { display:block; padding:22px; border-radius:18px; }
+ .home-total { font-size:clamp(24px,8cqi,31px); } .home-summary p { display:none; }
+ .home-summary dl { display:flex; min-width:0; gap:16px; margin-top:16px; } .home-summary dl>div { display:grid; flex:1; min-width:0; gap:6px; }
+ .home-summary dt { font-size:11px; } .home-summary dt svg { display:none; } .home-summary dd { font-size:15px; }
+ .home-controls { margin:20px 0 16px; gap:8px; }
+ .home-member-option { font-size:12px; padding:0 9px; gap:5px; }
+ .home-controls>.ui-segmented { gap:2px; padding:3px; } .home-controls .ui-segment { padding:0 9px; font-size:12px; min-width:42px; } .home-controls .ui-segment svg { display:none; }
+ .home-month h2 { font-size:17px; margin-right:6px; }
+ .home-calendar-day { min-height:79px; padding:6px 2px; }
+ .home-calendar-day>span { margin-top:5px; font-size:9px; letter-spacing:-.55px; }
+ .home-calendar-note { font-size:10px; }
+ .home-day-panel { padding:22px; border-radius:18px; }
+}

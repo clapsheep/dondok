@@ -1,11 +1,11 @@
+import { AssetIcon } from './AssetIcon'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ArrowLeft, ChevronRight, LoaderCircle, Plus, RotateCcw, Settings, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ChevronRight, LoaderCircle, Plus, RotateCcw, Settings } from 'lucide-react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/Dialog'
 import { ApiError } from '../../lib/api'
 import type { LedgerBook } from '../membership/api'
 import { transactionApi, transactionKeys, type Transaction, type TransactionFilters } from '../transactions/api'
@@ -13,23 +13,10 @@ import { groupTransactionsByDate } from '../transactions/groupTransactionsByDate
 import { TransactionHistory } from '../transactions/TransactionHistory'
 import { readTransactionFilters, writeTransactionFilters } from '../transactions/transactionFilters'
 import { TransactionListRow } from '../transactions/TransactionDateGroup'
-import { AssetTransactionEditor } from '../transactions/TransactionFormPage'
 import { transactionRowDestination, transactionTypeLabel } from '../transactions/transactionRow'
 import { assetApi, assetKeys, type Asset } from './api'
 import { buildAssetLedgerTimeline, type AssetLedgerEntry } from './assetLedgerTimeline'
 import { formatDate, formatPaymentDueDate, formatWon } from './format'
-import { FinancialInstitutionAvatar } from './FinancialInstitutionPicker'
-import { financialInstitutionName, financialInstitutionUsageFor } from './financialInstitutions'
-import { CardIssuerAvatar } from './CardIssuerPicker'
-import { cardIssuer } from './cardIssuers'
-
-function hasFinancialInstitution(asset: Asset) {
-  return asset.systemCode === 'BANK' || asset.systemCode === 'SAVINGS' || asset.systemCode === 'LOAN' || asset.systemCode === 'INVESTMENT'
-}
-
-function isCardRelated(asset: Asset) {
-  return asset.systemCode === 'CREDIT_CARD' || asset.systemCode === 'DEBIT_CARD'
-}
 
 export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   const { assetId = '' } = useParams()
@@ -68,10 +55,6 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
     [asset.data, filtered, hasNextPage, items],
   )
   const loadMore = useRef<HTMLDivElement | null>(null)
-  const [recordOpen, setRecordOpen] = useState(false)
-  const [recordDraftDirty, setRecordDraftDirty] = useState(false)
-  const [confirmDiscard, setConfirmDiscard] = useState(false)
-  const [recordSaved, setRecordSaved] = useState(false)
 
   useEffect(() => {
     const target = loadMore.current
@@ -90,49 +73,19 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
   }
 
   const currentAsset = asset.data
-  const brandName = hasFinancialInstitution(currentAsset)
-    ? financialInstitutionName(currentAsset.financialInstitutionCode, financialInstitutionUsageFor(currentAsset.systemCode))
-    : isCardRelated(currentAsset)
-      ? cardIssuer(currentAsset.cardIssuerCode).name
-      : undefined
-  const brandAvatar = (size?: 'sm') => hasFinancialInstitution(currentAsset)
-    ? <FinancialInstitutionAvatar code={currentAsset.financialInstitutionCode} size={size} />
-    : isCardRelated(currentAsset)
-      ? <CardIssuerAvatar code={currentAsset.cardIssuerCode} size={size} />
-      : null
   const owner = ownerPresentation(currentAsset, ledger)
   const editAction = currentAsset.status === 'ACTIVE'
     ? <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="자산 편집"><Settings size={20} /></Link></Button>
     : <Button asChild size="icon" variant="ghost"><Link to={`/assets/${assetId}/edit`} aria-label="사용 종료 자산 관리"><RotateCcw size={20} /></Link></Button>
-  const navigationState = location.state as { transactionDeleted?: boolean; prepaymentCancelled?: boolean; automaticSettlementCancelled?: boolean; manualPaymentCancelled?: boolean; assetUpdated?: boolean; assetRestored?: boolean } | null
+  const navigationState = location.state as { transactionSaved?: boolean; transactionDeleted?: boolean; prepaymentCancelled?: boolean; automaticSettlementCancelled?: boolean; manualPaymentCancelled?: boolean; assetUpdated?: boolean; assetRestored?: boolean } | null
   const deleted = Boolean(navigationState?.transactionDeleted)
   const prepaymentCancelled = Boolean(navigationState?.prepaymentCancelled)
   const automaticSettlementCancelled = Boolean(navigationState?.automaticSettlementCancelled)
   const updated = Boolean(navigationState?.assetUpdated)
   const restored = Boolean(navigationState?.assetRestored)
 
-  function openRecord() {
-    setRecordSaved(false)
-    setRecordDraftDirty(false)
-    setRecordOpen(true)
-  }
-
-  function requestRecordClose() {
-    if (recordDraftDirty) {
-      setConfirmDiscard(true)
-      return
-    }
-    setRecordOpen(false)
-  }
-
-  function discardRecord() {
-    setConfirmDiscard(false)
-    setRecordDraftDirty(false)
-    setRecordOpen(false)
-  }
-
   const headerActions = <div className="flex shrink-0 items-center" aria-label="자산 관리">
-    {currentAsset.status === 'ACTIVE' ? <Button type="button" size="icon" variant="ghost" onClick={openRecord} aria-label="기록 추가" title="기록 추가"><Plus size={20} aria-hidden="true" /></Button> : null}
+    {currentAsset.status === 'ACTIVE' ? <Button asChild size="icon" variant="ghost"><Link to={`/transactions/new?assetId=${encodeURIComponent(currentAsset.assetId)}`} state={{ returnTo: `${location.pathname}${location.search}` }} aria-label="기록 추가" title="기록 추가"><Plus size={20} aria-hidden="true" /></Link></Button> : null}
     {editAction}
   </div>
 
@@ -141,19 +94,19 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
       ledgerNavigation
       mobileHeader={{ title: currentAsset.name, backTo: '/assets', backLabel: '자산 목록으로', action: headerActions }}
     >
-      <section className="mx-auto max-w-[52rem] py-4 md:py-8">
+      <section className="ui-page max-w-[52rem] @container">
         <Button asChild className="mb-3 hidden md:inline-flex" variant="ghost"><Link to="/assets"><ArrowLeft size={17} />자산 현황으로</Link></Button>
-        <header className="border-b border-[var(--line)] pb-5">
+        <header className="pb-5">
           <div className="hidden items-start justify-between gap-4 md:flex">
-            <div className="flex min-w-0 items-center gap-3">{brandAvatar()}<div className="min-w-0"><p className="text-sm text-[var(--muted)]">{brandName ? `${brandName} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-[-.025em]">{currentAsset.name}</h1></div></div>
+            <div className="min-w-0"><p className="flex items-center gap-2 text-sm text-[var(--muted)]"><AssetIcon systemCode={currentAsset.systemCode} size={18}/><span>{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</span></p><h1 className="mt-2 break-words text-2xl font-semibold tracking-[-.025em]">{currentAsset.name}</h1></div>
             {headerActions}
           </div>
           <div className="flex items-end justify-between gap-4 md:mt-5">
-            <div className="flex min-w-0 items-center gap-2 md:hidden">{brandAvatar('sm')}<p className="text-xs text-[var(--muted)]">{brandName ? `${brandName} · ` : ''}{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p></div>
+            <div className="flex min-w-0 items-center gap-2 md:hidden"><AssetIcon systemCode={currentAsset.systemCode}/><p className="text-xs text-[var(--muted)]">{currentAsset.assetTypeName}{currentAsset.status === 'ARCHIVED' ? ' · 사용 종료' : ''}</p></div>
             <dl className="ml-auto text-right"><dt className="text-xs text-[var(--muted)]">{currentAsset.behavior === 'CREDIT_CARD' ? '카드 잔액' : '현재 잔액'}</dt><dd className={`mt-1 text-2xl font-semibold tracking-[-.035em] tabular-nums md:text-3xl ${currentAsset.currentBalanceWon < 0 ? 'text-[var(--expense)]' : 'text-forest-800 dark:text-forest-100'}`}>{formatWon(currentAsset.currentBalanceWon)}</dd></dl>
           </div>
           <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted)]">{owner.avatar}<span>{owner.label}</span><span aria-hidden="true">·</span><span>잔액 기준일 {formatDate(currentAsset.openedOn)}</span></div>
-          {currentAsset.behavior === 'CREDIT_CARD' ? <section className="mt-5 border-t border-[var(--line-subtle)] pt-4" aria-label="카드 대금">
+          {currentAsset.behavior === 'CREDIT_CARD' ? <section className="ui-soft-panel mt-5" aria-label="카드 대금">
             <h2 className="text-sm font-semibold">카드 대금</h2>
             <div className="mt-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
               {currentAsset.nearestCardPaymentDueOn ? <dl className="min-w-0">
@@ -162,7 +115,7 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
               </dl> : <p className="py-2 text-sm text-[var(--muted)]">결제 예정 없음</p>}
               <Button asChild variant="secondary"><Link to={`/assets/${currentAsset.assetId}/card-payment`}>대금 결제<ChevronRight size={16} aria-hidden="true" /></Link></Button>
             </div>
-            {currentAsset.followingCardPaymentDueOn ? <dl className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--line-subtle)] pt-3 text-xs">
+            {currentAsset.followingCardPaymentDueOn ? <dl className="mt-4 flex flex-wrap items-center justify-between gap-2 pt-3 text-xs">
               <dt className="text-[var(--muted)]">다음 · {formatPaymentDueDate(currentAsset.followingCardPaymentDueOn)} 결제 예정</dt>
               <dd className="text-sm font-medium tabular-nums">{formatWon(currentAsset.followingCardPaymentDueWon)}</dd>
             </dl> : null}
@@ -175,7 +128,7 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
         {automaticSettlementCancelled ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자동 정산을 삭제하고 결제 계좌와 카드 잔액을 되돌렸어요.</p> : null}
         {updated ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산 정보를 변경했어요. 현재 잔액과 설정에 반영했습니다.</p> : null}
         {restored ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">자산을 다시 사용할 수 있게 복원했어요.</p> : null}
-        {recordSaved ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 기록했어요. 현재 잔액과 거래 내역을 새로 반영했습니다.</p> : null}
+        {navigationState?.transactionSaved ? <p className="mt-4 border-l-4 border-[var(--income)] px-3 py-2 text-sm" role="status">거래를 기록했어요. 현재 잔액과 거래 내역을 새로 반영했습니다.</p> : null}
 
         <div className="mt-5">
           <TransactionHistory
@@ -196,36 +149,6 @@ export function AssetLedgerPage({ ledger }: { ledger: LedgerBook }) {
           />
         </div>
       </section>
-      {recordOpen ? (
-        <Dialog open onOpenChange={(open) => { if (!open) requestRecordClose() }}>
-          <DialogContent className="inset-0 flex h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none border-0 p-0 shadow-none md:left-1/2 md:top-1/2 md:h-[min(48rem,calc(100dvh-3rem))] md:max-h-[calc(100dvh-3rem)] md:w-[min(46rem,calc(100vw-3rem))] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:border md:shadow-lg sm:p-0" data-asset-transaction-dialog>
-            <DialogHeader className="shrink-0 border-b border-[var(--line)] px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 md:pt-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0"><DialogTitle>거래 기록</DialogTitle><DialogDescription className="mt-1"><strong className="font-semibold text-current">{currentAsset.name}</strong>을 기본 자산으로 선택했어요.</DialogDescription></div>
-                <Button type="button" size="icon" variant="ghost" onClick={requestRecordClose} aria-label="거래 기록 닫기"><X size={20} /></Button>
-              </div>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 md:py-5">
-              <AssetTransactionEditor
-                ledger={ledger}
-                initialAssetId={currentAsset.assetId}
-                onDirtyChange={setRecordDraftDirty}
-                onSaved={() => {
-                  setRecordDraftDirty(false)
-                  setRecordOpen(false)
-                  setRecordSaved(true)
-                }}
-              />
-            </div>
-          </DialogContent>
-          <Dialog open={confirmDiscard} onOpenChange={(open) => { if (!open) setConfirmDiscard(false) }}>
-            <DialogContent className="p-5 sm:p-6">
-              <DialogHeader><DialogTitle>작성 중인 기록을 닫을까요?</DialogTitle><DialogDescription>입력한 내용은 저장되지 않고 모두 사라져요.</DialogDescription></DialogHeader>
-              <DialogFooter className="mt-6"><Button type="button" variant="secondary" onClick={() => setConfirmDiscard(false)}>계속 작성</Button><Button type="button" variant="destructive" onClick={discardRecord}>나가기</Button></DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </Dialog>
-      ) : null}
     </AppShell>
   )
 }

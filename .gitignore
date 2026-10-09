@@ -59,3 +59,6 @@ infra/backups/
 
 # Python CI tooling bytecode
 __pycache__/
+
+# Local deployment preparation and synthetic verification evidence
+/work/

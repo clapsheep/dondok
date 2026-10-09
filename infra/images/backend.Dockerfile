@@ -4,7 +4,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system dondok \
-    && useradd --system --gid dondok --home-dir /app dondok
+    && useradd --system --gid dondok --home-dir /app dondok \
+    && install -d -o dondok -g dondok -m 700 /var/log/dondok
 WORKDIR /app
 COPY backend/app.jar app.jar
 USER dondok

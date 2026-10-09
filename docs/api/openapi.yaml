@@ -10,6 +10,25 @@ servers:
   - url: /
 security: []
 paths:
+  /api/legal:
+    get:
+      summary: 공개 가입 동의 문서와 버전
+      operationId: legalDocuments
+      tags: [Authentication]
+      security: []
+      responses:
+        "200":
+          description: 문서 버전은 동의 증거와 함께 보관. 변경 시 새로운 버전을 발행한다.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, terms, privacy, collection]
+                properties:
+                  version: { type: string }
+                  terms: { type: string }
+                  privacy: { type: string }
+                  collection: { type: string }
   /api/assets/{cardAssetId}/card-payment-items:
     parameters:
       - { name: cardAssetId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -94,6 +113,7 @@ paths:
     post:
       summary: 회원가입
       operationId: signUp
+      description: 필수 확인/동의 누락 또는 false는 SIGNUP_CONSENT_REQUIRED(400), 현재 문서 버전 불일치는 SIGNUP_CONSENT_VERSION_CHANGED(409). 가입과 동의 증거 저장은 원자적이다.
       tags: [Authentication]
       parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
       requestBody:
@@ -131,6 +151,7 @@ paths:
     post:
       summary: 세션 로그인
       operationId: login
+      description: 유효한 인증 성공 시 최근 이용 시각을 갱신하고 휴면 표시를 해제한다. 미인증·잠금·탈퇴 계정의 인증 제한은 유지한다.
       tags: [Authentication]
       parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
       requestBody:
@@ -175,6 +196,30 @@ paths:
         "204": { description: 모든 세션 로그아웃 }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /api/auth/me:
+    delete:
+      summary: 회원 탈퇴 및 모든 세션 폐기
+      operationId: withdrawAccount
+      tags: [Authentication]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, confirmed, expectedLedgerId, expectedVersion]
+              properties:
+                password: { type: string, format: password, maxLength: 128 }
+                confirmed: { type: boolean, const: true }
+                expectedLedgerId: { type: [string, "null"], format: uuid }
+                expectedVersion: { type: [integer, "null"], format: int64, minimum: 0 }
+      responses:
+        "204": { description: 실제 계정·인증·세션·동의 기록 삭제. 가계부별 시스템 구성원으로 참조 통합 및 관련 텍스트 정리. 금액·posting·정산은 보존하며 마지막 구성원이면 가계부 전체 삭제. }
+        "400": { description: ACCOUNT_WITHDRAWAL_CONFIRMATION_REQUIRED 또는 입력 검증 실패 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: ACCOUNT_PASSWORD_INVALID 또는 CSRF 검증 실패 }
+        "412": { description: ACCOUNT_WITHDRAWAL_STALE. 가계부 ID 또는 version이 바뀌었으므로 최신 영향 확인 후 다시 요청. }
     get:
       summary: 현재 로그인 사용자 조회
       operationId: getCurrentUser
@@ -187,6 +232,116 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SessionUser" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/auth/profile:
+    get:
+      summary: 편집할 최신 계정 정보와 version 조회
+      operationId: getAccountProfile
+      tags: [Authentication]
+      security: [{ cookieAuth: [] }]
+      responses:
+        "200":
+          description: 최신 프로필
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      summary: 현재 비밀번호 확인 후 이름과 인증된 이메일 저장
+      operationId: saveAccountProfile
+      tags: [Authentication]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName, email, password, expectedVersion]
+              properties:
+                displayName: { type: string, minLength: 1, maxLength: 100 }
+                email: { type: string, format: email, maxLength: 320 }
+                password: { type: string, format: password, maxLength: 128 }
+                expectedVersion: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "200":
+          description: 저장된 프로필. 이메일 변경 시 기존 비밀번호 재설정 링크도 폐기.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountProfile" }
+        "400": { description: EMAIL_CHANGE_NOT_VERIFIED 또는 입력 검증 실패 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: ACCOUNT_PASSWORD_INVALID 또는 CSRF 오류 }
+        "409": { description: EMAIL_ALREADY_EXISTS 또는 RESOURCE_CONFLICT }
+        "412": { description: VERSION_CONFLICT. draft 유지 후 최신 정보 확인 필요. }
+  /api/auth/profile/email-verification:
+    post:
+      summary: 새 이메일로 10분 유효한 8자리 인증번호 전송
+      operationId: requestEmailChange
+      tags: [Authentication]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, expectedVersion]
+              properties:
+                email: { type: string, format: email, maxLength: 320 }
+                expectedVersion: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "202": { description: 전송 요청 완료. 재전송은 60초 후 가능하며 이전 인증번호는 무효. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: EMAIL_ALREADY_EXISTS }
+        "412": { description: VERSION_CONFLICT }
+        "429": { description: EMAIL_CHANGE_RATE_LIMITED }
+  /api/auth/profile/email-verification/confirm:
+    post:
+      summary: 현재 사용자·새 이메일에 연결된 인증번호 확인 (최대 5회)
+      operationId: confirmEmailChange
+      tags: [Authentication]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email, maxLength: 320 }
+                code: { type: string, pattern: '^[0-9]{8}$' }
+      responses:
+        "204": { description: 인증 완료. 유효기간 내 별도 프로필 저장까지 기존 이메일 유지. }
+        "400": { description: EMAIL_CHANGE_CODE_INVALID. 만료·횟수 초과·잘못된 번호. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/auth/password:
+    put:
+      summary: 현재 비밀번호 확인 후 비밀번호 변경 및 전체 세션 폐기
+      operationId: changeAccountPassword
+      tags: [Authentication]
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/CsrfHeader" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword, newPasswordConfirm]
+              properties:
+                currentPassword: { type: string, format: password, maxLength: 128 }
+                newPassword: { type: string, format: password, minLength: 10, maxLength: 128 }
+                newPasswordConfirm: { type: string, format: password, minLength: 10, maxLength: 128 }
+      responses:
+        "204": { description: "비밀번호 변경, 모든 세션·재설정 링크·이메일 변경 인증 폐기" }
+        "400": { description: PASSWORD_CONFIRMATION_MISMATCH 또는 입력 검증 실패 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: ACCOUNT_PASSWORD_INVALID 또는 CSRF 오류 }
   /api/auth/password-resets:
     post:
       summary: 비밀번호 재설정 메일 요청
@@ -1392,17 +1547,33 @@ components:
         token: { type: string }
     SignUpRequest:
       type: object
-      required: [loginId, displayName, email, password]
+      required: [loginId, displayName, email, password, consent]
       properties:
         loginId: { type: string, pattern: "^[A-Za-z0-9._-]{4,30}$" }
         displayName: { type: string, minLength: 1, maxLength: 100 }
         email: { type: string, format: email, maxLength: 320 }
         password: { type: string, format: password, minLength: 10, maxLength: 128 }
+        consent: { $ref: "#/components/schemas/SignUpConsent" }
+    SignUpConsent:
+      type: object
+      required: [version, age14OrOlder, termsAccepted, privacyAccepted]
+      properties:
+        version: { type: string, description: GET /api/legal에서 확인한 동의 문서 버전 }
+        age14OrOlder: { type: boolean, const: true }
+        termsAccepted: { type: boolean, const: true }
+        privacyAccepted: { type: boolean, const: true }
     TokenRequest:
       type: object
       required: [token]
       properties:
         token: { type: string, maxLength: 200 }
+    AccountProfile:
+      allOf:
+        - { $ref: "#/components/schemas/SessionUser" }
+        - type: object
+          required: [version]
+          properties:
+            version: { type: integer, format: int64, minimum: 0 }
     SessionUser:
       type: object
       required: [userId, loginId, displayName, email]
@@ -1449,6 +1620,7 @@ components:
         displayName: { type: string }
         joinedAt: { type: string, format: date-time }
         currentUser: { type: boolean }
+        withdrawn: { type: boolean, description: 가계부별 시스템 구성원. 사용자 계정과 연결되지 않으며 로그인·가입·선택 주체로 사용할 수 없다. }
     LedgerInvitationSummary:
       type: object
       required: [invitationId, status, createdAt, expiresAt]
@@ -1493,66 +1665,6 @@ components:
       type: string
       enum: [PERSONAL]
       description: 호환을 위해 유지하는 고정값. 모든 자산은 구성원 한 명을 소유자로 지정한다.
-    FinancialInstitutionCode:
-      type: string
-      enum:
-        - OTHER
-        - KB_KOOKMIN
-        - SHINHAN
-        - HANA
-        - WOORI
-        - NH
-        - IBK
-        - KAKAO_BANK
-        - K_BANK
-        - TOSS_BANK
-        - SC
-        - CITI
-        - KDB
-        - SUHYUP
-        - POST_OFFICE
-        - MG
-        - CREDIT_UNION
-        - SAVINGS_BANK
-        - BNK_BUSAN
-        - BNK_GYEONGNAM
-        - IM_BANK
-        - GWANGJU
-        - JEONBUK
-        - JEJU
-        - HYUNDAI_CAPITAL
-        - KB_CAPITAL
-        - SHINHAN_CAPITAL
-        - HANA_CAPITAL
-        - WOORI_FINANCIAL_CAPITAL
-        - NH_CAPITAL
-        - LOTTE_CAPITAL
-        - BNK_CAPITAL
-        - JB_WOORI_CAPITAL
-        - MIRAE_ASSET_SEC
-        - KOREA_INVESTMENT_SEC
-        - NH_INVESTMENT_SEC
-        - SAMSUNG_SEC
-        - KB_SEC
-        - KIWOOM_SEC
-        - SHINHAN_SEC
-        - HANA_SEC
-        - MERITZ_SEC
-        - DAISHIN_SEC
-        - HANWHA_SEC
-        - HYUNDAI_MOTOR_SEC
-        - DB_SEC
-        - YUANTA_SEC
-        - EUGENE_SEC
-        - SK_SEC
-        - IBK_SEC
-        - KAKAO_PAY_SEC
-        - TOSS_SEC
-        - LS_SEC
-        - SHINYOUNG_SEC
-    CardIssuerCode:
-      type: string
-      enum: [OTHER, KB_KOOKMIN, SHINHAN, SAMSUNG, HYUNDAI, LOTTE, WOORI, HANA, BC, NH]
     AssetType:
       type: object
       description: 사용자가 추가하거나 이름을 바꿀 수 없는 고정 시스템 자산 종류
@@ -1567,7 +1679,7 @@ components:
         paymentSourceCapable: { type: boolean }
     CardSettingsInput:
       type: object
-      description: 신용카드 생성·수정에서 필수이며 settlementAssetId는 자동 정산 사용 여부와 무관하게 필요하다.
+      description: 신용카드 생성·수정에서 필수이며 settlementAssetId는 카드와 같은 명의의 계좌여야 한다. 명의 불일치는 CROSS_MEMBER_ASSET_CONNECTION_NOT_ALLOWED(400).
       required: [statementClosingDay, paymentDay, paymentMonthOffset, settlementAssetId, autoSettlementEnabled]
       properties:
         statementClosingDay: { type: integer, minimum: 1, maximum: 31 }
@@ -1589,6 +1701,7 @@ components:
         transferAssetId: { type: string, format: uuid }
         transferDay: { type: integer, minimum: 1, maximum: 31 }
     AssetInput:
+      description: 금융기관·카드사 구분은 제거되었다. 이전 클라이언트의 financialInstitutionCode/cardIssuerCode 입력은 무시하며 저장하지 않는다.
       type: object
       required: [assetTypeId, ownershipScope, ownerMemberId, name, openedOn, openingBalanceWon]
       properties:
@@ -1598,16 +1711,6 @@ components:
           description: 현재 가계부의 고정 시스템 자산 종류 ID
         ownershipScope: { $ref: "#/components/schemas/AssetOwnershipScope" }
         ownerMemberId: { type: string, format: uuid }
-        financialInstitutionCode:
-          description: BANK·SAVINGS는 은행·상호금융, LOAN은 은행·캐피탈, INVESTMENT는 증권사 정적 코드를 저장한다. 생략하면 OTHER로 저장되며 다른 자산 종류에서는 null로 정규화한다.
-          oneOf:
-            - { $ref: "#/components/schemas/FinancialInstitutionCode" }
-            - { type: "null" }
-        cardIssuerCode:
-          description: CREDIT_CARD·DEBIT_CARD 자산의 카드사 코드다. 생략하면 OTHER로 저장되며 다른 자산 종류에서는 null로 정규화한다.
-          oneOf:
-            - { $ref: "#/components/schemas/CardIssuerCode" }
-            - { type: "null" }
         name: { type: string, minLength: 1, maxLength: 100 }
         openedOn: { type: string, format: date }
         memo:
@@ -1672,8 +1775,6 @@ components:
         - paymentSourceCapable
         - ownershipScope
         - ownerMemberId
-        - financialInstitutionCode
-        - cardIssuerCode
         - name
         - openedOn
         - memo
@@ -1702,14 +1803,6 @@ components:
         paymentSourceCapable: { type: boolean }
         ownershipScope: { $ref: "#/components/schemas/AssetOwnershipScope" }
         ownerMemberId: { type: string, format: uuid }
-        financialInstitutionCode:
-          oneOf:
-            - { $ref: "#/components/schemas/FinancialInstitutionCode" }
-            - { type: "null" }
-        cardIssuerCode:
-          oneOf:
-            - { $ref: "#/components/schemas/CardIssuerCode" }
-            - { type: "null" }
         name: { type: string }
         openedOn: { type: string, format: date }
         memo:
@@ -1944,7 +2037,7 @@ components:
             type: { type: string, const: TRANSFER }
             transferPurpose: { $ref: "#/components/schemas/TransferPurpose" }
             sourceAssetId: { type: string, format: uuid, description: "같은 가계부의 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
-            destinationAssetId: { type: string, format: uuid, description: "출발 자산과 다른 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
+            destinationAssetId: { type: string, format: uuid, description: "출발 자산과 같은 명의이며 서로 다른 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
     UpdateTransactionRequest:
       type: object
       required: [type, occurredOn, amountWon, performedByMemberId, expectedVersion]
@@ -1962,7 +2055,7 @@ components:
           default: 1
           description: EXPENSE의 결제 자산을 신용카드로 변경할 때 사용하며 생략하면 일시불로 처리한다.
         sourceAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
-        destinationAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서만 사용하는 출발과 다른 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
+        destinationAssetId: { type: string, format: uuid, description: "TRANSFER 수정에서 사용하는 출발과 같은 명의이며 서로 다른 활성 BANK 계좌, SAVINGS 적금 또는 INVESTMENT 주식 계좌 자산 ID" }
         performedByMemberId: { type: string, format: uuid }
         description: { type: string, maxLength: 500 }
         expectedVersion: { type: integer, format: int64, minimum: 0 }

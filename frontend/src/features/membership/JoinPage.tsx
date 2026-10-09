@@ -64,7 +64,7 @@ export function JoinPage() {
     <AppShell>
       <section className="mx-auto max-w-2xl py-8 md:py-14">
         <Button asChild variant="ghost"><Link to="/"><ArrowLeft size={17} />돌아가기</Link></Button>
-        <div className="mt-4 border-y border-[var(--line)] py-8 md:py-10">
+        <div className="mt-4 ui-soft-panel py-8 md:py-10">
           {!code ? (
             <form onSubmit={checkCode}>
               <p className="text-sm font-semibold text-brass-500">가계부 참여</p>
@@ -80,7 +80,7 @@ export function JoinPage() {
               <p className="text-sm font-semibold text-brass-500">초대를 확인할 수 없어요</p>
               <h1 className="mt-2 text-2xl font-semibold">코드가 만료됐거나 이미 사용됐어요</h1>
               <p className="mt-3 text-sm leading-6 text-[var(--muted)]">초대한 구성원에게 새 코드를 요청하거나 다른 코드를 입력해 주세요.</p>
-              <p className="mt-4 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{preview.error instanceof Error ? preview.error.message : '초대를 확인하지 못했어요.'}</p>
+              <p className="mt-4 ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{preview.error instanceof Error ? preview.error.message : '초대를 확인하지 못했어요.'}</p>
               <div className="mt-6">{codeField()}</div>
               <Button type="submit" className="mt-5 w-full" variant="secondary" size="large" disabled={!directCodePattern.test(draftCode)}>다시 확인하기</Button>
             </form>
@@ -92,9 +92,9 @@ export function JoinPage() {
               <p className="mt-3 text-sm text-[var(--muted)]">현재 구성원 {preview.data.memberCount}명 · {expiryFormat.format(new Date(preview.data.expiresAt))}까지</p>
               <div className="mt-6">
                 <h2 className="text-sm font-semibold">함께 기록할 구성원</h2>
-                <ul className="mt-3 divide-y divide-[var(--line)] border-y border-[var(--line)]">{preview.data.memberNames.map((name, index) => <li key={`${name}-${index}`} className="flex min-h-12 items-center gap-2.5 px-1 py-2.5 text-sm font-semibold"><MemberAvatar displayName={name} memberId={`${name}-${index}`} /><span>{name}</span></li>)}</ul>
+                <ul className="mt-3 space-y-3">{preview.data.memberNames.map((name, index) => <li key={`${name}-${index}`} className="flex min-h-12 items-center gap-2.5 px-1 py-2.5 text-sm font-semibold"><MemberAvatar displayName={name} memberId={`${name}-${index}`} /><span>{name}</span></li>)}</ul>
               </div>
-              {redeem.error ? <p className="mt-4 border-l-4 border-red-600 px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{redeem.error instanceof Error ? redeem.error.message : '가계부에 참여하지 못했어요.'}</p> : null}
+              {redeem.error ? <p className="mt-4 ui-notice px-4 py-2 text-sm text-red-800 dark:text-[#ffd5cf]" role="alert">{redeem.error instanceof Error ? redeem.error.message : '가계부에 참여하지 못했어요.'}</p> : null}
               <div className="mt-7 grid gap-3 xs:grid-cols-2">
                 <Button asChild variant="secondary" size="large"><Link to="/">취소</Link></Button>
                 <Button size="large" onClick={() => redeem.mutate()} disabled={redeem.isPending}>{redeem.isPending && <LoaderCircle className="animate-spin" size={18} />}참여하기</Button>

@@ -44,8 +44,12 @@ jq -e '
   (.services.frontend.ports[0].published == "18080") and
   (.services.frontend.ports[0].target == 8080) and
   (.services.frontend.ports[0].protocol == "tcp") and
-  ([.services[] | .logging.options["max-size"]] | all(. == "10m")) and
-  ([.services[] | .logging.options["max-file"]] | all(. == "5")) and
+  (.services.db.logging.options["max-size"] == "10m") and
+  (.services.db.logging.options["max-file"] == "5") and
+  (.services.backend.logging.driver == "none") and
+  (.services.frontend.logging.driver == "none") and
+  (.services.backend.environment.SPRING_PROFILES_ACTIVE == "production") and
+  (any(.services.backend.volumes[]; .target == "/var/log/dondok")) and
   ([.services[] | .mem_limit] | all(. > 0)) and
   ([.services[] | .cpus] | all(. > 0))
 ' >/dev/null <<<"$CONFIG_JSON"
