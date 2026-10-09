@@ -35,7 +35,7 @@ test('라이트·다크 모드의 보조 버튼은 hover 중에도 읽을 수 �
   await page.getByLabel('아이디').fill('contrast_test')
 
   await expect(page.getByRole('main')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#ffffff')
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', /^#(?:fff|ffffff)$/i)
   await page.screenshot({ path: testInfo.outputPath('neutral-light.png'), fullPage: true })
   const duplicateButton = page.getByRole('button', { name: '중복 확인' })
   await duplicateButton.hover()

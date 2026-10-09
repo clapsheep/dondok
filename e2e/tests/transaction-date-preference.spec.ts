@@ -28,6 +28,8 @@ test('마지막 신규 저장 날짜를 복원하고 선택 날짜·편집·초�
     const first = await saveTransaction(page, firstDate)
 
     // 전체 재진입으로 TanStack Query 메모리가 없어져도 선호값은 유지된다.
+    // 저장 후 홈에서 시작한 조회는 재진입 폼의 조회로 세지 않는다.
+    await page.goto('about:blank')
     const transactionReads: string[] = []
     const trackReads = (request: import('@playwright/test').Request) => {
       if (request.method() === 'GET' && new URL(request.url()).pathname.startsWith('/api/transactions')) transactionReads.push(request.url())

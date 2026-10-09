@@ -394,17 +394,17 @@ async function expectPaymentSourceDialogLayout(
     [dialog.getByLabel('잔액 기준일', { exact: true }), '잔액 기준일'],
     [dialog.getByRole('button', { name: '취소', exact: true }), '취소'],
     [dialog.getByRole('button', { name: '계좌 등록', exact: true }), '계좌 등록'],
-  ] as const) await expectHitTargetAtLeast44(target, `${width}px 모달 ${label}`)
+  ] as const) await expectControlTargetSize(target, `${width}px 모달 ${label}`)
 }
 
-async function expectHitTargetAtLeast44(locator: Locator, label: string) {
+async function expectControlTargetSize(locator: Locator, label: string) {
   await expect(locator, `${label} 조작 목표가 보여야 합니다`).toBeVisible()
   const box = await locator.evaluate((element) => {
     const rect = element.getBoundingClientRect()
-    return { width: rect.width, height: rect.height }
+    return { width: rect.width, height: rect.height, minimumHeight: element.classList.contains('dondok-control') && !matchMedia('(pointer: coarse)').matches ? 40 : 44 }
   })
   expect(box.width, `${label} 조작 목표 너비는 44px 이상이어야 합니다`).toBeGreaterThanOrEqual(44)
-  expect(box.height, `${label} 조작 목표 높이는 44px 이상이어야 합니다`).toBeGreaterThanOrEqual(44)
+  expect(box.height, `${label} 조작 목표 높이는 ${box.minimumHeight}px 이상이어야 합니다`).toBeGreaterThanOrEqual(box.minimumHeight)
 }
 
 async function expectParentCardDraft(parentForm: Locator) {

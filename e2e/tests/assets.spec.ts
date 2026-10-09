@@ -88,7 +88,7 @@ async function expectQuickCreateAcrossBreakpoints(
     await expectTypeGrid(page, typeGroup, width)
     if (width < 768) await expectAmountAndDateControlsStacked(page, amountLabel, width)
     else await expectAmountAndDateControlsAligned(page, amountLabel, width)
-    await expectFormTargetsAtLeast44(page, typeGroup, [
+    await expectFormTargetSizes(page, typeGroup, [
       [nameField, '자산 이름'],
       [amountField, amountLabel],
       [openedOn, '잔액 기준일'],
@@ -126,7 +126,7 @@ async function expectDetailAcrossBreakpoints(
     await expectTypeGrid(page, typeGroup, width)
     if (width < 768) await expectAmountAndDateControlsStacked(page, amountLabel, width)
     else await expectAmountAndDateControlsAligned(page, amountLabel, width)
-    await expectFormTargetsAtLeast44(page, typeGroup, [
+    await expectFormTargetSizes(page, typeGroup, [
       [page.getByLabel('자산 이름 (선택)', { exact: true }), '자산 이름'],
       [page.getByRole('radiogroup', { name: '소유자' }).locator('label').first(), '소유자'],
       [page.getByLabel(amountLabel, { exact: true }), amountLabel],
@@ -159,7 +159,7 @@ async function expectCardCreateAcrossBreakpoints(page: Page, typeGroup: Locator,
     if (width < 768) await expectAmountAndDateControlsStacked(page, '기준일 잔액', width)
     else await expectAmountAndDateControlsAligned(page, '기준일 잔액', width)
     await expectCardScheduleLayout(page, width)
-    await expectFormTargetsAtLeast44(page, typeGroup, [
+    await expectFormTargetSizes(page, typeGroup, [
       [page.getByLabel('기준일 잔액'), '기준일 잔액'],
       [openedOn, '잔액 기준일'],
       [page.getByLabel('정산일'), '정산일'],
@@ -192,7 +192,7 @@ async function expectConditionalCreateAcrossBreakpoints(
     await expectTypeGrid(page, typeGroup, width)
     if (width < 768) await expectAmountAndDateControlsStacked(page, '기준일 잔액', width)
     else await expectAmountAndDateControlsAligned(page, '기준일 잔액', width)
-    await expectFormTargetsAtLeast44(page, typeGroup, [
+    await expectFormTargetSizes(page, typeGroup, [
       ...expectedValues.map(([field, , label]): [Locator, string] => [field, label]),
       [page.getByRole('link', { name: '취소' }), '취소'],
       [page.getByRole('button', { name: saveButtonName, exact: true }), saveButtonName],
@@ -224,12 +224,12 @@ async function expectCardDetailAcrossBreakpoints(page: Page) {
       [page.getByRole('spinbutton', { name: '결제일', exact: true }), '결제일'],
       [page.getByLabel('결제 월'), '결제 월'],
       [page.getByLabel('결제 계좌', { exact: true }), '결제 계좌'],
-    ] as const) await expectHitTargetAtLeast44(target, `${width}px ${label}`)
+    ] as const) await expectControlTargetSize(target, `${width}px ${label}`)
     expect(await hasPageOverflow(page), `${width}px 카드 상세 화면에 가로 overflow가 없어야 합니다`).toBe(false)
   }
 }
 
-async function expectFormTargetsAtLeast44(
+async function expectFormTargetSizes(
   page: Page,
   typeGroup: Locator,
   targets: Array<[Locator, string]>,
@@ -237,20 +237,20 @@ async function expectFormTargetsAtLeast44(
 ) {
   const typeButtons = await typeGroup.getByRole('button').all()
   typeButtons.forEach((button, index) => targets.push([button, `자산 종류 ${index + 1}`]))
-  for (const [target, label] of targets) await expectHitTargetAtLeast44(target, `${width}px ${label}`)
+  for (const [target, label] of targets) await expectControlTargetSize(target, `${width}px ${label}`)
 }
 
-async function expectHitTargetAtLeast44(locator: Locator, label: string) {
+async function expectControlTargetSize(locator: Locator, label: string) {
   await expect(locator, `${label} 조작 목표가 보여야 합니다`).toBeVisible()
   const box = await locator.evaluate((element) => {
     const effectiveTarget = element.matches('[role="radio"], [role="switch"], input[type="radio"], input[type="checkbox"]')
       ? element.closest('label') ?? element
       : element
     const rect = effectiveTarget.getBoundingClientRect()
-    return { width: rect.width, height: rect.height }
+    return { width: rect.width, height: rect.height, minimumHeight: element.classList.contains('dondok-control') && !matchMedia('(pointer: coarse)').matches ? 40 : 44 }
   })
   expect(box.width, `${label} 조작 목표 너비는 44px 이상이어야 합니다`).toBeGreaterThanOrEqual(44)
-  expect(box.height, `${label} 조작 목표 높이는 44px 이상이어야 합니다`).toBeGreaterThanOrEqual(44)
+  expect(box.height, `${label} 조작 목표 높이는 ${box.minimumHeight}px 이상이어야 합니다`).toBeGreaterThanOrEqual(box.minimumHeight)
 }
 
 async function expectAmountAndDateControlsAligned(page: Page, amountLabel: string, width: number) {

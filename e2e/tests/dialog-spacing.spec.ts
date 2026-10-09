@@ -58,7 +58,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 for (const scenario of [
   { name: '미결제 대금 결제', path: '/assets/qc-card/card-statements/qc-statement', trigger: '결제하기', close: '닫기' },
-  { name: '수동 결제를 취소할까요?', path: '/transactions/qc-payment', trigger: '수동 결제 취소', close: '유지' },
+  { name: '수동 결제를 취소할까요?', path: '/transactions/qc-payment/edit', trigger: '수동 결제 취소', close: '유지' },
 ]) {
   test(`${scenario.name} 모달은 모든 화면에서 내용과 테두리 사이 여백을 유지한다`, async ({ page }, testInfo) => {
     await page.goto(scenario.path)

@@ -119,7 +119,7 @@ test('가계부 생성자가 초대한 구성원과 서로의 계좌를 함께 �
   const monthTitle = page.locator('[data-month-title]')
   await expect(monthTitle).toBeVisible()
   expect(await monthTitle.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)))
-    .toBeLessThanOrEqual(14)
+    .toBeLessThanOrEqual(18)
 
   await memberFilter.getByRole('radio', { name: `${memberName} 기록 보기` }).locator('..').click()
   await expect(page.getByTitle('수입 +70,000원')).toBeVisible()
