@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, List, LoaderCircle, Plus, RefreshCw, SquarePen, UsersRound } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, List, LoaderCircle, Plus, RefreshCw, SquarePen, UsersRound, X } from 'lucide-react'
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AppShell } from '../../components/AppShell'
@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/Button'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import './home-layout.css'
+import { HomeDayPanelShell } from './HomeDayPanelShell'
 import { Radio as RadioPrimitive } from '@base-ui/react/radio'
 import { RadioGroup } from '../../components/ui/RadioGroup'
 import { addMonths, currentMonthInSeoul, monthBounds, monthTitle, todayInSeoul } from '../../lib/month'
@@ -109,7 +110,6 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
   const view = params.get('view') === 'daily' ? 'daily' : 'calendar'
   const online = useOnlineStatus()
   const calendarRef = useRef<HTMLDivElement>(null)
-  const dayRef = useRef<HTMLElement>(null)
   const bounds = monthBounds(month)
   const filters = useMemo(() => ({ ...readTransactionFilters(params), performedByMemberId }), [params, performedByMemberId])
   const customRange = Boolean(filters.q || filters.type || filters.from || filters.toExclusive)
@@ -159,7 +159,7 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
     [queryClient],
   )
   const pullToRefreshRoot = useRef<HTMLElement>(null)
-  const { distance: pullDistance, refreshing: pullRefreshing } = useMobilePullToRefresh(pullToRefreshRoot, true, refreshTransactions)
+  const { distance: pullDistance, refreshing: pullRefreshing } = useMobilePullToRefresh(pullToRefreshRoot, params.get('detail') !== 'day', refreshTransactions)
   const fetchNextPage = transactions.fetchNextPage
   const hasNextPage = transactions.hasNextPage
   const isFetchingNextPage = transactions.isFetchingNextPage
@@ -206,10 +206,8 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
     }, { replace: true })
   }
 
-  function scrollToDay() {
-    if (dayRef.current && getComputedStyle(dayRef.current).getPropertyValue('--stacked-day').trim() === '1') {
-      requestAnimationFrame(() => dayRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }))
-    }
+  function closeDay() {
+    setParams(current => { const updated = new URLSearchParams(current); updated.delete('detail'); return updated }, { replace: true })
   }
 
   function selectDate(date: string) {
@@ -218,10 +216,9 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
       updated.set('month', date.slice(0, 7))
       updated.set('view', 'calendar')
       updated.set('date', date)
-      updated.delete('detail')
+      updated.set('detail', 'day')
       return updated
     })
-    scrollToDay()
   }
 
   function moveSelectedDate(offset: number) {
@@ -231,7 +228,6 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
       updated.set('month', nextDate.slice(0, 7))
       updated.set('view', 'calendar')
       updated.set('date', nextDate)
-      updated.delete('detail')
       return updated
     }, { replace: true })
   }
@@ -269,15 +265,15 @@ function LedgerHome({ ledger }: { ledger: LedgerBook }) {
             </div>}
           />}
         </div>
-        {view === 'calendar' ? <aside className="home-day-panel" ref={dayRef} aria-label="선택한 날짜의 기록">
+        {view === 'calendar' ? <HomeDayPanelShell open={params.get('detail') === 'day'} onClose={closeDay}>
           <DayDetailPanel date={selectedDate} summary={selectedDaySummary} items={selectedItems}
             isSummaryPending={!calendar.data} isPending={selectedTransactions.isPending}
             isError={selectedTransactions.isError} hasNextPage={selectedTransactions.hasNextPage}
             isFetchingNextPage={selectedTransactions.isFetchingNextPage}
             onPrevious={() => moveSelectedDate(-1)} onNext={() => moveSelectedDate(1)}
-            onBack={() => calendarRef.current?.scrollIntoView({behavior:'instant',block:'start'})}
+            onBack={closeDay} scopeLabel={scopeLabel}
             onRetry={() => selectedTransactions.refetch()} onLoadMore={() => selectedTransactions.fetchNextPage()} returnTo={returnTo}/>
-        </aside> : null}
+        </HomeDayPanelShell> : null}
       </div>
     </section>
   )
@@ -400,21 +396,23 @@ function MonthCalendar({ month, days, selectedDate, onSelectDate }: { month: str
   )
 }
 
-function DayDetailPanel({ date, summary, items, isSummaryPending, isPending, isError, hasNextPage, isFetchingNextPage, onBack, onPrevious, onNext, onRetry, onLoadMore, returnTo }: {
+function DayDetailPanel({ date, summary, items, isSummaryPending, isPending, isError, hasNextPage, isFetchingNextPage, onBack, onPrevious, onNext, onRetry, onLoadMore, returnTo, scopeLabel }: {
   date: string; summary?: CalendarDay; items: Transaction[]; isSummaryPending: boolean; isPending: boolean; isError: boolean;
   hasNextPage: boolean; isFetchingNextPage: boolean; onBack: () => void; onPrevious: () => void; onNext: () => void;
-  onRetry: () => void; onLoadMore: () => void; returnTo: string
+  onRetry: () => void; onLoadMore: () => void; returnTo: string; scopeLabel: string
 }) {
   return <>
-    <header className="home-day-heading"><div><p>{date.slice(0,4)}년 {Number(date.slice(5,7))}월</p><h2>{dayTitle(date)}{date === todayInSeoul() ? <span>오늘</span> : null}</h2></div><Button className="home-calendar-back" variant="ghost" size="icon" aria-label="달력으로 돌아가기" onClick={onBack}><CalendarDays size={18}/></Button></header>
-    <div className="home-day-navigation"><Button variant="ghost" size="icon" aria-label="이전 날" onClick={onPrevious}><ChevronLeft size={17}/></Button><Button variant="ghost" size="icon" aria-label="다음 날" onClick={onNext}><ChevronRight size={17}/></Button></div>
-    <section role="region" aria-label={`${date} 거래 상세`}>
-      <dl className="home-day-summary"><div><dt>지출</dt><dd>{isSummaryPending ? '—' : signedWon(summary?.expenseWon ?? 0).replace(/^\+/, '')}</dd></div>{summary?.incomeWon ? <div className="home-day-income"><dt>수입</dt><dd>+{formatWon(summary.incomeWon)}</dd></div> : null}</dl>
-      {isError ? <div className="py-5" role="alert"><p>선택한 날짜의 거래를 불러오지 못했어요.</p><Button variant="ghost" onClick={onRetry}>다시 불러오기</Button></div> : null}
-      {isPending ? <LoadingRows label="선택한 날짜의 거래를 불러오는 중…"/> : items.length ? <><TransactionList>{items.map(item => <TransactionRow key={item.transactionId} transaction={item} returnTo={returnTo}/>)}</TransactionList>{hasNextPage ? <Button className="mt-4" variant="ghost" disabled={isFetchingNextPage} onClick={onLoadMore}>{isFetchingNextPage ? '불러오는 중…' : '거래 더 보기'}</Button> : null}</> : !isError ? <p className="home-day-empty">이 날짜에 기록한 거래가 없어요.</p> : null}
-      <p className="home-day-caption">이체·집계 제외 기록은 합계에서 제외돼요.</p>
+    <header className="home-day-heading"><div><p>{date.slice(0,4)}년 {Number(date.slice(5,7))}월 · {scopeLabel}의 기록</p><h2>{dayTitle(date)}{date === todayInSeoul() ? <span>오늘</span> : null}</h2></div><Button className="home-calendar-back" variant="ghost" size="icon" aria-label="달력으로 돌아가기" onClick={onBack}><X size={20}/></Button></header>
+    <div className="home-day-navigation"><Button variant="ghost" aria-label="이전 날" onClick={onPrevious}><ChevronLeft size={17}/><span>이전 날</span></Button><span>{isPending ? '불러오는 중' : `${items.length}${hasNextPage ? '+' : ''}건의 기록`}</span><Button variant="ghost" aria-label="다음 날" onClick={onNext}><span>다음 날</span><ChevronRight size={17}/></Button></div>
+    <section className="home-day-content" role="region" aria-label={`${date} 거래 상세`}>
+      <dl className="home-day-summary"><div className="home-day-income"><dt>수입</dt><dd>{isSummaryPending ? '—' : signedWon(summary?.incomeWon ?? 0)}</dd></div><div><dt>지출</dt><dd>{isSummaryPending ? '—' : signedWon(summary?.expenseWon ?? 0).replace(/^\+/, '')}</dd></div></dl>
+      <div className="home-day-scroll" tabIndex={0} aria-label="선택 날짜 거래 목록" key={date}>
+        {isError ? <div className="py-5" role="alert"><p>선택한 날짜의 거래를 불러오지 못했어요.</p><Button variant="ghost" onClick={onRetry}>다시 불러오기</Button></div> : null}
+        {isPending ? <LoadingRows label="선택한 날짜의 거래를 불러오는 중…"/> : items.length ? <><TransactionList>{items.map(item => <TransactionRow key={item.transactionId} transaction={item} returnTo={returnTo}/>)}</TransactionList>{hasNextPage ? <Button className="mt-4" variant="ghost" disabled={isFetchingNextPage} onClick={onLoadMore}>{isFetchingNextPage ? '불러오는 중…' : '거래 더 보기'}</Button> : null}</> : !isError ? <p className="home-day-empty">이 날짜에 기록한 거래가 없어요.</p> : null}
+        <p className="home-day-caption">이체·집계 제외 기록은 합계에서 제외돼요.</p>
+      </div>
     </section>
-    <Button asChild variant="ghost" className="home-day-record"><Link to="/transactions/new" state={{returnTo,transactionDate:date}} aria-label={`${dayTitle(date)}에 거래 기록`}><Plus size={16}/>이 날짜에 기록하기</Link></Button>
+    <footer className="home-day-footer"><Button asChild className="home-day-record"><Link to="/transactions/new" state={{returnTo,transactionDate:date}} aria-label={`${dayTitle(date)}에 거래 기록`}><Plus size={16}/>{Number(date.slice(5,7))}월 {Number(date.slice(8))}일에 기록하기</Link></Button></footer>
   </>
 }
 

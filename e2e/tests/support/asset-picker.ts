@@ -39,6 +39,8 @@ export async function expectResponsiveAssetPicker(page: Page, trigger: Locator, 
   expect(pickerBox).not.toBeNull()
   if (!viewport || !triggerBox || !pickerBox) return
 
+  expect(pickerBox.y).toBeGreaterThanOrEqual(0)
+  expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(viewport.height + 1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   if (viewport.width < 768) {
     expect(Math.abs(pickerBox.x)).toBeLessThanOrEqual(1)

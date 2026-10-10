@@ -102,11 +102,11 @@ export function StatisticsPage({ ledger }: { ledger: LedgerBook }) {
         </header>
 
         <div className="ui-stat-controls">
-          <div><div className="ui-month-navigation">
+          <div className="ui-month-navigation">
             <Button type="button" variant="ghost" size="icon" aria-label="이전 달" onClick={() => moveMonth(-1)}><ChevronLeft size={18}/></Button>
             <h2 data-month-title>{monthTitle(urlState.month)}</h2>
             <Button type="button" variant="ghost" size="icon" aria-label="다음 달" onClick={() => moveMonth(1)}><ChevronRight size={18}/></Button>
-          </div>{urlState.month !== currentMonth ? <div className="text-center"><Button type="button" variant="ghost" onClick={() => replaceState({ ...urlState, month: currentMonth })}>이번 달</Button></div> : null}</div>
+          </div>
           <StatisticsMemberFilter members={ledger.members} currentMemberId={currentMember.memberId} value={urlState.memberId ?? 'all'} onChange={changeMember}/>
         </div>
 
