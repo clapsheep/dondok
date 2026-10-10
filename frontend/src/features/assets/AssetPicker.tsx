@@ -1,10 +1,5 @@
 import { AssetIcon } from './AssetIcon'
-import {
-  Check,
-  ChevronDown,
-  CircleEllipsis,
-  X,
-} from 'lucide-react'
+import { Check, ChevronDown, CircleEllipsis, X } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { MemberAvatar } from '../../components/MemberAvatar'
 import { Button } from '../../components/ui/Button'
@@ -130,7 +125,7 @@ export function AssetPicker({
           <ChevronDown className="ml-auto shrink-0 text-[var(--muted)]" size={18} aria-hidden="true" />
         </PopoverTrigger>
 
-        <PopoverContent className="h-[min(52dvh,30rem)] md:h-auto" positionerClassName="asset-picker-positioner" aria-labelledby={titleId} aria-describedby={descriptionId} finalFocus={trigger}>
+        <PopoverContent className="h-[min(52dvh,30rem)] md:h-[min(60dvh,30rem)] md:max-h-[var(--available-height)]" positionerClassName="asset-picker-positioner" positionerProps={{ positionMethod: 'fixed' }} aria-labelledby={titleId} aria-describedby={descriptionId} finalFocus={trigger}>
           <PopoverHeader className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start  px-4 py-3 md:flex md:px-5 md:py-4">
             <div className="min-w-0">
               <PopoverTitle id={titleId}>{label} 선택</PopoverTitle>

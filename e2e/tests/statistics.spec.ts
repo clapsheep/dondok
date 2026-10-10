@@ -293,8 +293,7 @@ test('공동 월간 통계는 환불 signed 금액과 AND 필터를 URL·반응�
   expect(new URL(page.url()).searchParams.get('owner')).toBe(`member:${seed.otherMemberId}`)
   expect(new URL(page.url()).searchParams.get('category')).toBe(seed.foodCategoryId)
   await expect(page.getByText('선택한 조건에 맞는 기록이 없습니다', { exact: true })).toBeVisible()
-  await expectTouchTarget(page.getByRole('button', { name: '이번 달' }), '이번 달')
-  await page.getByRole('button', { name: '이번 달' }).click()
+  await page.getByRole('button', { name: '다음 달', exact: true }).click()
   await expect.poll(() => new URL(page.url()).searchParams.get('month')).toBe(seed.currentMonth)
 
   await page.getByRole('button', { name: /필터 2개, 통계 필터 열기$/ }).click()
